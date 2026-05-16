@@ -8059,7 +8059,11 @@ export function GameSurface({
                 {/* Dynamic weather effects from tracked game state */}
                 {weatherEffectsEnabled && (gameSnapshot?.weather || gameSnapshot?.time) && (
                   <div className="pointer-events-none absolute inset-0 z-[1]">
-                    <WeatherEffects weather={gameSnapshot?.weather ?? null} timeOfDay={gameSnapshot?.time ?? null} />
+                    <WeatherEffects
+                      weather={gameSnapshot?.weather ?? null}
+                      timeOfDay={gameSnapshot?.time ?? null}
+                      showCelestial={false}
+                    />
                   </div>
                 )}
 

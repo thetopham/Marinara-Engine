@@ -15,6 +15,8 @@ import {
   MIN_AGENT_MAX_TOKENS,
   LOCAL_SIDECAR_CONNECTION_ID,
   resolveMacros,
+  resolveDeferredCharacterMacros,
+  hasDeferredCharacterMacros,
   LIMITS,
   coerceGameStateTextValue,
 } from "@marinara-engine/shared";
@@ -23,6 +25,7 @@ import type {
   AgentResult,
   AgentPhase,
   APIProvider,
+  CharacterMacroProfile,
   CharacterStat,
   GameCampaignPlan,
   GameState,
@@ -899,16 +902,20 @@ export async function generateRoutes(app: FastifyInstance) {
       }
     };
 
+    const earlyMeta = parseExtra(chat.metadata) as Record<string, unknown>;
+
     if (input.regenerateMessageId) {
       const regenCandidate = await chats.getMessage(input.regenerateMessageId);
       if (regenCandidate?.chatId === input.chatId) {
         const replay = normalizeGenerationReplay(parseExtra(regenCandidate.extra).generationReplay);
         applyGenerationReplayToRegenerateInput(input, replay);
+        if (!input.forCharacterId && earlyMeta.groupResponseOrder === "manual" && regenCandidate.characterId) {
+          input.forCharacterId = regenCandidate.characterId;
+        }
       }
     }
 
     // ── Discord webhook URL (parsed once, used for mirroring below) ──
-    const earlyMeta = parseExtra(chat.metadata) as Record<string, unknown>;
     const discordWebhookUrl = typeof earlyMeta.discordWebhookUrl === "string" ? earlyMeta.discordWebhookUrl : "";
     let pendingUserDiscordMsg = "";
 
@@ -1383,13 +1390,25 @@ export async function generateRoutes(app: FastifyInstance) {
             return false;
           }
         });
+      const promptGroupResponseOrder = (chatMeta.groupResponseOrder as string) ?? "sequential";
+      const promptGroupChatMode =
+        chatMode === "conversation"
+          ? promptGroupResponseOrder === "manual"
+            ? "individual"
+            : "merged"
+          : ((chatMeta.groupChatMode as string) ?? "merged");
       const manualPromptTargetCharId =
-        (chatMeta.groupResponseOrder as string) === "manual" &&
+        promptGroupResponseOrder === "manual" &&
         typeof input.forCharacterId === "string" &&
         characterIds.includes(input.forCharacterId)
           ? input.forCharacterId
           : null;
       const promptCharacterIds = manualPromptTargetCharId ? [manualPromptTargetCharId] : characterIds;
+      const deferCharacterMacros =
+        characterIds.length > 1 &&
+        promptGroupChatMode === "individual" &&
+        promptGroupResponseOrder !== "manual" &&
+        input.impersonate !== true;
       const promptMacroContext = await buildPromptMacroContext({
         db: app.db,
         characterIds: promptCharacterIds,
@@ -1407,7 +1426,11 @@ export async function generateRoutes(app: FastifyInstance) {
       });
       const resolvePromptMacros = (value: string) => resolveMacros(value, promptMacroContext);
       const resolvePromptMacrosForLorebook = (value: string) =>
-        resolveMacrosWithVariableSnapshot(value, promptMacroContext);
+        resolveMacrosWithVariableSnapshot(
+          value,
+          promptMacroContext,
+          deferCharacterMacros ? { deferCharacterMacros: "names" } : undefined,
+        );
 
       // ── Apply regex scripts to prompt message content ──
       // Macro context is available now, so regex find/replace/trim fields can use prompt macros.
@@ -1559,6 +1582,7 @@ export async function generateRoutes(app: FastifyInstance) {
               ? (chatMeta.groupScenarioText as string).trim()
               : null,
           runtimeAgentData,
+          deferCharacterMacros,
         };
 
         const assembled = await assemblePrompt(assemblerInput);
@@ -3347,6 +3371,20 @@ export async function generateRoutes(app: FastifyInstance) {
           });
         }
       }
+      const characterMacroProfilesById = new Map<string, CharacterMacroProfile>(
+        charInfo.map((character) => [
+          character.id,
+          {
+            name: character.name,
+            description: character.description,
+            personality: character.personality,
+            backstory: character.backstory,
+            appearance: character.appearance,
+            scenario: character.scenario,
+            example: character.mesExample,
+          },
+        ]),
+      );
 
       let resolvedGameDiscordSpeakerName: string | null = null;
       let gameDiscordSpeakerResolved = false;
@@ -6103,9 +6141,25 @@ export async function generateRoutes(app: FastifyInstance) {
         oocMessages: string[];
         characterId: string | null;
       } | null> => {
-        // Collapse 3+ consecutive blank lines in all messages to save tokens
-        for (const m of messagesForGen) {
-          m.content = m.content.replace(/\n([ \t]*\n){2,}/g, "\n\n");
+        const targetCharacterProfile =
+          deferCharacterMacros && targetCharId ? characterMacroProfilesById.get(targetCharId) : undefined;
+        const preparedMessagesForGen = messagesForGen.map((message) => ({
+          ...message,
+          content: (targetCharacterProfile
+            ? resolveDeferredCharacterMacros(message.content, targetCharacterProfile)
+            : message.content
+          ).replace(/\n([ \t]*\n){2,}/g, "\n\n"),
+        }));
+        if (
+          deferCharacterMacros &&
+          preparedMessagesForGen.some((message) => hasDeferredCharacterMacros(message.content))
+        ) {
+          logger.error(
+            { chatId: input.chatId, targetCharId },
+            "[generate] Deferred character macro placeholder remained before provider request",
+          );
+          sendSseEvent(reply, { type: "error", data: "Prompt preparation failed before generation" });
+          return null;
         }
 
         const toProviderMessages = (
@@ -6154,7 +6208,9 @@ export async function generateRoutes(app: FastifyInstance) {
           return fit.messages;
         };
 
-        const initialProviderMessages = prepareProviderMessages(fitPromptForSend(toProviderMessages(messagesForGen)));
+        const initialProviderMessages = prepareProviderMessages(
+          fitPromptForSend(toProviderMessages(preparedMessagesForGen)),
+        );
         finalPromptSent = initialProviderMessages;
 
         // Reset per-character accumulators

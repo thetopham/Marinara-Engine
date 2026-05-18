@@ -144,7 +144,7 @@ import {
   appendGenerationTailMessages,
   findLastIndex,
   appendReadableAttachmentsToContent,
-  buildUserMessageRegenerationPrompt,
+  buildUserMessageRegenerationPromptFromSource,
   buildUserMessageRegenerationSourceMessage,
   extractImageAttachmentDataUrls,
   injectIntoOutputFormatOrLastUser,
@@ -1126,7 +1126,6 @@ export async function generateRoutes(app: FastifyInstance) {
           return;
         }
         if (regenMsg.role === "user") {
-          regenerateUserMessage = buildUserMessageRegenerationPrompt(regenMsg);
           regenerateUserSourceMessage = buildUserMessageRegenerationSourceMessage(regenMsg);
         }
         chatMessages = chatMessages.filter((m: any) => m.id !== input.regenerateMessageId);
@@ -1491,6 +1490,9 @@ export async function generateRoutes(app: FastifyInstance) {
               "\n\n",
             );
           }
+        }
+        if (regenerateUserSourceMessage) {
+          regenerateUserMessage = buildUserMessageRegenerationPromptFromSource(regenerateUserSourceMessage);
         }
         promptMacroContext.lastInput = currentUserInputContent();
         const toLorebookScanMessages = () =>

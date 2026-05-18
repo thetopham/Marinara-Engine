@@ -187,6 +187,35 @@ describe("user message regeneration instruction", () => {
     assert.deepEqual(messages.at(-1)?.images, [imageDataUrl]);
   });
 
+  it("appends a Gemini regeneration prompt rebuilt from the transformed source message", () => {
+    const messages = [{ role: "user" as const, content: "context" }];
+    const source = buildUserMessageRegenerationSourceMessage({
+      content: "before regex",
+      extra: {
+        attachments: [
+          {
+            type: "image/png",
+            data: "data:image/png;base64,aW1hZ2U=",
+          },
+        ],
+      },
+    });
+    source.content = "after regex";
+    const regenerateUserMessage = buildUserMessageRegenerationPromptFromSource(source);
+
+    appendGenerationTailMessages(messages, {
+      assistantPrefill: "",
+      followUpIteration: 0,
+      impersonate: false,
+      isGoogleProvider: true,
+      regenerateUserMessage,
+    });
+
+    assert.match(messages.at(-1)?.content ?? "", /<original_user_message>\nafter regex\n<\/original_user_message>/);
+    assert.doesNotMatch(messages.at(-1)?.content ?? "", /before regex/);
+    assert.deepEqual(messages.at(-1)?.images, ["data:image/png;base64,aW1hZ2U="]);
+  });
+
   it("keeps assistant prefill as the final assistant turn outside Gemini user-message regeneration", () => {
     const messages = [{ role: "user" as const, content: "context" }];
 

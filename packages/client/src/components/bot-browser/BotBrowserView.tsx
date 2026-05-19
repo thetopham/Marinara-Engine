@@ -35,6 +35,7 @@ import { useUIStore } from "../../stores/ui.store";
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import { confirmEmbeddedLorebookImport, readEmbeddedLorebookFromCharacterPayload } from "../../lib/character-import";
+import { mergeChubDetailIntoCharacterJson } from "../../lib/chub-character-card";
 
 // ════════════════════════════════════════════════
 // Types
@@ -126,8 +127,12 @@ interface CardDetail {
   exampleDialogs?: string;
   alternateGreetings?: string[];
   creatorNotes?: string;
+  systemPrompt?: string;
+  postHistoryInstructions?: string;
+  characterVersion?: string;
   hasLorebook?: boolean;
   embeddedLorebook?: unknown;
+  extensions?: Record<string, unknown>;
   extra?: { title: string; content: string }[];
 }
 
@@ -177,6 +182,18 @@ function attachEmbeddedLorebookToCharacterJson(raw: Record<string, unknown>, emb
   }
 
   return cloned;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
 }
 
 // ════════════════════════════════════════════════
@@ -416,15 +433,19 @@ const chubProvider: ProviderConfig = {
     if (!node) return null;
     const def = node.definition || {};
     return {
-      description: def.personality || undefined,
-      personality: def.tavern_personality || undefined,
-      scenario: def.scenario || undefined,
-      firstMessage: def.first_message || undefined,
-      exampleDialogs: def.example_dialogs || undefined,
-      alternateGreetings: def.alternate_greetings || [],
-      creatorNotes: def.description || undefined,
+      description: optionalString(def.personality),
+      personality: optionalString(def.tavern_personality),
+      scenario: optionalString(def.scenario),
+      firstMessage: optionalString(def.first_message),
+      exampleDialogs: optionalString(def.example_dialogs),
+      alternateGreetings: optionalStringArray(def.alternate_greetings),
+      creatorNotes: optionalString(def.description),
+      systemPrompt: optionalString(def.system_prompt),
+      postHistoryInstructions: optionalString(def.post_history_instructions),
+      characterVersion: optionalString(def.character_version),
       hasLorebook: !!def.embedded_lorebook,
       embeddedLorebook: def.embedded_lorebook,
+      extensions: optionalRecord(def.extensions),
     };
   },
   importCard: async () => {},
@@ -1514,10 +1535,18 @@ export function BotBrowserView() {
         const file = new File([blob], "character.png", { type: "image/png" });
         const { json, imageDataUrl } = await parsePngCharacterCard(file);
         const cardDetail = sourceId === "chub" ? (detail ?? (await provider.fetchDetail(card))) : detail;
-        const importJson = attachEmbeddedLorebookToCharacterJson(
+        const importJsonWithLorebook = attachEmbeddedLorebookToCharacterJson(
           json as Record<string, unknown>,
           cardDetail?.embeddedLorebook,
         );
+        const importJson =
+          sourceId === "chub"
+            ? mergeChubDetailIntoCharacterJson(
+                importJsonWithLorebook,
+                { name: card.name, creator: card.creator, tags: card.tags },
+                cardDetail,
+              )
+            : importJsonWithLorebook;
         const importEmbeddedLorebook = confirmEmbeddedLorebookImport(
           card.name,
           cardDetail?.embeddedLorebook ?? readEmbeddedLorebookFromCharacterPayload(importJson),

@@ -158,6 +158,7 @@ import {
   resolveBaseUrl,
   resolveRegenerationGameStateFallbackMessageIds,
   resolveRegenerationGameStateAnchor,
+  resolveUserRegenerationPersistentAttachments,
   resolveVisibleGameStateAnchor,
   shouldPreferLatestVisibleGameState,
   shouldAbortOnPassiveGenerationDisconnect,
@@ -1115,7 +1116,7 @@ export async function generateRoutes(app: FastifyInstance) {
         ? scopedMessages.filter((message: any) => !isMessageHiddenFromAI(message))
         : scopedMessages;
       let lorebookKeeperMessages = chatMessages;
-      let regenMsg;
+      let regenMsg: any;
       let regenerateUserMessage: SimpleMessage | null = null;
       let regenerateUserSourceMessage: SimpleMessage | null = null;
 
@@ -6979,6 +6980,8 @@ export async function generateRoutes(app: FastifyInstance) {
               extraUpdate.generationReplay = buildGenerationReplay(input);
               // Cache the final prompt (what was actually sent to the model) for Peek Prompt
               extraUpdate.cachedPrompt = finalPromptSent.map((m) => ({ role: m.role, content: m.content }));
+              const persistentAttachments = resolveUserRegenerationPersistentAttachments(regenMsg ?? {});
+              if (persistentAttachments) extraUpdate.attachments = persistentAttachments;
               await chats.updateMessageExtra(savedMsg.id, extraUpdate);
               // Also persist on the active swipe so switching swipes preserves per-swipe extras
               const refreshedMsg = await chats.getMessage(savedMsg.id);

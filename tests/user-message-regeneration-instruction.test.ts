@@ -7,6 +7,7 @@ import {
   buildUserMessageRegenerationPrompt,
   buildUserMessageRegenerationPromptFromSource,
   buildUserMessageRegenerationSourceMessage,
+  resolveUserRegenerationPersistentAttachments,
 } from "../packages/server/src/routes/generate/generate-route-utils.ts";
 
 describe("user message regeneration instruction", () => {
@@ -94,6 +95,62 @@ describe("user message regeneration instruction", () => {
 
     assert.match(prompt.content, /<original_user_message>\ndescribe this safely\n<\/original_user_message>/);
     assert.deepEqual(prompt.images, [imageDataUrl]);
+  });
+
+  it("returns original attachments for saved user-message regeneration swipes", () => {
+    const attachments = [
+      {
+        type: "text/plain",
+        filename: "notes.txt",
+        data: "data:text/plain;base64,bm90ZXM=",
+      },
+      {
+        type: "image/png",
+        filename: "image.png",
+        data: "data:image/png;base64,aW1hZ2U=",
+      },
+    ];
+
+    const resolved = resolveUserRegenerationPersistentAttachments({
+      role: "user",
+      extra: { attachments },
+    });
+
+    assert.deepEqual(resolved, attachments);
+  });
+
+  it("does not persist attachments for regenerated assistant swipes", () => {
+    const resolved = resolveUserRegenerationPersistentAttachments({
+      role: "assistant",
+      extra: {
+        attachments: [
+          {
+            type: "image/png",
+            filename: "assistant.png",
+            data: "data:image/png;base64,aW1hZ2U=",
+          },
+        ],
+      },
+    });
+
+    assert.equal(resolved, undefined);
+  });
+
+  it("filters malformed persisted user-regeneration attachment entries", () => {
+    const validAttachment = {
+      type: "image/png",
+      filename: "valid.png",
+      data: "data:image/png;base64,aW1hZ2U=",
+    };
+
+    const resolved = resolveUserRegenerationPersistentAttachments({
+      role: "user",
+      extra: {
+        attachments: [null, "bad", 123, ["bad"], validAttachment],
+      },
+    });
+
+    assert.deepEqual(resolved, [validAttachment]);
   });
 
   it("ignores malformed attachment metadata when building the regeneration instruction directly", () => {

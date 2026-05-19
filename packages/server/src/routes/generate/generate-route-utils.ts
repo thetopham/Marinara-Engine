@@ -95,6 +95,14 @@ function parsePromptAttachments(extra: unknown): PromptAttachment[] | undefined 
   return attachments.length ? attachments : undefined;
 }
 
+export function resolveUserRegenerationPersistentAttachments(message: {
+  role?: unknown;
+  extra?: unknown;
+}): PromptAttachment[] | undefined {
+  if (message.role !== "user") return undefined;
+  return parsePromptAttachments(message.extra);
+}
+
 function isPromptAttachment(value: unknown): value is PromptAttachment {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }

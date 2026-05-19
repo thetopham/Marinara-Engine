@@ -151,7 +151,7 @@ export function CharactersPanel() {
     message: string;
     alternateGreetings: string[];
   } | null>(null);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [includedTags, setIncludedTags] = useState<Set<string>>(new Set());
   const [excludedTags, setExcludedTags] = useState<Set<string>>(new Set());
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [favFilter, setFavFilter] = useState<"all" | "favorites" | "non-favorites">("all");
@@ -196,9 +196,13 @@ export function CharactersPanel() {
     } else if (favFilter === "non-favorites") {
       list = list.filter((c) => !c.parsed.extensions?.fav);
     }
-    // Filter by active tag
-    if (activeTag) {
-      list = list.filter((c) => getCharacterTags(c).some((t) => t === activeTag));
+    // Filter by included tags (OR logic)
+    if (includedTags.size > 0) {
+      const lowerIncludedTags = new Set([...includedTags].map((t) => t.toLowerCase()));
+      list = list.filter((c) => {
+        const tags = new Set(getCharacterTags(c).map((t) => t.toLowerCase()));
+        return [...lowerIncludedTags].some((tag) => tags.has(tag));
+      });
     }
     const excludedTagFilters = new Set([
       ...Array.from(excludedTags, (tag) => tag.toLowerCase()),
@@ -224,7 +228,7 @@ export function CharactersPanel() {
       );
     }
     return list;
-  }, [parsedCharacters, search, activeTag, excludedTags, favFilter]);
+  }, [parsedCharacters, search, includedTags, excludedTags, favFilter]);
 
   // Collect all unique tags across characters for the filter bar
   const allTags = useMemo(() => {
@@ -255,7 +259,13 @@ export function CharactersPanel() {
           const newTags = getCharacterTags(c).filter((t) => t !== tag);
           await updateCharacter.mutateAsync({ id: c.id, data: { tags: newTags } });
         }
-        if (activeTag === tag) setActiveTag(null);
+        if (includedTags.has(tag)) {
+          setIncludedTags((prev) => {
+            const next = new Set(prev);
+            next.delete(tag);
+            return next;
+          });
+        }
         setExcludedTags((prev) => {
           if (!prev.has(tag)) return prev;
           const next = new Set(prev);
@@ -266,11 +276,19 @@ export function CharactersPanel() {
         toast.error("Failed to remove tag from some characters");
       }
     },
-    [parsedCharacters, updateCharacter, activeTag],
+    [parsedCharacters, updateCharacter, includedTags],
   );
 
   const toggleIncludedTag = useCallback((tag: string) => {
-    setActiveTag((current) => (current === tag ? null : tag));
+    setIncludedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) {
+        next.delete(tag);
+      } else {
+        next.add(tag);
+      }
+      return next;
+    });
     setExcludedTags((prev) => {
       if (!prev.has(tag)) return prev;
       const next = new Set(prev);
@@ -280,7 +298,12 @@ export function CharactersPanel() {
   }, []);
 
   const toggleExcludedTag = useCallback((tag: string) => {
-    setActiveTag((current) => (current === tag ? null : current));
+    setIncludedTags((prev) => {
+      if (!prev.has(tag)) return prev;
+      const next = new Set(prev);
+      next.delete(tag);
+      return next;
+    });
     setExcludedTags((prev) => {
       const next = new Set(prev);
       if (next.has(tag)) {
@@ -293,32 +316,74 @@ export function CharactersPanel() {
   }, []);
 
   const clearTagFilters = useCallback(() => {
-    setActiveTag(null);
+    setIncludedTags(new Set());
     setExcludedTags(new Set());
   }, []);
 
   const sortedCharacters = useMemo(() => {
     const list = [...filteredCharacters];
+    const hasIncludedTags = includedTags.size > 0;
+    const matchCounts = hasIncludedTags
+      ? new Map(list.map((c) => {
+          const tags = new Set(getCharacterTags(c).map((t) => t.toLowerCase()));
+          return [c.id, [...includedTags].filter((tag) => tags.has(tag.toLowerCase())).length];
+        }))
+      : null;
     switch (sort) {
       case "name-asc":
-        return list.sort((a, b) => (a.parsed.name ?? "").localeCompare(b.parsed.name ?? ""));
+        return list.sort((a, b) => {
+          if (hasIncludedTags) {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+          }
+          return (a.parsed.name ?? "").localeCompare(b.parsed.name ?? "");
+        });
       case "name-desc":
-        return list.sort((a, b) => (b.parsed.name ?? "").localeCompare(a.parsed.name ?? ""));
+        return list.sort((a, b) => {
+          if (hasIncludedTags) {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+          }
+          return (b.parsed.name ?? "").localeCompare(a.parsed.name ?? "");
+        });
       case "newest":
-        return list.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+        return list.sort((a, b) => {
+          if (hasIncludedTags) {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+          }
+          return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+        });
       case "oldest":
-        return list.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+        return list.sort((a, b) => {
+          if (hasIncludedTags) {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+          }
+          return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+        });
       case "favorites":
         return list.sort((a, b) => {
           const aFav = a.parsed.extensions?.fav ? 1 : 0;
           const bFav = b.parsed.extensions?.fav ? 1 : 0;
           if (bFav !== aFav) return bFav - aFav;
+          if (hasIncludedTags) {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+          }
           return (a.parsed.name ?? "").localeCompare(b.parsed.name ?? "");
         });
       default:
+        if (hasIncludedTags) {
+          return list.sort((a, b) => {
+            const countDiff = (matchCounts!.get(b.id) ?? 0) - (matchCounts!.get(a.id) ?? 0);
+            if (countDiff !== 0) return countDiff;
+            return (a.parsed.name ?? "").localeCompare(b.parsed.name ?? "");
+          });
+        }
         return list;
     }
-  }, [filteredCharacters, sort]);
+  }, [filteredCharacters, sort, includedTags]);
 
   const parsedGroups = useMemo(() => {
     if (!groups) return [];
@@ -582,23 +647,29 @@ export function CharactersPanel() {
             onClick={() => setTagsExpanded(!tagsExpanded)}
             className={cn(
               "flex items-center gap-1.5 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-              activeTag || excludedTags.size > 0
+              includedTags.size > 0 || excludedTags.size > 0
                 ? "bg-[var(--primary)]/15 text-[var(--primary)]"
                 : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
             )}
           >
             <Tag size="0.625rem" />
             Tags ({allTags.length})
-            {(activeTag || excludedTags.size > 0) && (
+            {(includedTags.size > 0 || excludedTags.size > 0) && (
               <span className="ml-0.5 opacity-70">
-                · {[activeTag, excludedTags.size > 0 ? `-${excludedTags.size}` : null].filter(Boolean).join(" · ")}
+                {[
+                  ...[...includedTags].slice(0, 3),
+                  includedTags.size > 3 ? `+${includedTags.size - 3}` : null,
+                  excludedTags.size > 0 ? `-${excludedTags.size}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             )}
             <ChevronDown size="0.625rem" className={cn("transition-transform", tagsExpanded && "rotate-180")} />
           </button>
           {tagsExpanded && (
             <div className="flex flex-wrap gap-1">
-              {(activeTag || excludedTags.size > 0) && (
+              {(includedTags.size > 0 || excludedTags.size > 0) && (
                 <button
                   onClick={clearTagFilters}
                   className="flex items-center gap-1 rounded-full bg-[var(--destructive)]/10 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
@@ -607,7 +678,7 @@ export function CharactersPanel() {
                 </button>
               )}
               {allTags.map((tag) => {
-                const included = activeTag === tag;
+                const included = includedTags.has(tag);
                 const excluded = excludedTags.has(tag);
                 return (
                   <div

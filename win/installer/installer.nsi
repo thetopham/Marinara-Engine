@@ -17,7 +17,7 @@
 !define APP_PUBLISHER "Pasta-Devs"
 !define APP_URL "https://github.com/Pasta-Devs/Marinara-Engine"
 !define REPO_URL "https://github.com/Pasta-Devs/Marinara-Engine.git"
-!define DEFAULT_DIR "$LOCALAPPDATA\MarinaraEngine"
+!define DEFAULT_DIR "$LOCALAPPDATA\Marinara-Engine"
 !define PNPM_VERSION "10.33.2"
 
 ; ── Prerequisite download URLs ──
@@ -69,8 +69,9 @@ Click Next to continue."
 
 ; ── Directory page ──
 !define MUI_DIRECTORYPAGE_TEXT_TOP "\
-Choose where to install ${APP_NAME}. About 500 MB of free space is recommended.$\r$\n$\r$\n\
-Your chats, characters, and data will be stored inside this folder."
+Choose where to install ${APP_NAME}. About 3 GB of free space is recommended for the app, dependencies, and local data.$\r$\n$\r$\n\
+If you are upgrading an existing install, choose the same Marinara-Engine folder that already contains your data. Your chats, characters, and data live under packages\server\data inside this folder.$\r$\n$\r$\n\
+During install, Windows may count thousands of dependency folders; those are app files, not your chats."
 
 ; ── Finish page ──
 !define MUI_FINISHPAGE_TITLE "Installation Complete!"
@@ -113,30 +114,64 @@ Var CLONE_DIR_CREATED
 Var STAGE_DIR
 Var STAGE_DIR_CREATED
 Var STAGE_PARENT
+Var USER_DATA_PATHS
 
 Function LaunchApp
   ExecShell "" "$INSTDIR\start.bat"
 FunctionEnd
 
+Function .onInit
+  ; Older Windows installs used the hyphenated LocalAppData folder. If a
+  ; registry default points elsewhere but the hyphenated folder has user data,
+  ; prefer the data-bearing folder so upgrades do not look like fresh installs.
+  StrCpy $0 "0"
+  ${If} ${FileExists} "$INSTDIR\packages\server\data\*.*"
+    StrCpy $0 "1"
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\data\*.*"
+    StrCpy $0 "1"
+  ${EndIf}
+
+  ${If} $0 == "0"
+    ${If} ${FileExists} "$LOCALAPPDATA\Marinara-Engine\packages\server\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Marinara-Engine"
+      Return
+    ${EndIf}
+    ${If} ${FileExists} "$LOCALAPPDATA\Marinara-Engine\data\*.*"
+      StrCpy $INSTDIR "$LOCALAPPDATA\Marinara-Engine"
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
 Function WarnSameDirectoryReinstall
   StrCpy $1 "0"
+  StrCpy $USER_DATA_PATHS ""
   ReadRegStr $0 HKCU "Software\${APP_NAME}" "InstallDir"
   ${If} $0 != ""
   ${AndIf} $INSTDIR == $0
     StrCpy $1 "1"
   ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\packages\server\data\*.*"
+    StrCpy $1 "1"
+    StrCpy $USER_DATA_PATHS "$USER_DATA_PATHS$\r$\n  - $INSTDIR\packages\server\data"
+  ${EndIf}
   ${If} ${FileExists} "$INSTDIR\data\*.*"
     StrCpy $1 "1"
+    StrCpy $USER_DATA_PATHS "$USER_DATA_PATHS$\r$\n  - $INSTDIR\data"
   ${EndIf}
   ${If} $1 != "1"
     Return
   ${EndIf}
+  ${If} $USER_DATA_PATHS == ""
+    StrCpy $USER_DATA_PATHS "$\r$\n  - $INSTDIR\packages\server\data (if present)$\r$\n  - $INSTDIR\data (older installs, if present)"
+  ${EndIf}
 
   MessageBox MB_YESNO|MB_ICONEXCLAMATION "\
-yo this'll delete your user data$\r$\n$\r$\n\
 You are reinstalling ${APP_NAME} into the same folder:$\r$\n\
 $INSTDIR$\r$\n$\r$\n\
-Back up $INSTDIR\data first if you want to keep it.$\r$\n$\r$\n\
+Before continuing, back up the Marinara data folder(s) below if you want to keep chats, characters, images, and settings:$\r$\n\
+$USER_DATA_PATHS$\r$\n$\r$\n\
+Legacy SQL installs store chats and characters in marinara-engine.db, plus possible .db-wal and .db-shm files, inside packages\server\data.$\r$\n$\r$\n\
 Continue anyway?" IDYES continueReinstallWarning
   Abort
 
@@ -163,6 +198,10 @@ FunctionEnd
 ; Install Section
 ; ──────────────────────────────────────────────
 Section "Install" SecInstall
+  ; NSIS cannot infer the repository clone and pnpm dependency footprint from
+  ; the tiny embedded installer payload, so declare a realistic install size.
+  AddSize 3145728
+
   SetOutPath "$INSTDIR"
   SetDetailsPrint both
 
@@ -617,6 +656,7 @@ ${APP_URL}"
   DetailPrint "═══ Step 3/6: Installing dependencies ═══"
   DetailPrint ""
   DetailPrint "Running pnpm install (this may take 2-5 minutes)..."
+  DetailPrint "This installs app dependencies and can create many small folders; that is normal and is not your chat or character count."
   ${If} $PNPM_RUNNER == "corepack"
     nsExec::ExecToLog 'cmd /c corepack pnpm@${PNPM_VERSION} install'
     Pop $0

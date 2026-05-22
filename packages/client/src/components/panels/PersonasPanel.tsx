@@ -687,6 +687,14 @@ export function PersonasPanel() {
                               <div
                                 key={pid}
                                 onClick={() => openPersonaDetail(pid)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    openPersonaDetail(pid);
+                                  }
+                                }}
+                                role="button"
+                                tabIndex={0}
                                 className="group/member flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-xs transition-all hover:bg-[var(--sidebar-accent)]"
                               >
                                 <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-white">

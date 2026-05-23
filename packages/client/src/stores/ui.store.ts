@@ -14,6 +14,7 @@ type Panel =
   | "personas"
   | "settings"
   | "bot-browser";
+export type ChatModeShortcut = "conversation" | "roleplay" | "game";
 type FontSize = 12 | 14 | 16 | 17 | 19 | 22;
 export type VisualTheme = "default" | "sillytavern";
 export type HudPosition = "top" | "left" | "right";
@@ -473,6 +474,8 @@ interface UIState {
 
   /** Transient: true when center content area is too narrow (overflow detected) */
   centerCompact: boolean;
+  /** Transient request for the chat sidebar to focus a fixed mode shortcut. */
+  chatModeShortcutRequest: { mode: ChatModeShortcut; token: number } | null;
 
   // Actions
   toggleSidebar: () => void;
@@ -584,6 +587,7 @@ interface UIState {
   setTextStrokeWidth: (v: number) => void;
   setTextStrokeColor: (v: string) => void;
   setCenterCompact: (v: boolean) => void;
+  requestChatModeShortcut: (mode: ChatModeShortcut) => void;
   setVisualTheme: (v: VisualTheme) => void;
   setConvoGradientField: (scheme: "dark" | "light", field: "from" | "to", value: string) => void;
   setConvoNotificationSound: (v: boolean) => void;
@@ -871,6 +875,7 @@ export const useUIStore = create<UIState>()(
       userStatus: "active" as UserStatus,
       userActivity: "",
       centerCompact: false,
+      chatModeShortcutRequest: null,
 
       // Impersonate settings defaults
       impersonatePromptTemplate: "",
@@ -1180,6 +1185,28 @@ export const useUIStore = create<UIState>()(
           detailReturnRightPanel: null,
         }),
       setEditorDirty: (dirty) => set({ editorDirty: dirty }),
+      requestChatModeShortcut: (mode) =>
+        set((state) => ({
+          sidebarOpen: true,
+          rightPanelOpen: window.innerWidth < 768 ? false : state.rightPanelOpen,
+          characterDetailId: null,
+          lorebookDetailId: null,
+          presetDetailId: null,
+          connectionDetailId: null,
+          agentDetailId: null,
+          toolDetailId: null,
+          personaDetailId: null,
+          regexDetailId: null,
+          characterLibraryOpen: false,
+          botBrowserOpen: false,
+          gameAssetsBrowserOpen: false,
+          editorDirty: false,
+          detailReturnRightPanel: null,
+          chatModeShortcutRequest: {
+            mode,
+            token: (state.chatModeShortcutRequest?.token ?? 0) + 1,
+          },
+        })),
 
       // Settings actions
       setFontSize: (size) => set({ fontSize: size }),

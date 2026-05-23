@@ -131,6 +131,7 @@ export function ChatSidebar() {
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
+  const chatModeShortcutRequest = useUIStore((s) => s.chatModeShortcutRequest);
   const setPendingNewChatMode = useChatStore((s) => s.setPendingNewChatMode);
 
   // Folder hooks
@@ -209,6 +210,15 @@ export function ChatSidebar() {
     setMultiSelectMode(false);
     setSelectedChatIds(new Set());
   }, []);
+
+  useEffect(() => {
+    if (!chatModeShortcutRequest) return;
+    setActiveTab(chatModeShortcutRequest.mode);
+    setSearchQuery("");
+    setActiveTag(null);
+    setTagsExpanded(false);
+    exitMultiSelect();
+  }, [chatModeShortcutRequest, exitMultiSelect]);
 
   // Exit multi-select when switching tabs
   useEffect(() => {
@@ -893,6 +903,8 @@ export function ChatSidebar() {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
+              aria-pressed={isActive}
+              data-chat-mode-tab={tab}
               className={cn(
                 "relative flex min-h-[2.125rem] flex-1 items-center justify-center gap-1.5 overflow-visible rounded-lg px-2 py-2 text-xs leading-normal font-medium transition-all",
                 isActive

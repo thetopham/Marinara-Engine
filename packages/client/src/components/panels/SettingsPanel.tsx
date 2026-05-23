@@ -75,8 +75,10 @@ import { chatKeys } from "../../hooks/use-chats";
 import { HelpTooltip } from "../ui/HelpTooltip";
 import { TrackerPanelIcon } from "../ui/TrackerPanelIcon";
 import { TrackerSizeTierIcon } from "../ui/TrackerSizeTierIcon";
+import { ImageUploadDropzone } from "../ui/ImageUploadDropzone";
 import { ConversationSoundSetting, ToggleSetting } from "./settings/SettingControls";
 import { TrackerCardColorSettings } from "./settings/TrackerCardColorSettings";
+import { PromptOverridesEditor } from "./settings/PromptOverridesEditor";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../lib/character-import";
@@ -1471,7 +1473,7 @@ function AppearanceSettings() {
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Display Size{" "}
-          <HelpTooltip text="Adjusts the base font size across the whole app. Larger sizes improve readability. Default is 17px." />
+          <HelpTooltip text="Adjusts the base font size across the whole app on this device. Larger sizes improve readability. Default is 17px." />
         </span>
         <select
           value={String(fontSize)}
@@ -1490,7 +1492,7 @@ function AppearanceSettings() {
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Chat Font Size{" "}
-          <HelpTooltip text="Adjusts the font size of chat messages. Drag the slider to find your preferred reading size. Default is 16px." />
+          <HelpTooltip text="Adjusts the font size of chat messages on this device. Drag the slider to find your preferred reading size. Default is 16px." />
         </span>
         <div className="flex items-center gap-3">
           <input
@@ -2053,7 +2055,6 @@ type BackgroundUploadResponse = {
 };
 
 function BackgroundPicker({ selected, onSelect }: { selected: string | null; onSelect: (url: string | null) => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [editingTags, setEditingTags] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState("");
@@ -2105,8 +2106,7 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
     },
   });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const handleUpload = async (files: File[]) => {
     if (files.length === 0) return;
     setUploading(true);
     try {
@@ -2143,7 +2143,6 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
       toast.error("Background import failed.");
     } finally {
       setUploading(false);
-      e.target.value = "";
     }
   };
 
@@ -2163,16 +2162,15 @@ function BackgroundPicker({ selected, onSelect }: { selected: string | null; onS
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Upload button */}
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-        className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
-      >
-        {uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
-        {uploading ? "Importing..." : "Import Backgrounds"}
-      </button>
-      <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+      <ImageUploadDropzone
+        label="Import Backgrounds"
+        pending={uploading}
+        pendingLabel="Importing..."
+        dragLabel="Drop backgrounds to import"
+        onFilesSelected={(files) => void handleUpload(files)}
+        icon={uploading ? <Loader2 size="0.875rem" className="animate-spin" /> : <Upload size="0.875rem" />}
+        className="rounded-lg py-3 hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
+      />
 
       {/* Background grid */}
       {backgrounds && backgrounds.length > 0 && (
@@ -4051,6 +4049,8 @@ function AdvancedSettings() {
           />
         </div>
       </div>
+
+      <PromptOverridesEditor />
 
       <div className="retro-divider" />
       <div

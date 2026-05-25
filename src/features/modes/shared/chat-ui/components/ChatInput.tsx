@@ -965,7 +965,10 @@ export const ChatInput = memo(function ChatInput({
       }
     }
 
-    if (enterToSend && e.key === "Enter" && !e.shiftKey) {
+    const shouldSend = enterToSend
+      ? e.key === "Enter" && !e.shiftKey
+      : e.key === "Enter" && (e.metaKey || e.ctrlKey);
+    if (shouldSend) {
       e.preventDefault();
       handleSend();
     }

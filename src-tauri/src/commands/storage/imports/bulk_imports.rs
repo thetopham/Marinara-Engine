@@ -109,12 +109,21 @@ impl<'a> BulkImportProgress<'a> {
 
     fn emit_item(&mut self, category: &str, item: &Path, imported: &Value) -> AppResult<()> {
         self.current += 1;
+        self.emit_progress(category, &item.to_string_lossy(), imported)
+    }
+
+    fn emit_skipped(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
+        self.current += 1;
+        self.emit_progress(category, item, imported)
+    }
+
+    fn emit_progress(&mut self, category: &str, item: &str, imported: &Value) -> AppResult<()> {
         if let Some(emit) = self.emit.as_deref_mut() {
             emit(json!({
                 "type": "progress",
                 "data": {
                     "category": category,
-                    "item": item.to_string_lossy(),
+                    "item": item,
                     "current": self.current,
                     "total": self.total,
                     "imported": imported
@@ -728,6 +737,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "characters") {
         let Some(path) = selected_path(&data_dir, "characters", &id, &mut errors) else {
+            progress.emit_skipped("Characters", &id, &imported)?;
             continue;
         };
         progress.emit_item("Characters", &path, &imported)?;
@@ -739,11 +749,16 @@ fn run_st_bulk_import_inner(
             .map_err(AppError::from)
             .and_then(|bytes| parse_character_file_from_path(&filename, &path, &bytes))
             .and_then(|payload| {
+                let trusted_avatar_source = filename
+                    .to_ascii_lowercase()
+                    .ends_with(".png")
+                    .then_some(path.as_path());
                 import_st_character_payload(
                     state,
                     payload,
                     Some(filename.clone()),
                     &json!({ "tagImportMode": tag_mode, "importEmbeddedLorebook": import_embedded }),
+                    trusted_avatar_source,
                 )
             });
         match result {
@@ -754,6 +769,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "lorebooks") {
         let Some(path) = selected_path(&data_dir, "lorebooks", &id, &mut errors) else {
+            progress.emit_skipped("Lorebooks", &id, &imported)?;
             continue;
         };
         progress.emit_item("Lorebooks", &path, &imported)?;
@@ -771,6 +787,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "presets") {
         let Some(path) = selected_path(&data_dir, "presets", &id, &mut errors) else {
+            progress.emit_skipped("Presets", &id, &imported)?;
             continue;
         };
         progress.emit_item("Presets", &path, &imported)?;
@@ -786,6 +803,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "personas") {
         let Some(path) = selected_path(&data_dir, "personas", &id, &mut errors) else {
+            progress.emit_skipped("Personas", &id, &imported)?;
             continue;
         };
         progress.emit_item("Personas", &path, &imported)?;
@@ -827,6 +845,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "backgrounds") {
         let Some(path) = selected_path(&data_dir, "backgrounds", &id, &mut errors) else {
+            progress.emit_skipped("Backgrounds", &id, &imported)?;
             continue;
         };
         progress.emit_item("Backgrounds", &path, &imported)?;
@@ -838,6 +857,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "chats") {
         let Some(path) = selected_path(&data_dir, "chats", &id, &mut errors) else {
+            progress.emit_skipped("Chats", &id, &imported)?;
             continue;
         };
         progress.emit_item("Chats", &path, &imported)?;
@@ -854,6 +874,7 @@ fn run_st_bulk_import_inner(
 
     for id in selected_ids(&options, "groupChats") {
         let Some(path) = selected_path(&data_dir, "groupChats", &id, &mut errors) else {
+            progress.emit_skipped("Group chats", &id, &imported)?;
             continue;
         };
         progress.emit_item("Group chats", &path, &imported)?;
@@ -1026,7 +1047,12 @@ mod tests {
         backgrounds.push("backgrounds:backgrounds/missing.png".to_string());
         personas.push("personas:User Avatars/missing.png".to_string());
 
-        let result = run_st_bulk_import(
+        let mut events = Vec::new();
+        let mut emit = |event| {
+            events.push(event);
+            Ok(())
+        };
+        let result = run_st_bulk_import_inner(
             &state,
             json!({
                 "folderPath": folder_path,
@@ -1037,6 +1063,7 @@ mod tests {
                     "personas": personas,
                 }
             }),
+            Some(&mut emit),
         )
         .expect("stale selected items should not abort the import");
 
@@ -1045,6 +1072,16 @@ mod tests {
         assert_eq!(result["imported"]["backgrounds"], json!(48));
         assert_eq!(result["imported"]["personas"], json!(2));
         assert_eq!(result["errors"].as_array().map(Vec::len), Some(3));
+        let progress_events = events
+            .iter()
+            .filter(|event| event.get("type") == Some(&json!("progress")))
+            .collect::<Vec<_>>();
+        assert_eq!(progress_events.len(), 133);
+        let last_progress = progress_events
+            .last()
+            .expect("bulk import should emit progress events");
+        assert_eq!(last_progress["data"]["current"], json!(133));
+        assert_eq!(last_progress["data"]["total"], json!(133));
         let personas = state
             .storage
             .list("personas")

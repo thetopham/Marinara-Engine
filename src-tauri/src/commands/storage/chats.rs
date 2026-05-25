@@ -589,9 +589,9 @@ pub(crate) fn delete_chat_with_messages(state: &AppState, chat_id: &str) -> AppR
     let Some(root_chat) = state.storage.get("chats", chat_id)? else {
         return Ok(());
     };
-    let (scene_memory_ids, owned_scene_chat_ids) = scene_delete_scope(state, chat_id, &root_chat)?;
-    clear_character_scene_memories(state, &scene_memory_ids)?;
-    clear_deleted_scene_references(state, chat_id, &scene_memory_ids)?;
+    let owned_scene_chat_ids = scene_delete_scope(state, chat_id, &root_chat)?;
+    clear_character_scene_memories(state, &owned_scene_chat_ids)?;
+    clear_deleted_scene_references(state, chat_id, &owned_scene_chat_ids)?;
 
     let mut delete_ids = owned_scene_chat_ids
         .iter()
@@ -627,8 +627,7 @@ fn scene_delete_scope(
     state: &AppState,
     chat_id: &str,
     root_chat: &Value,
-) -> AppResult<(Vec<String>, Vec<String>)> {
-    let mut memory_ids = std::collections::BTreeSet::new();
+) -> AppResult<Vec<String>> {
     let mut delete_ids = std::collections::BTreeSet::new();
 
     let meta = metadata_map(root_chat);
@@ -638,10 +637,8 @@ fn scene_delete_scope(
         .map(str::trim)
         .is_some_and(|origin_id| !origin_id.is_empty())
     {
-        memory_ids.insert(chat_id.to_string());
         delete_ids.insert(chat_id.to_string());
     }
-    insert_scene_memory_id(&mut memory_ids, meta.get("activeSceneChatId"));
     insert_owned_scene_chat_id(
         state,
         &mut delete_ids,
@@ -650,8 +647,8 @@ fn scene_delete_scope(
     )?;
     if let Some(history) = meta.get("roleplaySceneHistory").and_then(Value::as_array) {
         for entry in history {
-            insert_scene_memory_id(&mut memory_ids, entry.get("sceneChatId"));
-            insert_owned_scene_chat_id(state, &mut delete_ids, chat_id, entry.get("sceneChatId"))?;
+            let record = object_or_parse(Some(entry));
+            insert_owned_scene_chat_id(state, &mut delete_ids, chat_id, record.get("sceneChatId"))?;
         }
     }
 
@@ -664,26 +661,12 @@ fn scene_delete_scope(
             == Some(chat_id)
         {
             if let Some(id) = chat.get("id").and_then(Value::as_str) {
-                memory_ids.insert(id.to_string());
                 delete_ids.insert(id.to_string());
             }
         }
     }
 
-    Ok((
-        memory_ids.into_iter().collect(),
-        delete_ids.into_iter().collect(),
-    ))
-}
-
-fn insert_scene_memory_id(ids: &mut std::collections::BTreeSet<String>, value: Option<&Value>) {
-    if let Some(id) = value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        ids.insert(id.to_string());
-    }
+    Ok(delete_ids.into_iter().collect())
 }
 
 fn insert_owned_scene_chat_id(
@@ -737,7 +720,7 @@ fn clear_character_scene_memories(state: &AppState, scene_chat_ids: &[String]) -
         let retained = memories
             .iter()
             .filter(|memory| {
-                memory
+                object_or_parse(Some(memory))
                     .get("sceneChatId")
                     .and_then(Value::as_str)
                     .is_none_or(|scene_chat_id| !scene_ids.contains(scene_chat_id))
@@ -791,12 +774,13 @@ fn clear_deleted_scene_references(
             .is_some_and(|id| scene_ids.contains(id))
         {
             meta.insert("activeSceneChatId".to_string(), Value::Null);
+            meta.insert("sceneBusyCharIds".to_string(), Value::Null);
         }
         if let Some(history) = meta.get("roleplaySceneHistory").and_then(Value::as_array) {
             let retained = history
                 .iter()
                 .filter(|entry| {
-                    entry
+                    object_or_parse(Some(entry))
                         .get("sceneChatId")
                         .and_then(Value::as_str)
                         .is_none_or(|scene_chat_id| !scene_ids.contains(scene_chat_id))
@@ -804,24 +788,34 @@ fn clear_deleted_scene_references(
                 .cloned()
                 .collect::<Vec<_>>();
             if retained.len() != history.len() {
+                let next_summary = retained
+                    .last()
+                    .and_then(|entry| {
+                        object_or_parse(Some(entry))
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .filter(|summary| !summary.trim().is_empty());
                 meta.insert("roleplaySceneHistory".to_string(), Value::Array(retained));
-                if meta
-                    .get("lastRoleplaySceneSummary")
-                    .is_some_and(|summary| !summary.is_null())
-                    && meta
-                        .get("roleplaySceneHistory")
-                        .and_then(Value::as_array)
-                        .is_none_or(Vec::is_empty)
-                {
-                    meta.insert("lastRoleplaySceneSummary".to_string(), Value::Null);
-                }
+                meta.insert(
+                    "lastRoleplaySceneSummary".to_string(),
+                    next_summary.map(Value::String).unwrap_or(Value::Null),
+                );
             }
         }
-        state.storage.patch(
-            "chats",
-            &origin_id,
-            json!({ "metadata": meta, "connectedChatId": Value::Null }),
-        )?;
+        let mut patch = Map::new();
+        patch.insert("metadata".to_string(), Value::Object(meta));
+        if origin_chat
+            .get("connectedChatId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| scene_ids.contains(id))
+        {
+            patch.insert("connectedChatId".to_string(), Value::Null);
+        }
+        state
+            .storage
+            .patch("chats", &origin_id, Value::Object(patch))?;
     }
     Ok(())
 }
@@ -922,7 +916,7 @@ mod tests {
                     "data": {
                         "extensions": {
                             "characterMemories": [
-                                { "sceneChatId": "scene-chat", "summary": "The moonlit duel happened." },
+                                "{\"sceneChatId\":\"scene-chat\",\"summary\":\"The moonlit duel happened.\"}",
                                 { "sceneChatId": "other-scene", "summary": "Keep this unrelated memory." },
                                 { "summary": "Keep this older unscoped memory." }
                             ]
@@ -956,18 +950,121 @@ mod tests {
             .as_array()
             .expect("character memories should remain an array");
         assert_eq!(memories.len(), 2);
-        assert!(memories
-            .iter()
-            .all(|memory| memory.get("sceneChatId").and_then(Value::as_str) != Some("scene-chat")));
-        assert!(
-            memories
-                .iter()
-                .any(|memory| memory.get("sceneChatId").and_then(Value::as_str)
-                    == Some("other-scene"))
-        );
+        assert!(memories.iter().all(|memory| object_or_parse(Some(memory))
+            .get("sceneChatId")
+            .and_then(Value::as_str)
+            != Some("scene-chat")));
+        assert!(memories.iter().any(|memory| object_or_parse(Some(memory))
+            .get("sceneChatId")
+            .and_then(Value::as_str)
+            == Some("other-scene")));
         assert!(memories
             .iter()
             .any(|memory| memory.get("summary").and_then(Value::as_str)
                 == Some("Keep this older unscoped memory.")));
+    }
+
+    #[test]
+    fn delete_scene_chat_prunes_origin_scene_state_without_breaking_unrelated_link() {
+        let state = test_state("scene-origin-reference");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "origin-chat",
+                    "name": "Origin",
+                    "metadata": {
+                        "activeSceneChatId": "scene-chat",
+                        "sceneBusyCharIds": ["char-a"],
+                        "roleplaySceneHistory": [
+                            { "sceneChatId": "other-scene", "summary": "Keep this other scene." },
+                            "{\"sceneChatId\":\"scene-chat\",\"summary\":\"Remove this deleted scene.\"}"
+                        ],
+                        "lastRoleplaySceneSummary": "Remove this deleted scene."
+                    },
+                    "connectedChatId": "linked-non-scene-chat"
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "scene-chat",
+                    "name": "Scene: Moonlit duel",
+                    "metadata": { "sceneOriginChatId": "origin-chat", "sceneStatus": "concluded" },
+                    "characterIds": ["char-a"]
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "linked-non-scene-chat",
+                    "name": "Linked non-scene chat",
+                    "metadata": {}
+                }),
+            )
+            .unwrap();
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-a",
+                    "data": {
+                        "extensions": {
+                            "characterMemories": [
+                                "{\"sceneChatId\":\"scene-chat\",\"summary\":\"Remove this deleted scene.\"}",
+                                { "sceneChatId": "other-scene", "summary": "Keep this other scene." }
+                            ]
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        delete_chat_with_messages(&state, "scene-chat").unwrap();
+
+        assert!(state.storage.get("chats", "scene-chat").unwrap().is_none());
+        let origin = state.storage.get("chats", "origin-chat").unwrap().unwrap();
+        assert_eq!(
+            origin.get("connectedChatId").and_then(Value::as_str),
+            Some("linked-non-scene-chat")
+        );
+        let meta = metadata_map(&origin);
+        assert!(meta.get("activeSceneChatId").is_some_and(Value::is_null));
+        assert!(meta.get("sceneBusyCharIds").is_some_and(Value::is_null));
+        assert_eq!(
+            meta.get("lastRoleplaySceneSummary").and_then(Value::as_str),
+            Some("Keep this other scene.")
+        );
+        let history = meta
+            .get("roleplaySceneHistory")
+            .and_then(Value::as_array)
+            .expect("origin scene history should remain an array");
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            object_or_parse(history.first())
+                .get("sceneChatId")
+                .and_then(Value::as_str),
+            Some("other-scene")
+        );
+
+        let character = state.storage.get("characters", "char-a").unwrap().unwrap();
+        let memories = character["data"]["extensions"]["characterMemories"]
+            .as_array()
+            .expect("character memories should remain an array");
+        assert_eq!(memories.len(), 1);
+        assert_eq!(
+            object_or_parse(memories.first())
+                .get("sceneChatId")
+                .and_then(Value::as_str),
+            Some("other-scene")
+        );
     }
 }

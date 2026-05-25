@@ -24,6 +24,7 @@ import { storageApi } from "../../../../shared/api/storage-api";
 import { integrationGateway } from "../../../../shared/api/integration-gateway";
 import { ApiError } from "../../../../shared/api/api-errors";
 import { useAgentStore, type PendingCardUpdate } from "../../../../shared/stores/agent.store";
+import { toAgentFailure } from "../../../../shared/lib/agent-failures";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useGameStateStore } from "../../world-state/index";
@@ -672,7 +673,12 @@ async function applyAgentResultEffects(
   const agentStore = useAgentStore.getState();
   agentStore.addResult(result.agentId || result.agentType, result);
 
-  if (!result.success) return;
+  if (!result.success) {
+    agentStore.addFailedAgentFailure(
+      toAgentFailure({ agentType: result.agentType, agentName, error: result.error }),
+    );
+    return;
+  }
   const bubble = formatAgentBubble(result, agentName);
   if (bubble) agentStore.addThoughtBubble(result.agentType, agentName, bubble);
 
@@ -729,6 +735,7 @@ export async function runGenerationWithUi(
   chatStore.setGenerationPhase("Starting generation...");
   chatStore.setStreamBuffer("", chatId);
   chatStore.setThinkingBuffer("", chatId);
+  useAgentStore.getState().clearFailedAgentTypes();
   useAgentStore.getState().setProcessing(true);
 
   let received = "";
@@ -887,6 +894,7 @@ export function useGenerate() {
       try {
         await assertChatCanGenerate(queryClient, chatId);
         useAgentStore.getState().setProcessing(true);
+        useAgentStore.getState().clearFailedAgentTypes();
         const results = await retryGenerationAgents(
           { storage: storageApi, llm: llmApi, integrations: integrationGateway },
           { chatId, agentTypes, options },
@@ -895,7 +903,6 @@ export function useGenerate() {
           await applyAgentResultEffects(queryClient, chatId, result);
         }
         await refreshGameStateFromStorage(chatId);
-        useAgentStore.getState().clearFailedAgentTypes();
         await queryClient.invalidateQueries({ queryKey: ["agents"] });
         await queryClient.invalidateQueries({ queryKey: ["chats"] });
       } catch (error) {

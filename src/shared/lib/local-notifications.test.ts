@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { shouldShowConversationBrowserNotification } from "./browser-notifications";
+import { shouldShowConversationLocalNotification } from "./local-notifications";
 
-describe("conversation browser notification guard", () => {
-  it("requires explicit opt-in and granted browser permission", () => {
+describe("conversation local notification guard", () => {
+  it("requires explicit opt-in and granted notification permission", () => {
     expect(
-      shouldShowConversationBrowserNotification({
+      shouldShowConversationLocalNotification({
         enabled: false,
         permission: "granted",
         appFocused: false,
       }),
     ).toBe(false);
     expect(
-      shouldShowConversationBrowserNotification({
+      shouldShowConversationLocalNotification({
         enabled: true,
         permission: "default",
         appFocused: false,
@@ -21,7 +21,7 @@ describe("conversation browser notification guard", () => {
 
   it("suppresses notifications while Marinara is focused", () => {
     expect(
-      shouldShowConversationBrowserNotification({
+      shouldShowConversationLocalNotification({
         enabled: true,
         permission: "granted",
         appFocused: true,
@@ -31,7 +31,7 @@ describe("conversation browser notification guard", () => {
 
   it("allows a generic notification when opted in, granted, and unfocused", () => {
     expect(
-      shouldShowConversationBrowserNotification({
+      shouldShowConversationLocalNotification({
         enabled: true,
         permission: "granted",
         appFocused: false,

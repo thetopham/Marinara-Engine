@@ -4,9 +4,10 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import {
-  getBrowserNotificationPermission,
-  requestBrowserNotificationPermission,
-} from "../../../../../shared/lib/browser-notifications";
+  getLocalNotificationPermission,
+  type LocalNotificationPermission,
+  requestLocalNotificationPermission,
+} from "../../../../../shared/lib/local-notifications";
 
 export function ConversationSoundSetting() {
   const convoNotificationSound = useUIStore((s) => s.convoNotificationSound);
@@ -15,24 +16,33 @@ export function ConversationSoundSetting() {
   const setRpNotificationSound = useUIStore((s) => s.setRpNotificationSound);
   const conversationBrowserNotifications = useUIStore((s) => s.conversationBrowserNotifications);
   const setConversationBrowserNotifications = useUIStore((s) => s.setConversationBrowserNotifications);
-  const [browserPermission, setBrowserPermission] = useState(() => getBrowserNotificationPermission());
+  const [localNotificationPermission, setLocalNotificationPermission] =
+    useState<LocalNotificationPermission>("default");
 
   useEffect(() => {
-    const syncPermission = () => setBrowserPermission(getBrowserNotificationPermission());
+    let cancelled = false;
+    const syncPermission = () => {
+      void getLocalNotificationPermission().then((permission) => {
+        if (!cancelled) setLocalNotificationPermission(permission);
+      });
+    };
+
+    syncPermission();
     window.addEventListener("focus", syncPermission);
     document.addEventListener("visibilitychange", syncPermission);
     return () => {
+      cancelled = true;
       window.removeEventListener("focus", syncPermission);
       document.removeEventListener("visibilitychange", syncPermission);
     };
   }, []);
 
-  const browserNotificationsChecked = conversationBrowserNotifications && browserPermission === "granted";
-  const browserNotificationsHelp =
-    browserPermission === "unsupported"
+  const nativeNotificationsChecked = conversationBrowserNotifications && localNotificationPermission === "granted";
+  const nativeNotificationsHelp =
+    localNotificationPermission === "unsupported"
       ? "This browser or app shell does not expose native notifications."
-      : browserPermission === "denied"
-        ? "Notifications are blocked in the browser or app shell. Re-enable them in site settings to use this."
+      : localNotificationPermission === "denied"
+        ? "Notifications are blocked in the browser or operating system. Re-enable them in site or system settings to use this."
         : "Show a generic native notification when a Conversation-mode character replies while Marinara is not focused. Message contents are never shown.";
 
   return (
@@ -40,7 +50,7 @@ export function ConversationSoundSetting() {
       <div className="flex items-center gap-1.5">
         <Bell size="0.75rem" className="text-[var(--muted-foreground)]" />
         <span className="text-xs font-medium">Notifications</span>
-        <HelpTooltip text="Control local Conversation and Roleplay alerts. Browser notifications only use generic copy and never include message contents." />
+        <HelpTooltip text="Control local Conversation and Roleplay alerts. Native notifications only use generic copy and never include message contents." />
       </div>
       <ToggleSetting
         label="Conversation mode"
@@ -51,26 +61,26 @@ export function ConversationSoundSetting() {
         }}
       />
       <ToggleSetting
-        label="Browser notifications"
-        checked={browserNotificationsChecked}
-        disabled={browserPermission === "unsupported" || browserPermission === "denied"}
+        label="Native notifications"
+        checked={nativeNotificationsChecked}
+        disabled={localNotificationPermission === "unsupported" || localNotificationPermission === "denied"}
         onChange={async (v) => {
           if (!v) {
             setConversationBrowserNotifications(false);
             return;
           }
-          const nextPermission = await requestBrowserNotificationPermission();
-          setBrowserPermission(nextPermission);
+          const nextPermission = await requestLocalNotificationPermission();
+          setLocalNotificationPermission(nextPermission);
           setConversationBrowserNotifications(nextPermission === "granted");
         }}
-        help={browserNotificationsHelp}
+        help={nativeNotificationsHelp}
       />
-      {browserPermission === "default" && (
+      {localNotificationPermission === "default" && (
         <p className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
-          Enabling this will open your browser's notification permission prompt.
+          Enabling this may open your system notification permission prompt.
         </p>
       )}
-      {browserPermission === "granted" && browserNotificationsChecked && (
+      {localNotificationPermission === "granted" && nativeNotificationsChecked && (
         <p className="pl-6 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
           Marinara will only notify while the app is unfocused.
         </p>

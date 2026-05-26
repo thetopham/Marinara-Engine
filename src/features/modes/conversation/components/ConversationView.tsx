@@ -31,7 +31,7 @@ import { ChatBranchSelector } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton, ActiveWorldInfoModal } from "../../../runtime/visuals/index";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
-import { showConversationBrowserNotification } from "../../../../shared/lib/browser-notifications";
+import { showConversationLocalNotification } from "../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../shared/lib/notification-sound";
 import { getAvatarCropStyle, type AvatarCropValue } from "../../../../shared/lib/utils";
 import { characterKeys } from "../../../catalog/characters/index";
@@ -722,7 +722,7 @@ export function ConversationView({
       if (uiState.convoNotificationSound) {
         playNotificationPing();
       }
-      showConversationBrowserNotification({
+      void showConversationLocalNotification({
         enabled: uiState.conversationBrowserNotifications,
         characterName: getAssistantNotificationName(newAssistantMessage, characterMap, characterNames),
         tag: `marinara-conversation-${chatId}`,

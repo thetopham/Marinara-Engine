@@ -373,7 +373,7 @@ export interface UIState {
   // ── Sound ──
   convoNotificationSound: boolean;
   rpNotificationSound: boolean;
-  /** When true, show native browser notifications for new Conversation messages while Marinara is unfocused. */
+  /** When true, show native local notifications for new Conversation messages while Marinara is unfocused. */
   conversationBrowserNotifications: boolean;
 
   // ── Custom Conversation Prompt ──

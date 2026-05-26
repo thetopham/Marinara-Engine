@@ -18,7 +18,7 @@ import { integrationGateway } from "../../../../../shared/api/integration-gatewa
 import { invokeTauri } from "../../../../../shared/api/tauri-client";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import { showConversationBrowserNotification } from "../../../../../shared/lib/browser-notifications";
+import { showConversationLocalNotification } from "../../../../../shared/lib/local-notifications";
 import { playNotificationPing } from "../../../../../shared/lib/notification-sound";
 import { chatKeys } from "../../../../catalog/chats/index";
 import { characterKeys } from "../../../../catalog/characters/index";
@@ -186,7 +186,7 @@ export function useBackgroundAutonomousPolling() {
                 // Add floating avatar notification bubble
                 useChatStore.getState().addNotification(chat.id, charName, charAvatar, charAvatarCrop);
 
-                showConversationBrowserNotification({
+                void showConversationLocalNotification({
                   enabled: useUIStore.getState().conversationBrowserNotifications,
                   characterName: charName,
                   tag: `marinara-conversation-${chat.id}`,

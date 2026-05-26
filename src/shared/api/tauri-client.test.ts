@@ -54,5 +54,6 @@ describe("invokeTauri remote runtime routing", () => {
     });
 
     expect(tauriInvoke).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

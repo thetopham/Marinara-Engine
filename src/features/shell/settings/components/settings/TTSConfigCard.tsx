@@ -293,6 +293,8 @@ export function TTSConfigCard() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("tts-1");
   const [voice, setVoice] = useState("alloy");
+  const [narratorVoiceEnabled, setNarratorVoiceEnabled] = useState(false);
+  const [narratorVoice, setNarratorVoice] = useState("");
   const [voiceMode, setVoiceMode] = useState<TTSVoiceMode>("single");
   const [voiceAssignments, setVoiceAssignments] = useState<TTSVoiceAssignment[]>([]);
   const [npcDefaultVoicesEnabled, setNpcDefaultVoicesEnabled] = useState(false);
@@ -335,6 +337,8 @@ export function TTSConfigCard() {
     setApiKey(savedConfig.apiKey); // masked value from server
     setModel(savedConfig.model);
     setVoice(savedConfig.voice);
+    setNarratorVoiceEnabled(savedConfig.narratorVoiceEnabled ?? false);
+    setNarratorVoice(savedConfig.narratorVoice ?? "");
     setVoiceMode(savedConfig.voiceMode ?? "single");
     setVoiceAssignments(savedConfig.voiceAssignments ?? []);
     setNpcDefaultVoicesEnabled(savedConfig.npcDefaultVoicesEnabled ?? false);
@@ -378,6 +382,8 @@ export function TTSConfigCard() {
     apiKey: apiKey === TTS_API_KEY_MASK ? TTS_API_KEY_MASK : apiKey,
     model,
     voice,
+    narratorVoiceEnabled,
+    narratorVoice,
     voiceMode,
     voiceAssignments,
     npcDefaultVoicesEnabled,
@@ -422,6 +428,12 @@ export function TTSConfigCard() {
     }, 600);
   };
 
+  const handleNarratorVoiceChange = (value: string) => {
+    const nextNarratorVoice = value.trim();
+    setNarratorVoice(nextNarratorVoice);
+    mark({ narratorVoice: nextNarratorVoice });
+  };
+
   const handleSourceChange = (nextSource: TTSSource) => {
     const defaults = TTS_SOURCE_DEFAULTS[nextSource];
     const nextApiKey = apiKey === TTS_API_KEY_MASK ? "" : apiKey;
@@ -431,6 +443,8 @@ export function TTSConfigCard() {
     setApiKey(nextApiKey);
     setModel(defaults.model);
     setVoice(defaults.voice);
+    setNarratorVoiceEnabled(false);
+    setNarratorVoice(defaults.voice);
     setVoiceMode("single");
     setVoiceAssignments([]);
     setNpcDefaultVoicesEnabled(false);
@@ -443,6 +457,8 @@ export function TTSConfigCard() {
       apiKey: nextApiKey,
       model: defaults.model,
       voice: defaults.voice,
+      narratorVoiceEnabled: false,
+      narratorVoice: defaults.voice,
       voiceMode: "single",
       voiceAssignments: [],
       npcDefaultVoicesEnabled: false,
@@ -896,6 +912,69 @@ export function TTSConfigCard() {
                   Showing PocketTTS built-in voices. You can type a custom voice URL or path accepted by your server.
                 </p>
               )}
+            </FieldRow>
+          )}
+
+          {voiceMode === "single" && (
+            <FieldRow
+              label="Narrator Voice"
+              help="Use a separate voice for prose outside quotes while quoted dialogue keeps the character voice."
+            >
+              <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-2">
+                <ToggleRow
+                  label="Split quoted dialogue from narration"
+                  checked={narratorVoiceEnabled}
+                  onChange={(enabled) => {
+                    const nextNarratorVoice = narratorVoice.trim() || voice.trim();
+                    if (enabled && !nextNarratorVoice) {
+                      setNarratorVoiceEnabled(false);
+                      mark({ narratorVoiceEnabled: false });
+                      return;
+                    }
+
+                    setNarratorVoiceEnabled(enabled);
+                    if (enabled && nextNarratorVoice !== narratorVoice) setNarratorVoice(nextNarratorVoice);
+                    mark({
+                      narratorVoiceEnabled: enabled,
+                      narratorVoice: enabled ? nextNarratorVoice : narratorVoice,
+                    });
+                  }}
+                />
+                {narratorVoiceEnabled &&
+                  (source === "pockettts" ? (
+                    <>
+                      <input
+                        value={narratorVoice}
+                        list="pockettts-voices"
+                        aria-label="Narrator voice selection"
+                        onChange={(e) => {
+                          handleNarratorVoiceChange(e.target.value);
+                        }}
+                        className={INPUT_CLS}
+                        placeholder={voice || "Narrator voice"}
+                      />
+                    </>
+                  ) : (
+                    <select
+                      value={narratorVoice}
+                      aria-label="Narrator voice selection"
+                      onChange={(e) => {
+                        handleNarratorVoiceChange(e.target.value);
+                      }}
+                      disabled={fetchingVoices || voiceOptions.length === 0}
+                      className={cn(INPUT_CLS, "cursor-pointer appearance-none")}
+                    >
+                      {source === "elevenlabs" && <option value="">Select narrator voice</option>}
+                      {fetchingVoices && <option value="">Loading voices&hellip;</option>}
+                      {!fetchingVoices && voiceOptions.length === 0 && <option value="">Save config to load voices</option>}
+                      {voiceOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name === option.id ? option.id : `${option.name} (${option.id})`}
+                        </option>
+                      ))}
+                    </select>
+                  ))}
+              </div>
             </FieldRow>
           )}
 

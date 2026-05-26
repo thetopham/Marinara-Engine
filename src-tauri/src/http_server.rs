@@ -378,8 +378,8 @@ impl SecurityConfig {
                 "ALLOW_UNAUTHENTICATED_PRIVATE_NETWORK",
             ),
             allow_unauthenticated_remote: env_flag_enabled("ALLOW_UNAUTHENTICATED_REMOTE"),
-            bypass_tailscale: !env_flag_disabled("BYPASS_AUTH_TAILSCALE"),
-            bypass_docker: !env_flag_disabled("BYPASS_AUTH_DOCKER"),
+            bypass_tailscale: env_flag_enabled("BYPASS_AUTH_TAILSCALE"),
+            bypass_docker: env_flag_enabled("BYPASS_AUTH_DOCKER"),
             require_auth_for_docker_proxy: env_flag_enabled("REQUIRE_AUTH_FOR_DOCKER_PROXY"),
             csrf_trusted_origins,
         }
@@ -415,11 +415,14 @@ impl SecurityConfig {
     }
 
     fn enforce_basic_auth(&self, ip: IpAddr, headers: &HeaderMap) -> Result<(), SecurityRejection> {
-        if is_loopback(ip) || self.is_trusted_interface_ip(ip) || self.is_ip_allowlisted(ip) {
+        if is_loopback(ip) || self.is_trusted_interface_ip(ip) {
             return Ok(());
         }
 
         let Some(config) = &self.basic_auth else {
+            if self.is_ip_allowlisted(ip) {
+                return Ok(());
+            }
             if self.allow_unauthenticated_remote {
                 return Ok(());
             }
@@ -899,6 +902,33 @@ mod tests {
     }
 
     #[test]
+    fn hostable_security_requires_basic_auth_for_allowlisted_ip_when_auth_is_configured() {
+        let mut security = test_security();
+        security.basic_auth = Some(basic_auth("user", "pass"));
+        security.ip_allowlist = Some(vec![parse_cidr("192.168.1.5").unwrap()]);
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 5));
+
+        let missing = request(Method::POST, "/api/invoke", ip, &[]);
+        assert_eq!(
+            security
+                .evaluate_request(&missing)
+                .expect_err(
+                    "allowlisted IP should still authenticate when Basic Auth is configured"
+                )
+                .status,
+            StatusCode::UNAUTHORIZED
+        );
+
+        let correct = request(
+            Method::POST,
+            "/api/invoke",
+            ip,
+            &[("authorization", "Basic dXNlcjpwYXNz")],
+        );
+        assert!(security.evaluate_request(&correct).is_ok());
+    }
+
+    #[test]
     fn hostable_security_enforces_ip_allowlist_with_negative_control() {
         let mut security = test_security();
         security.ip_allowlist = Some(vec![parse_cidr("192.168.1.5").unwrap()]);
@@ -924,6 +954,27 @@ mod tests {
             "ip_not_allowed"
         );
         assert!(security.evaluate_request(&allowed).is_ok());
+    }
+
+    #[test]
+    fn hostable_security_requires_explicit_trusted_interface_bypass() {
+        let mut security = test_security();
+        let tailscale = request(
+            Method::POST,
+            "/api/invoke",
+            IpAddr::V4(Ipv4Addr::new(100, 64, 0, 2)),
+            &[],
+        );
+        assert_eq!(
+            security
+                .evaluate_request(&tailscale)
+                .expect_err("trusted-interface bypass should fail closed by default")
+                .code,
+            "remote_auth_required"
+        );
+
+        security.bypass_tailscale = true;
+        assert!(security.evaluate_request(&tailscale).is_ok());
     }
 
     #[test]

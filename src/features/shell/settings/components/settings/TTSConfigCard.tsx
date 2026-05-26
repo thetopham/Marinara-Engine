@@ -428,6 +428,12 @@ export function TTSConfigCard() {
     }, 600);
   };
 
+  const handleNarratorVoiceChange = (value: string) => {
+    const nextNarratorVoice = value.trim();
+    setNarratorVoice(nextNarratorVoice);
+    mark({ narratorVoice: nextNarratorVoice });
+  };
+
   const handleSourceChange = (nextSource: TTSSource) => {
     const defaults = TTS_SOURCE_DEFAULTS[nextSource];
     const nextApiKey = apiKey === TTS_API_KEY_MASK ? "" : apiKey;
@@ -942,8 +948,7 @@ export function TTSConfigCard() {
                         list="pockettts-voices"
                         aria-label="Narrator voice selection"
                         onChange={(e) => {
-                          setNarratorVoice(e.target.value);
-                          mark({ narratorVoice: e.target.value });
+                          handleNarratorVoiceChange(e.target.value);
                         }}
                         className={INPUT_CLS}
                         placeholder={voice || "Narrator voice"}
@@ -954,8 +959,7 @@ export function TTSConfigCard() {
                       value={narratorVoice}
                       aria-label="Narrator voice selection"
                       onChange={(e) => {
-                        setNarratorVoice(e.target.value);
-                        mark({ narratorVoice: e.target.value });
+                        handleNarratorVoiceChange(e.target.value);
                       }}
                       disabled={fetchingVoices || voiceOptions.length === 0}
                       className={cn(INPUT_CLS, "cursor-pointer appearance-none")}

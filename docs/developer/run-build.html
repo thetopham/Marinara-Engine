@@ -98,6 +98,75 @@
           <code>Marinara Engine</code>.
         </p>
 
+        <h2>Manual Pre-Alpha Platform Builds</h2>
+        <p>
+          Maintainers can run <strong>Pre-Alpha Platform Builds</strong> from
+          GitHub Actions on the <code>refactor</code> branch. The workflow is
+          manual-only, creates a draft GitHub release first, uploads artifacts,
+          then publishes it as a <strong>pre-release</strong> with
+          <code>make_latest=false</code> so it is not treated as the latest
+          release.
+        </p>
+        <div class="callout">
+          Pre-alpha release notes intentionally warn that almost everything may
+          be broken. These builds are unsigned, not connected to the stable
+          updater, and should be tested only with throwaway data.
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Desktop target</th>
+              <th>CI build path</th>
+              <th>Artifact channel</th>
+              <th>Signing/updater decision</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Windows x64</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-pc-windows-msvc --config src-tauri/tauri.prealpha.conf.json --no-sign</code></td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned Tauri bundles; legacy launcher/updater parity is deferred.</td>
+            </tr>
+            <tr>
+              <td>macOS Intel and Apple Silicon</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-apple-darwin</code> and <code>--target aarch64-apple-darwin</code> using the pre-alpha config</td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned and unnotarized; tester Gatekeeper warnings are expected.</td>
+            </tr>
+            <tr>
+              <td>Linux x64</td>
+              <td><code>tauri-apps/tauri-action@v0</code> with <code>--target x86_64-unknown-linux-gnu --config src-tauri/tauri.prealpha.conf.json --no-sign</code></td>
+              <td>GitHub pre-release assets, not latest</td>
+              <td>Unsigned packages/AppImage; stable updater metadata is not generated.</td>
+            </tr>
+          </tbody>
+        </table>
+        <table>
+          <thead>
+            <tr>
+              <th>Mobile target</th>
+              <th>Status</th>
+              <th>CI build path</th>
+              <th>Distribution decision</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Android universal debug APK</td>
+              <td>Experimental pre-alpha test build</td>
+              <td><code>pnpm tauri android build --debug --apk --ci --config src-tauri/tauri.prealpha.conf.json</code></td>
+              <td>Debug-signed APK on the GitHub pre-release using <code>com.marinara_engine.prealpha</code>.</td>
+            </tr>
+            <tr>
+              <td>iOS</td>
+              <td>Deferred</td>
+              <td>Not built in this workflow</td>
+              <td>Requires Apple signing/provisioning/TestFlight planning before CI distribution.</td>
+            </tr>
+          </tbody>
+        </table>
+
         <h2>Run The Remote Rust Runtime</h2>
         <p>
           The remote runtime hosts the Rust API only. It does not serve the

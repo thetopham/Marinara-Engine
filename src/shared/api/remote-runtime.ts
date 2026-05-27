@@ -6,7 +6,6 @@ const REMOTE_COMMANDS = new Set([
   "load_url_binary",
   "profile_export",
   "profile_import",
-  "profile_import_file",
   "backup_create",
   "backup_list",
   "backup_delete",

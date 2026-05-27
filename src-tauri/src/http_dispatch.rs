@@ -88,10 +88,6 @@ pub async fn dispatch(state: &AppState, request: InvokeRequest) -> AppResult<Val
             &shared::ParsedPath::new("/profile/import"),
             optional_value(&args, "envelope"),
         ),
-        "profile_import_file" => {
-            let path = required_string(&args, "path")?;
-            profile::import_profile_file_path(state, path)
-        }
         "backup_create" => backup::create_backup(state),
         "backup_list" => backup::list_backups(state),
         "backup_delete" => backup::delete_backup(state, required_string(&args, "name")?),

@@ -57,6 +57,7 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
     isTranslating,
     multiSelectMode,
     isSelected,
+    onToggleSelect,
     messageTextStyle,
     bubbleCornerClass,
     shouldHideUserAvatar,
@@ -70,7 +71,14 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
         {/* Multi-select checkbox */}
         {multiSelectMode && (
           <div className="flex items-center flex-shrink-0">
-            <div
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={isSelected}
+              aria-label={isSelected ? "Deselect message" : "Select message"}
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+              onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onToggleSelect?.(); } }}
               className={cn(
                 "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
                 isSelected
@@ -79,7 +87,7 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
               )}
             >
               {isSelected && <span className="text-white text-xs font-bold">✓</span>}
-            </div>
+            </button>
           </div>
         )}
 

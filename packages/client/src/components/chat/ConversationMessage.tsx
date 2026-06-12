@@ -250,7 +250,6 @@ export const ConversationMessage = memo(function ConversationMessage({
       });
       try {
         await api.patch(`/chats/${message.chatId}/messages/${message.id}/extra`, { attachments: updated });
-        await qc.invalidateQueries({ queryKey: msgKey });
       } catch (err) {
         qc.setQueryData(msgKey, previous);
         toast.error(err instanceof Error ? err.message : "Failed to remove attachment.");

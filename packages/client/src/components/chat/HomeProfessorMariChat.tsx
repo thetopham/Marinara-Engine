@@ -143,6 +143,8 @@ export function HomeProfessorMariChat() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [sending, setSending] = useState(false);
   const [connectionMenuOpen, setConnectionMenuOpen] = useState(false);
+  const [faqExpanded, setFaqExpanded] = useState(false);
+  const [faqOpenItemId, setFaqOpenItemId] = useState<string | null>("game-mode-model");
   const hasLoadedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const connectionButtonRef = useRef<HTMLButtonElement>(null);
@@ -326,7 +328,7 @@ export function HomeProfessorMariChat() {
             <ProfessorMariPixelScene active={isBusy || mariPhase !== null} />
           </div>
           <div className="hidden sm:block w-full">
-            <HomeFaq compact />
+            <HomeFaq compact expanded={faqExpanded} onExpandedChange={setFaqExpanded} openItemId={faqOpenItemId} onOpenItemIdChange={setFaqOpenItemId} />
           </div>
         </div>
 
@@ -470,7 +472,7 @@ export function HomeProfessorMariChat() {
         </div>
       </div>
       <div className="sm:hidden px-2 pb-2">
-        <HomeFaq compact />
+        <HomeFaq compact expanded={faqExpanded} onExpandedChange={setFaqExpanded} openItemId={faqOpenItemId} onOpenItemIdChange={setFaqOpenItemId} />
       </div>
     </section>
   );

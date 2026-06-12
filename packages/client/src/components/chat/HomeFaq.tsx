@@ -416,13 +416,32 @@ export function HomeFaq({
   defaultExpanded = false,
   className,
   compact = false,
+  expanded: expandedProp,
+  onExpandedChange,
+  openItemId: openItemIdProp,
+  onOpenItemIdChange,
 }: {
   defaultExpanded?: boolean;
   className?: string;
   compact?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (v: boolean) => void;
+  openItemId?: string | null;
+  onOpenItemIdChange?: (v: string | null) => void;
 } = {}) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [openItemId, setOpenItemId] = useState<string | null>("game-mode-model");
+  const [expandedInternal, setExpandedInternal] = useState(defaultExpanded);
+  const [openItemIdInternal, setOpenItemIdInternal] = useState<string | null>("game-mode-model");
+
+  const expanded = expandedProp ?? expandedInternal;
+  const setExpanded = (v: boolean) => {
+    setExpandedInternal(v);
+    onExpandedChange?.(v);
+  };
+  const openItemId = openItemIdProp !== undefined ? openItemIdProp : openItemIdInternal;
+  const setOpenItemId = (v: string | null) => {
+    setOpenItemIdInternal(v);
+    onOpenItemIdChange?.(v);
+  };
 
   if (compact) {
     return (

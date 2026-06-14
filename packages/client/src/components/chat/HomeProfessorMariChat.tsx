@@ -452,12 +452,19 @@ function ToolGlyph({ tool, tone }: { tool: WorkspaceToolCall; tone: ToolTone }) 
   return <Wrench size="0.72rem" />;
 }
 
+function renderCompactInline(text: string, keyPrefix: string): ReactNode[] {
+  return text.split("\n").flatMap((line, index) => {
+    const nodes = applyInlineMarkdown(line, `${keyPrefix}-${index}`);
+    return index === 0 ? nodes : [<br key={`${keyPrefix}-br-${index}`} />, ...nodes];
+  });
+}
+
 function CompactMarkdown({ content, streaming }: { content: string; streaming?: boolean }) {
-  const trimmed = content.trim();
+  const trimmed = content.trim().replace(/\n{3,}/g, "\n\n");
   if (!trimmed) return null;
   return (
-    <div className="mari-message-content text-[0.8125rem] leading-relaxed text-[var(--foreground)] [&_.mari-md-codeblock]:my-2 [&_.mari-md-codeblock]:max-h-44 [&_.mari-md-heading]:mb-1 [&_.mari-md-heading]:mt-2 [&_.mari-md-ol]:my-1.5 [&_.mari-md-ul]:my-1.5">
-      {renderMarkdownBlocks(trimmed, applyInlineMarkdown, "home-mari")}
+    <div className="mari-message-content text-[0.8125rem] leading-[1.42] text-[var(--foreground)] [&_.mari-md-codeblock]:my-1.5 [&_.mari-md-codeblock]:max-h-44 [&_.mari-md-heading]:mb-0.5 [&_.mari-md-heading]:mt-1 [&_.mari-md-ol]:my-1 [&_.mari-md-ul]:my-1">
+      {renderMarkdownBlocks(trimmed, renderCompactInline, "home-mari")}
       {streaming && <span className="ml-1 inline-block h-3 w-1 translate-y-0.5 rounded-full bg-[var(--primary)] opacity-80 animate-pulse" />}
     </div>
   );

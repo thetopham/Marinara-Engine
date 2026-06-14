@@ -363,7 +363,6 @@ export function getLocationPinColor(location: string | null | undefined) {
 
 export function getWorldAmbienceStyle(_state: GameState | null): CSSProperties {
   return {
-    background:
-      "var(--tracker-panel-section-background, linear-gradient(135deg, color-mix(in srgb, var(--card) 88%, var(--foreground) 12%), color-mix(in srgb, var(--background) 90%, var(--foreground) 10%)))",
+    background: "var(--tracker-panel-section-background, color-mix(in srgb, var(--card) 6%, transparent))",
   };
 }

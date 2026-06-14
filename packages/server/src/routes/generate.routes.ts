@@ -12,6 +12,7 @@ import {
   resolveMacros,
   resolveDeferredCharacterMacros,
   hasDeferredCharacterMacros,
+  getDefaultAgentPrompt,
   LIMITS,
   coerceGameStateTextValue,
   appendChatSummaryEntryToMetadata,
@@ -19,11 +20,13 @@ import {
   buildQuestJournalData,
   isClaudeAdaptiveOnlyNoSamplingModel,
   isAgentAvailableInChatMode,
+  normalizeAgentPromptTemplateSelectionMap,
   normalizeThinkingTagPairs,
   supportsXhighReasoningEffort,
 } from "@marinara-engine/shared";
 import type {
   AgentContext,
+  AgentCallDebugEvent,
   AgentResult,
   AgentPhase,
   APIProvider,
@@ -901,6 +904,7 @@ export async function generateRoutes(app: FastifyInstance) {
         const chatActiveAgentIds: string[] = filterGameInternalAgentIds(chatMode, persistedChatActiveAgentIds)
           .filter((agentId) => isAgentAvailableInChatMode(chatMode, agentId))
           .filter((agentId) => !(gameSpotifyMusicEnabled && agentId === "spotify"));
+        const agentPromptTemplateSelections = normalizeAgentPromptTemplateSelectionMap(chatMeta.agentPromptTemplateIds);
         const hasPerChatAgentList = chatActiveAgentIds.length > 0;
         const perChatAgentSet = new Set(chatActiveAgentIds);
         const chatSummaryAgentActive = chatEnableAgents && perChatAgentSet.has("chat-summary");
@@ -2643,6 +2647,7 @@ export async function generateRoutes(app: FastifyInstance) {
           chatEnableAgents,
           hasPerChatAgentList,
           perChatAgentSet,
+          agentPromptTemplateSelections,
           characterIds,
           impersonate: input.impersonate,
           regenerateMessageId: input.regenerateMessageId,
@@ -3128,6 +3133,13 @@ export async function generateRoutes(app: FastifyInstance) {
           writableLorebookIds: null,
           chatSummary: activeChatSummary,
           streaming: input.streaming,
+          ...(requestDebug
+            ? {
+                agentDebug: (event: AgentCallDebugEvent) => {
+                  trySendSseEvent(reply, { type: "agent_debug", data: event });
+                },
+              }
+            : {}),
           signal: abortController.signal,
         };
 
@@ -4069,6 +4081,7 @@ export async function generateRoutes(app: FastifyInstance) {
                     agentName: agentNameByType.get(inj.agentType) ?? inj.agentName ?? inj.agentType,
                     resultType: "context_injection",
                     data: { text: inj.text },
+                    tokensUsed: 0,
                     success: true,
                     error: null,
                     durationMs: 0,
@@ -4310,7 +4323,6 @@ export async function generateRoutes(app: FastifyInstance) {
         // ────────────────────────────────────────
         if (resolvedAgents.some((a) => a.type === "html")) {
           const htmlAgent = resolvedAgents.find((a) => a.type === "html")!;
-          const { getDefaultAgentPrompt } = await import("@marinara-engine/shared");
           const htmlPrompt = (htmlAgent.promptTemplate || getDefaultAgentPrompt("html")).trim();
           if (htmlPrompt) {
             const htmlBlock = wrapFormat === "markdown" ? `\n## Immersive HTML\n${htmlPrompt}` : htmlPrompt;
@@ -4351,6 +4363,7 @@ export async function generateRoutes(app: FastifyInstance) {
                   agentName: htmlAgent.name || "Immersive HTML",
                   resultType: "context_injection",
                   data: { text: "HTML formatting instructions injected into prompt" },
+                  tokensUsed: 0,
                   success: true,
                   error: null,
                   durationMs: 0,
@@ -4372,6 +4385,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 agentName: (chatSummaryCfg as any)?.name || "Automated Chat Summary",
                 resultType: "context_injection",
                 data: { text: "Chat summary injected into prompt" },
+                tokensUsed: 0,
                 success: true,
                 error: null,
                 durationMs: 0,
@@ -6263,6 +6277,7 @@ export async function generateRoutes(app: FastifyInstance) {
                             agentName: currentBackgroundAgent?.name ?? "Background",
                             resultType: result.type,
                             data: bgData,
+                            tokensUsed: result.tokensUsed,
                             success: result.success,
                             error: result.error,
                             durationMs: result.durationMs,

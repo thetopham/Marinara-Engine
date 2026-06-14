@@ -1,8 +1,10 @@
 import {
   BUILT_IN_AGENTS,
   DEFAULT_AGENT_TOOLS,
+  getDefaultAgentPrompt,
   getDefaultBuiltInAgentSettings,
   LOCAL_SIDECAR_CONNECTION_ID,
+  resolveAgentPromptTemplate,
 } from "@marinara-engine/shared";
 import type { BaseLLMProvider } from "../llm/base-provider.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
@@ -36,6 +38,7 @@ type ResolveAgentPipelineAgentsArgs = {
   chatEnableAgents: boolean;
   hasPerChatAgentList: boolean;
   perChatAgentSet: Set<string>;
+  agentPromptTemplateSelections: Record<string, string>;
   characterIds: string[];
   impersonate: boolean;
   regenerateMessageId?: string | null;
@@ -136,6 +139,7 @@ export async function resolveAgentPipelineAgents({
   chatEnableAgents,
   hasPerChatAgentList,
   perChatAgentSet,
+  agentPromptTemplateSelections,
   characterIds,
   impersonate,
   regenerateMessageId,
@@ -190,6 +194,13 @@ export async function resolveAgentPipelineAgents({
     if (cfg.type === "spotify" && (!Array.isArray(settings.enabledTools) || settings.enabledTools.length === 0)) {
       settings.enabledTools = DEFAULT_AGENT_TOOLS.spotify ?? [];
     }
+    const selectedPromptTemplate = resolveAgentPromptTemplate({
+      agentType: cfg.type as string,
+      promptTemplate: cfg.promptTemplate as string,
+      fallbackPromptTemplate: getDefaultAgentPrompt(cfg.type as string),
+      settings,
+      selectedPromptTemplateId: agentPromptTemplateSelections[cfg.type as string] ?? null,
+    });
 
     const effectiveConnectionId = resolveAgentConnectionId({
       requestedConnectionId: cfg.connectionId as string | null,
@@ -226,7 +237,7 @@ export async function resolveAgentPipelineAgents({
       type: cfg.type,
       name: cfg.name,
       phase: resolveAgentRuntimePhase(cfg.type as string, cfg.phase as string),
-      promptTemplate: cfg.promptTemplate as string,
+      promptTemplate: selectedPromptTemplate,
       connectionId: effectiveConnectionId,
       settings,
       provider: resolvedProvider.provider,
@@ -261,13 +272,20 @@ export async function resolveAgentPipelineAgents({
     ) {
       builtInSettings.enabledTools = DEFAULT_AGENT_TOOLS.spotify ?? [];
     }
+    const selectedPromptTemplate = resolveAgentPromptTemplate({
+      agentType: builtIn.id,
+      promptTemplate: "",
+      fallbackPromptTemplate: getDefaultAgentPrompt(builtIn.id),
+      settings: builtInSettings,
+      selectedPromptTemplateId: agentPromptTemplateSelections[builtIn.id] ?? null,
+    });
 
     resolvedAgents.push({
       id: `builtin:${builtIn.id}`,
       type: builtIn.id,
       name: builtIn.name,
       phase: resolveAgentRuntimePhase(builtIn.id, builtIn.phase),
-      promptTemplate: "",
+      promptTemplate: selectedPromptTemplate,
       connectionId: defaultAgentConn?.id ?? null,
       settings: builtInSettings,
       provider: builtInCached?.provider ?? chatProvider,
@@ -305,6 +323,13 @@ export async function resolveAgentPipelineAgents({
           "settings" in cfg && cfg.settings
             ? parseAgentSettings(cfg.settings)
             : getDefaultBuiltInAgentSettings("response-orchestrator");
+        const selectedPromptTemplate = resolveAgentPromptTemplate({
+          agentType: "response-orchestrator",
+          promptTemplate: "promptTemplate" in cfg ? String(cfg.promptTemplate ?? "") : "",
+          fallbackPromptTemplate: getDefaultAgentPrompt("response-orchestrator"),
+          settings,
+          selectedPromptTemplateId: agentPromptTemplateSelections["response-orchestrator"] ?? null,
+        });
         const requestedConnectionId = "connectionId" in cfg ? (cfg.connectionId as string | null) : null;
         const effectiveConnectionId = resolveAgentConnectionId({
           requestedConnectionId,
@@ -340,7 +365,7 @@ export async function resolveAgentPipelineAgents({
             type: "response-orchestrator",
             name: "name" in cfg ? String(cfg.name) : "Response Orchestrator",
             phase: "phase" in cfg ? String(cfg.phase) : "pre_generation",
-            promptTemplate: "promptTemplate" in cfg ? String(cfg.promptTemplate ?? "") : "",
+            promptTemplate: selectedPromptTemplate,
             connectionId: effectiveConnectionId,
             settings,
             provider: resolvedProvider.provider,

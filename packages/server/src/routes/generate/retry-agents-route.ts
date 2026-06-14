@@ -4,10 +4,14 @@ import {
   BUILT_IN_AGENTS,
   BUILT_IN_TOOLS,
   DEFAULT_AGENT_TOOLS,
+  getDefaultAgentPrompt,
   applyQuestUpdatesToPlayerStats,
   getDefaultBuiltInAgentSettings,
   isAgentAvailableInChatMode,
+  normalizeAgentPromptTemplateSelectionMap,
+  resolveAgentPromptTemplate,
   stripMacroComments,
+  type AgentCallDebugEvent,
   type AgentContext,
   type AgentResult,
   type ChatMode,
@@ -594,6 +598,8 @@ async function resolveRetryAgents(args: {
 }): Promise<ResolvedRetryAgents> {
   const { agentTypes, chat, conns, agentsStore } = args;
   const chatMode = ((chat as { mode?: ChatMode }).mode ?? "conversation") as ChatMode;
+  const chatMeta = parseExtra((chat as { metadata?: unknown }).metadata);
+  const agentPromptTemplateSelections = normalizeAgentPromptTemplateSelectionMap(chatMeta.agentPromptTemplateIds);
   const agentTypeSet = new Set(
     filterGameInternalAgentIds(chatMode, agentTypes).filter((agentType) =>
       isAgentAvailableInChatMode(chatMode, agentType),
@@ -709,6 +715,14 @@ async function resolveRetryAgents(args: {
       }
     }
     const rawSettings = typeof cfg.settings === "string" ? JSON.parse(cfg.settings) : (cfg.settings ?? {});
+    const settings = applyDefaultBuiltInAgentTools(cfg.type, rawSettings);
+    const selectedPromptTemplate = resolveAgentPromptTemplate({
+      agentType: cfg.type as string,
+      promptTemplate: cfg.promptTemplate as string,
+      fallbackPromptTemplate: getDefaultAgentPrompt(cfg.type as string),
+      settings,
+      selectedPromptTemplateId: agentPromptTemplateSelections[cfg.type as string] ?? null,
+    });
 
     resolvedAgents.push({
       cfg,
@@ -717,9 +731,9 @@ async function resolveRetryAgents(args: {
         type: cfg.type,
         name: cfg.name,
         phase: cfg.phase as string,
-        promptTemplate: cfg.promptTemplate as string,
+        promptTemplate: selectedPromptTemplate,
         connectionId: effectiveConnectionId,
-        settings: applyDefaultBuiltInAgentTools(cfg.type, rawSettings),
+        settings,
         provider: agentProvider,
         model: agentModel,
         maxParallelJobs: agentMaxParallelJobs,
@@ -743,6 +757,15 @@ async function resolveRetryAgents(args: {
       defaultAgentConnectionAgents.push(builtIn.name);
     }
 
+    const settings = applyDefaultBuiltInAgentTools(builtIn.id, getDefaultBuiltInAgentSettings(builtIn.id));
+    const selectedPromptTemplate = resolveAgentPromptTemplate({
+      agentType: builtIn.id,
+      promptTemplate: "",
+      fallbackPromptTemplate: getDefaultAgentPrompt(builtIn.id),
+      settings,
+      selectedPromptTemplateId: agentPromptTemplateSelections[builtIn.id] ?? null,
+    });
+
     resolvedAgents.push({
       cfg: { id: `builtin:${builtIn.id}`, type: builtIn.id, name: builtIn.name } as any,
       resolved: {
@@ -750,9 +773,9 @@ async function resolveRetryAgents(args: {
         type: builtIn.id,
         name: builtIn.name,
         phase: builtIn.phase,
-        promptTemplate: "",
+        promptTemplate: selectedPromptTemplate,
         connectionId: builtInProvider.connectionId,
-        settings: applyDefaultBuiltInAgentTools(builtIn.id, getDefaultBuiltInAgentSettings(builtIn.id)),
+        settings,
         provider: builtInProvider.provider,
         model: builtInProvider.model,
         maxParallelJobs: builtInProvider.maxParallelJobs,
@@ -2282,6 +2305,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       chatId: string;
       agentTypes: string[];
       streaming?: boolean;
+      debugMode?: boolean;
       lorebookKeeperBackfill?: boolean;
       /** When set, scope history and game state to this assistant message (as at original generation), not the latest turn. */
       forMessageId?: string;
@@ -2293,6 +2317,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       chatId,
       agentTypes,
       streaming = true,
+      debugMode = false,
       lorebookKeeperBackfill = false,
       forMessageId,
       secretPlotRerollMode = "full",
@@ -2411,6 +2436,13 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
               useLatestGameStateFallback: false,
             })
           : null;
+      if (debugMode) {
+        const emitRetryAgentDebug = (event: AgentCallDebugEvent) => {
+          sendSseEvent(reply, { type: "agent_debug", data: event });
+        };
+        agentContext.agentDebug = emitRetryAgentDebug;
+        if (preGenerationAgentContext) preGenerationAgentContext.agentDebug = emitRetryAgentDebug;
+      }
 
       sendSseEvent(reply, { type: "agent_start", data: { phase: "retry" } });
       for (const warning of warnings) {
@@ -2522,6 +2554,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
             agentName: cfg?.name ?? result.agentType,
             resultType: result.type,
             data: result.data,
+            tokensUsed: result.tokensUsed,
             success: result.success,
             error: result.error,
             durationMs: result.durationMs,
@@ -2545,6 +2578,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
             agentName: cfg?.name ?? entry.result.agentType,
             resultType: entry.result.type,
             data: entry.result.data,
+            tokensUsed: entry.result.tokensUsed,
             success: entry.result.success,
             error: entry.result.error,
             durationMs: entry.result.durationMs,

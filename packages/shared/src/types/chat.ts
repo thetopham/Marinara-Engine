@@ -2,6 +2,7 @@
 // Chat & Message Types
 // ──────────────────────────────────────────────
 
+import type { MariWorkspaceTraceItem } from "./professor-mari-workspace.js";
 import type { GenerationGuideSource } from "../utils/generation-guide.js";
 
 /** The four primary chat modes the engine supports. */
@@ -389,6 +390,8 @@ export interface MessageExtra {
   isConversationStart?: boolean;
   /** Model's reasoning/thinking content (if available) */
   thinking?: string | null;
+  /** Professor Mari workspace trace shown on the home assistant transcript. */
+  mariWorkspaceTimeline?: MariWorkspaceTraceItem[] | null;
   /** Per-swipe sprite expressions from the Expression Engine agent */
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */

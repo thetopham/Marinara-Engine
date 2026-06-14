@@ -5,8 +5,11 @@ import {
   BaseLLMProvider,
   llmFetch,
   sanitizeApiError,
+  type ChatCompletionResult,
   type ChatMessage,
   type ChatOptions,
+  type LLMToolCall,
+  type LLMToolDefinition,
   type LLMUsage,
 } from "../base-provider.js";
 import { isClaudeAdaptiveOnlyNoSamplingModel } from "@marinara-engine/shared";
@@ -55,10 +58,240 @@ function applyAdaptiveThinkingConfig(
   }
 }
 
+type AnthropicRole = "user" | "assistant";
+type AnthropicContentBlock = Record<string, unknown> & {
+  type: string;
+  text?: string;
+  thinking?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+};
+interface AnthropicMessagePayload {
+  role: AnthropicRole;
+  content: AnthropicContentBlock[];
+}
+interface AnthropicMessageResponse {
+  content?: AnthropicContentBlock[];
+  stop_reason?: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseToolArguments(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function formatAnthropicTools(tools: LLMToolDefinition[] | undefined): Array<Record<string, unknown>> | undefined {
+  if (!tools?.length) return undefined;
+  return tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    input_schema: tool.function.parameters,
+  }));
+}
+
+function imageContentBlocks(images?: string[]): AnthropicContentBlock[] {
+  if (!images?.length) return [];
+  const blocks: AnthropicContentBlock[] = [];
+  for (const img of images) {
+    const match = img.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    if (match) {
+      blocks.push({ type: "image", source: { type: "base64", media_type: match[1], data: match[2] } });
+    }
+  }
+  return blocks;
+}
+
+function mergeAnthropicPayloadMessages(messages: AnthropicMessagePayload[]): AnthropicMessagePayload[] {
+  const merged: AnthropicMessagePayload[] = [];
+  for (const message of messages) {
+    if (message.content.length === 0) continue;
+    const last = merged[merged.length - 1];
+    if (last && last.role === message.role) {
+      last.content.push(...message.content);
+    } else {
+      merged.push({ role: message.role, content: [...message.content] });
+    }
+  }
+
+  if (merged.length === 0) {
+    merged.push({ role: "user", content: [{ type: "text", text: "[Start]" }] });
+  } else if (merged[0]!.role !== "user") {
+    merged.unshift({ role: "user", content: [{ type: "text", text: "[Start]" }] });
+  }
+  return merged;
+}
+
+function formatAnthropicPayloadMessages(messages: ChatMessage[]): AnthropicMessagePayload[] {
+  const payload: AnthropicMessagePayload[] = [];
+
+  for (const message of messages) {
+    if (message.role === "system") continue;
+
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      const content: AnthropicContentBlock[] = [];
+      if (message.content?.trim()) content.push({ type: "text", text: message.content });
+      for (const call of message.tool_calls) {
+        content.push({
+          type: "tool_use",
+          id: call.id,
+          name: call.function.name,
+          input: parseToolArguments(call.function.arguments),
+        });
+      }
+      payload.push({ role: "assistant", content });
+      continue;
+    }
+
+    if (message.role === "tool") {
+      if (!message.tool_call_id) {
+        payload.push({ role: "user", content: [{ type: "text", text: `Tool result: ${message.content || " "}` }] });
+        continue;
+      }
+      payload.push({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: message.tool_call_id,
+            content: message.content || " ",
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (message.role === "user" || message.role === "assistant") {
+      const content = [...imageContentBlocks(message.images)];
+      if (message.content?.trim()) content.push({ type: "text", text: message.content });
+      payload.push({ role: message.role === "assistant" ? "assistant" : "user", content });
+    }
+  }
+
+  return mergeAnthropicPayloadMessages(payload);
+}
+
+function anthropicToolCallFromBlock(block: AnthropicContentBlock): LLMToolCall | null {
+  if (block.type !== "tool_use" || typeof block.name !== "string") return null;
+  const id = typeof block.id === "string" && block.id.trim() ? block.id : `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const args = isRecord(block.input) ? block.input : {};
+  return {
+    id,
+    type: "function",
+    function: { name: block.name, arguments: JSON.stringify(args) },
+  };
+}
+
 /**
  * Handles Anthropic Claude API (Messages API).
  */
 export class AnthropicProvider extends BaseLLMProvider {
+  async chatComplete(messages: ChatMessage[], options: ChatOptions): Promise<ChatCompletionResult> {
+    if (!options.tools?.length) return super.chatComplete(messages, options);
+
+    const configuredMaxTokens = options.maxTokens ?? 4096;
+    const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
+    messages = contextFit.messages;
+    this.logContextTrim(contextFit, options.model);
+    const maxTokens = contextFit.maxTokens ?? configuredMaxTokens;
+
+    const url = `${this.baseUrl}/messages`;
+    const systemMessages = messages.filter((m) => m.role === "system" && m.content?.trim());
+    const systemField = systemMessages.length > 0 ? systemMessages.map((m) => m.content).join("\n\n") : undefined;
+
+    const body: Record<string, unknown> = {
+      model: options.model,
+      max_tokens: maxTokens,
+      ...(systemField !== undefined ? { system: systemField } : {}),
+      messages: formatAnthropicPayloadMessages(messages),
+      tools: formatAnthropicTools(options.tools),
+      stream: false,
+      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+      ...(options.topK ? { top_k: options.topK } : {}),
+    };
+
+    const modelLower = options.model.toLowerCase();
+    const isAdaptiveOnly = isClaudeAdaptiveOnlyNoSamplingModel(options.model);
+    if (isAdaptiveOnly) stripAnthropicSamplingParameters(body);
+
+    if (options.enableThinking) {
+      if (isAdaptiveOnly) {
+        applyAdaptiveThinkingConfig(body, options, maxTokens);
+      } else {
+        const supportsAdaptive = /claude-(opus|sonnet)-4-[56]/.test(modelLower);
+        if (supportsAdaptive) {
+          applyAdaptiveThinkingConfig(body, options, maxTokens);
+          delete body.temperature;
+        } else {
+          const budgetTokens = Math.max(1024, Math.min(maxTokens, 16000));
+          body.thinking = { type: "enabled", budget_tokens: budgetTokens };
+          body.max_tokens = maxTokens + budgetTokens;
+          delete body.temperature;
+        }
+      }
+    }
+
+    this.applyCustomParameters(body, options);
+    if (isAdaptiveOnly) {
+      stripAnthropicSamplingParameters(body);
+      if (options.enableThinking) applyAdaptiveThinkingConfig(body, options);
+    }
+
+    const response = await llmFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+      bufferResponse: true,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Anthropic API error ${response.status}: ${sanitizeApiError(errorText)}`);
+    }
+
+    const json = (await response.json()) as AnthropicMessageResponse;
+    const blocks = Array.isArray(json.content) ? json.content : [];
+    const text = blocks
+      .filter((block) => block.type === "text" && typeof block.text === "string")
+      .map((block) => block.text)
+      .join("");
+    for (const block of blocks) {
+      if (block.type === "thinking" && typeof block.thinking === "string") options.onThinking?.(block.thinking);
+    }
+    if (text && options.onToken) options.onToken(text);
+
+    const toolCalls = blocks
+      .map((block) => anthropicToolCallFromBlock(block))
+      .filter((call): call is LLMToolCall => call !== null);
+    return {
+      content: text || null,
+      toolCalls,
+      finishReason: toolCalls.length > 0 ? "tool_calls" : (json.stop_reason ?? "stop"),
+      usage:
+        typeof json.usage?.input_tokens === "number" && typeof json.usage.output_tokens === "number"
+          ? {
+              promptTokens: json.usage.input_tokens,
+              completionTokens: json.usage.output_tokens,
+              totalTokens: json.usage.input_tokens + json.usage.output_tokens,
+            }
+          : undefined,
+    };
+  }
+
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
     const configuredMaxTokens = options.maxTokens ?? 4096;
     const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });

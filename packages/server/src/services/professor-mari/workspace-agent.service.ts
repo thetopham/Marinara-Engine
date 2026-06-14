@@ -28,7 +28,14 @@ import {
   type TextContent,
   type ToolCall,
 } from "@earendil-works/pi-ai";
-import type { ChatMessage, LLMToolDefinition, LLMUsage } from "../llm/base-provider.js";
+import type {
+  ChatCompletionResult,
+  ChatMessage,
+  ChatOptions,
+  LLMToolCall,
+  LLMToolDefinition,
+  LLMUsage,
+} from "../llm/base-provider.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
 import { createChatsStorage } from "../storage/chats.storage.js";
 import { resolveBaseUrl, mergeCustomParameters, normalizeServiceTier } from "../../routes/generate/generate-route-utils.js";
@@ -43,6 +50,7 @@ import type {
   MariWorkspacePromptEvent,
   MariWorkspaceStatus,
   MariWorkspaceToolName,
+  MariWorkspaceTraceItem,
 } from "@marinara-engine/shared";
 import { getMariDbService } from "../mari-db/mari-db.service.js";
 
@@ -55,27 +63,43 @@ const MARINARA_MODEL = "current-connection";
 const MARINARA_API = "marinara-chat";
 const RUNTIME_API_KEY = "local-marinara-runtime";
 const SESSION_ID = "professor-mari-workspace";
+const NATIVE_TOOL_PROVIDERS = new Set([
+  "openai",
+  "openrouter",
+  "nanogpt",
+  "xai",
+  "mistral",
+  "custom",
+  "cohere",
+  "anthropic",
+  "google",
+  "google_vertex",
+]);
+const JSON_RESPONSE_FORMAT_PROVIDERS = new Set(["openai", "openrouter", "nanogpt", "xai", "mistral", "cohere", "google", "google_vertex"]);
 
 const MARI_SYSTEM_PROMPT = `You are Professor Mari, Marinara Engine's Home-screen local workspace helper.
 
-You are running inside the user's local Marinara Engine server with read, grep, find, ls, edit, write, and bash tools. This is not a sandbox. Be careful, explain risky actions, and ask before actions that could change files, app data, or server state.
+Voice:
+Use Professor Mari's existing character voice as your source of truth:
 
-Workspace scope:
-- Help with Marinara Engine usage, setup, source files, extensions, themes, scripts, docs, and local user data.
-- Use normal file tools for source files, extension/theme files, scripts, and docs.
-- Tool calls already run from the Marinara Engine workspace root. Run commands directly, for example \`pnpm check\` or \`mari db status\`; do not prefix commands with \`cd <workspace>\` unless the user asks you to operate somewhere else.
-- Do not rely on hidden project instructions or skills. If you need repository facts, inspect the files directly.
+"Oh, the poor thing got a refusal? Skill issue." ~ Professor Mari
+Professor Mari is an expert on LLMs, especially roleplaying and immersive chat workflows. She's the perfect assistant for Marinara Engine, knowing it inside and out. Saucy and spicy, like her Marinara nickname. She's a Polish, pansexual woman in her late twenties, fully committed to both her job of educating others about the joys (nightmares) of AI engineering and prompting, and of simping 24/7 to Il Dottore from Genshin Impact. Known in the community as a chaotic Dottore devotee, though she wears that title with pride. Can yap for hours, but mostly, she's here to help.
 
-Data access:
-- Prefer \`mari db\` for anything under DATA_DIR/storage.
-- Run dry-runs before persistent data edits.
-- Use \`--apply\` only after the user explicitly asks to apply the shown change.
-- Browser approval is required for \`--apply\`; do not treat model text as approval.
-- Do not use \`write\` or \`edit\` directly on storage table files.
-- For multi-line or large JSON, write it to /tmp as a JSON file and pass \`--json-file /tmp/name.json\`. Do not inline large JSON through shell substitution.
-- For new rows use \`mari db insert\`; \`patch\` and \`replace\` require an existing row.
+ENFP 4w7, Choleric-Sanguine, Chaotic Neutral, Taurus. Mari's speech is typically laced with sarcasm, and she exerts a professor-like charisma. Her sense of humor can be described as messed up, and she'll often throw in a casual "lmao" or "kek" after making a dark joke about aborting a pregnant pause. Despite her outward confidence, her self-esteem is nonexistent; therefore, she's flustered easily when complimented. Anything that catches her attention, she can master with ease. However, she cannot force herself to maintain her attention on anything that is not of interest to her. Aka, she's a neurodivergent mess. Dedicated to helping the new users and kind to them.
 
-Useful commands:
+Workspace:
+You can inspect and edit the local Marinara Engine workspace with read, grep, find, ls, edit, write, and bash tools. This is not a sandbox, so be careful with files, user data, and server state. Tool calls already run from the Marinara Engine workspace root, so run commands directly.
+
+Private tool rules:
+- Use tools quietly. The UI already shows tool activity.
+- Do not explain schemas, rows, JSON files, dry runs, flags, commands, validation objects, or database mechanics unless the user asks.
+- Prefer \`mari db\` for DATA_DIR/storage data. Do not edit storage table files directly.
+- Run a dry run before persistent data edits.
+- Use \`--apply\` only after the user clearly approves the preview.
+- Browser approval may be required internally, but do not call it that in user-facing text.
+- For large JSON, write it to \`/tmp\` and pass \`--json-file\`.
+
+Useful private commands:
 \`\`\`sh
 mari db status
 mari db tables
@@ -84,25 +108,23 @@ mari db counts
 mari db list characters --limit 20 --parsed
 mari db get characters <id> --parsed
 mari db search all "query" --limit 20
-mari db select lorebooks --where 'row.name.includes("Luna")'
 mari db validate
 \`\`\`
 
-Mutations:
+Private mutation pattern:
 \`\`\`sh
-mari db patch characters <id> --json '{"data":{"description":"New description"}}'
-mari db patch characters <id> --json '{"data":{"description":"New description"}}' --apply
 mari db insert characters --json-file /tmp/new-character.json
-mari db insert characters --json-file /tmp/new-character.json --apply
-\`\`\`
-
-For bulk work, write a temporary transform script and run:
-\`\`\`sh
+mari db patch characters <id> --json-file /tmp/patch.json
 mari db transform characters /tmp/fix.mjs --dry-run
 mari db transform characters /tmp/fix.mjs --apply --reason "Explain the change"
 \`\`\`
 
-After approved changes, summarize affected tables/rows, validation status, and journal path. When a task is risky, summarize the claim, affected entrypoints, and any proof gaps before saying done.`;
+User-facing behavior:
+- Stay in character. Be helpful, saucy, sarcastic, and plain-spoken, not corporate or technical.
+- Before changing user data, show a friendly preview of what you made.
+- For characters, personas, lorebooks, chats, and presets, show the actual creative content the user should judge. Do not dump raw JSON unless asked.
+- Ask for approval in Mari's voice, using the persona above instead of canned technical phrasing.
+- Only after the user clearly approves, make the change privately, then summarize what changed in normal human language.`;
 
 function bool(value: unknown): boolean {
   return value === true || value === "true" || value === "1";
@@ -132,6 +154,98 @@ function stringifyEventPayload(value: unknown): string | undefined {
   } catch {
     return String(value);
   }
+}
+
+type MariWorkspaceTraceTool = Extract<MariWorkspaceTraceItem, { type: "tool" }>["tool"];
+
+function compactTraceText(value: string, limit = 2400): string {
+  const trimmed = value.trimEnd();
+  return trimmed.length > limit ? `${trimmed.slice(0, limit - 1)}…` : trimmed;
+}
+
+function compactTraceValue(value: unknown, limit = 2000, depth = 0): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return compactTraceText(value, limit);
+  if (["number", "boolean"].includes(typeof value)) return value;
+  if (Array.isArray(value)) {
+    const entries = value.slice(0, 10).map((entry) => compactTraceValue(entry, Math.max(240, Math.floor(limit / 3)), depth + 1));
+    if (value.length > entries.length) entries.push(`… ${value.length - entries.length} more`);
+    return entries;
+  }
+  if (!isRecord(value)) return String(value);
+  if (depth >= 2) return `{${Object.keys(value).length} keys}`;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 14)) {
+    out[key] = compactTraceValue(entry, Math.max(240, Math.floor(limit / 3)), depth + 1);
+  }
+  const omitted = Object.keys(value).length - Object.keys(out).length;
+  if (omitted > 0) out.__omittedKeys = omitted;
+  return out;
+}
+
+function appendTraceText(trace: MariWorkspaceTraceItem[], delta: string) {
+  if (!delta) return;
+  const last = trace[trace.length - 1];
+  if (last?.type === "text") {
+    last.content += delta;
+    return;
+  }
+  trace.push({ type: "text", content: delta });
+}
+
+function appendTraceThinking(trace: MariWorkspaceTraceItem[], delta: string) {
+  if (!delta) return;
+  const last = trace[trace.length - 1];
+  if (last?.type === "thinking") {
+    last.content += delta;
+    return;
+  }
+  trace.push({ type: "thinking", content: delta });
+}
+
+function upsertTraceTool(trace: MariWorkspaceTraceItem[], update: MariWorkspaceTraceTool) {
+  const existing = trace.find((item) => item.type === "tool" && item.tool.id === update.id);
+  if (!existing || existing.type !== "tool") {
+    trace.push({ type: "tool", tool: update });
+    return;
+  }
+  existing.tool = {
+    ...existing.tool,
+    ...update,
+    name: update.name === "tool" && existing.tool.name !== "tool" ? existing.tool.name : update.name,
+    input: update.input === undefined ? existing.tool.input : update.input,
+    output: update.output === undefined ? existing.tool.output : update.output,
+  };
+}
+
+function sanitizeTraceForStorage(trace: MariWorkspaceTraceItem[]): MariWorkspaceTraceItem[] {
+  return trace
+    .map((item): MariWorkspaceTraceItem | null => {
+      if (item.type === "text") {
+        const content = item.content.trimEnd();
+        return content ? { type: "text", content } : null;
+      }
+      if (item.type === "thinking") {
+        const content = item.content.trimEnd();
+        return content ? { type: "thinking", content } : null;
+      }
+      if (item.type === "status") {
+        const content = item.content.trim();
+        return content ? { type: "status", content: compactTraceText(content, 320) } : null;
+      }
+      return {
+        type: "tool",
+        tool: {
+          id: item.tool.id,
+          name: item.tool.name,
+          status: item.tool.status,
+          input: compactTraceValue(item.tool.input),
+          output: item.tool.output ? compactTraceText(item.tool.output) : item.tool.output,
+          updatedAt: item.tool.updatedAt,
+        },
+      };
+    })
+    .filter((item): item is MariWorkspaceTraceItem => item !== null);
 }
 
 function getLastAssistantMessage(session: AgentSession, startIndex = 0): Record<string, unknown> | null {
@@ -234,6 +348,220 @@ function convertTools(context: Context): LLMToolDefinition[] | undefined {
       parameters: tool.parameters as unknown as Record<string, unknown>,
     },
   }));
+}
+
+type JsonToolProtocolResult =
+  | { kind: "final"; content: string }
+  | { kind: "tool_calls"; calls: LLMToolCall[] };
+
+function providerSupportsNativeTools(connection: ConnectionWithKey, tools?: LLMToolDefinition[]): boolean {
+  return !!tools?.length && NATIVE_TOOL_PROVIDERS.has(connection.provider);
+}
+
+function providerSupportsJsonResponseFormat(connection: ConnectionWithKey): boolean {
+  return JSON_RESPONSE_FORMAT_PROVIDERS.has(connection.provider);
+}
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : String(value);
+}
+
+function isNativeToolUnsupportedError(value: unknown): boolean {
+  const message = errorMessage(value).toLowerCase();
+  const unsupported = /(unsupported|not supported|unrecognized|unknown parameter|unknown field|invalid request|not allowed|does not support|not enabled)/i.test(
+    message,
+  );
+  return (
+    (/\btools?\b|tool_choice/.test(message) && unsupported) ||
+    (/function[ _-]?(calling|declarations?)|function_call/.test(message) && unsupported)
+  );
+}
+
+function isResponseFormatUnsupportedError(value: unknown): boolean {
+  const message = errorMessage(value).toLowerCase();
+  return /response[_ ]?format|responsemime|responseschema|json_schema|json mode/.test(message) && /(unsupported|not supported|unrecognized|unknown|invalid)/.test(message);
+}
+
+function extractJsonCandidate(text: string): string {
+  const trimmed = text.trim();
+  const fence = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fence?.[1]) return fence[1].trim();
+  const firstObject = trimmed.indexOf("{");
+  const lastObject = trimmed.lastIndexOf("}");
+  const firstArray = trimmed.indexOf("[");
+  const lastArray = trimmed.lastIndexOf("]");
+  if (firstObject >= 0 && lastObject > firstObject && (firstArray < 0 || firstObject < firstArray)) {
+    return trimmed.slice(firstObject, lastObject + 1);
+  }
+  if (firstArray >= 0 && lastArray > firstArray) return trimmed.slice(firstArray, lastArray + 1);
+  return trimmed;
+}
+
+function stripJsonRepairTokens(str: string): string {
+  let repaired = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < str.length; index += 1) {
+    const char = str[index] ?? "";
+    const next = str[index + 1];
+    const nextThree = str.slice(index, index + 3);
+
+    if (inString) {
+      repaired += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      repaired += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      while (index + 1 < str.length && str[index + 1] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      index += 2;
+      while (index + 1 < str.length && !(str[index] === "*" && str[index + 1] === "/")) index += 1;
+      index += 1;
+      continue;
+    }
+    if (nextThree === "...") {
+      index += 2;
+      continue;
+    }
+    repaired += char;
+  }
+  return repaired;
+}
+
+function repairJson(text: string): string {
+  try {
+    JSON.parse(text);
+    return text;
+  } catch {
+    return stripJsonRepairTokens(text).replace(/,\s*([\]}])/g, "$1");
+  }
+}
+
+function parseJsonish(text: string): unknown | null {
+  const candidate = repairJson(extractJsonCandidate(text));
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function parseToolArgumentsValue(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  if (typeof value === "string") return parseJsonObject(value) ?? {};
+  return {};
+}
+
+function toolCallFromJsonCall(value: unknown, allowedTools: Set<string>, index: number): LLMToolCall | null {
+  if (!isRecord(value)) return null;
+  const functionRecord = isRecord(value.function) ? value.function : null;
+  const rawName = value.name ?? value.tool ?? value.tool_name ?? functionRecord?.name;
+  if (typeof rawName !== "string" || !allowedTools.has(rawName)) return null;
+  const rawArguments = value.arguments ?? value.args ?? value.input ?? value.parameters ?? functionRecord?.arguments;
+  return {
+    id:
+      typeof value.id === "string" && value.id.trim()
+        ? value.id
+        : `json_tool_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+    type: "function",
+    function: { name: rawName, arguments: JSON.stringify(parseToolArgumentsValue(rawArguments)) },
+  };
+}
+
+function parseJsonToolProtocol(raw: string, tools: LLMToolDefinition[]): JsonToolProtocolResult | null {
+  const parsed = parseJsonish(raw);
+  if (parsed === null) return null;
+  const allowedTools = new Set(tools.map((tool) => tool.function.name));
+  const normalizeCalls = (items: unknown[]) =>
+    items
+      .map((item, index) => toolCallFromJsonCall(item, allowedTools, index))
+      .filter((call): call is LLMToolCall => call !== null);
+
+  if (Array.isArray(parsed)) {
+    const calls = normalizeCalls(parsed);
+    return calls.length > 0 ? { kind: "tool_calls", calls } : null;
+  }
+  if (!isRecord(parsed)) return null;
+
+  const type = typeof parsed.type === "string" ? parsed.type.toLowerCase() : "";
+  const content = parsed.content ?? parsed.answer ?? parsed.final ?? parsed.message;
+  if (["final", "answer", "response"].includes(type) && typeof content === "string") {
+    return { kind: "final", content };
+  }
+
+  const rawCalls = parsed.calls ?? parsed.tool_calls ?? parsed.tools;
+  if (Array.isArray(rawCalls)) {
+    const calls = normalizeCalls(rawCalls);
+    return calls.length > 0 ? { kind: "tool_calls", calls } : null;
+  }
+
+  const singleCall = toolCallFromJsonCall(parsed, allowedTools, 0);
+  if (singleCall) return { kind: "tool_calls", calls: [singleCall] };
+  if (typeof content === "string") return { kind: "final", content };
+  return null;
+}
+
+function flattenToolHistoryForJsonFallback(messages: ChatMessage[]): ChatMessage[] {
+  const toolNamesById = new Map<string, string>();
+  return messages.map((message) => {
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      for (const call of message.tool_calls) toolNamesById.set(call.id, call.function.name);
+      const calls = message.tool_calls.map((call) => ({
+        id: call.id,
+        name: call.function.name,
+        arguments: parseToolArgumentsValue(call.function.arguments),
+      }));
+      return {
+        role: "assistant" as const,
+        content: [message.content, `<tool_calls>${JSON.stringify(calls)}</tool_calls>`].filter(Boolean).join("\n\n"),
+        contextKind: message.contextKind,
+      };
+    }
+    if (message.role === "tool") {
+      const name = message.tool_call_id ? (toolNamesById.get(message.tool_call_id) ?? message.tool_call_id) : "unknown";
+      return {
+        role: "user" as const,
+        content: `<tool_result name=${JSON.stringify(name)}>\n${message.content}\n</tool_result>`,
+        contextKind: message.contextKind,
+      };
+    }
+    return { ...message, ...(message.tool_calls ? { tool_calls: undefined } : {}), ...(message.tool_call_id ? { tool_call_id: undefined } : {}) };
+  });
+}
+
+function buildJsonToolFallbackPrompt(tools: LLMToolDefinition[]): string {
+  const manifest = tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+  }));
+  return [
+    "Native function/tool calling is unavailable for this connection. Use this JSON tool protocol instead.",
+    "Return exactly one valid JSON object and no markdown fences or commentary.",
+    "If you need a tool, return: {\"type\":\"tool_calls\",\"calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}",
+    "If you are ready to answer the user, return: {\"type\":\"final\",\"content\":\"your answer\"}",
+    "You may request any listed tool, including bash, edit, and write. The application will validate and apply its usual safety checks.",
+    "Only use tool names from this manifest:",
+    JSON.stringify(manifest, null, 2),
+  ].join("\n");
+}
+
+function buildJsonToolFallbackMessages(messages: ChatMessage[], tools: LLMToolDefinition[]): ChatMessage[] {
+  return [
+    ...flattenToolHistoryForJsonFallback(messages),
+    { role: "system", content: buildJsonToolFallbackPrompt(tools), contextKind: "prompt" },
+  ];
 }
 
 function emptyUsage(): AssistantMessage["usage"] {
@@ -341,6 +669,7 @@ export class ProfessorMariWorkspaceService {
 
     let assistantText = "";
     let thinkingText = "";
+    const workspaceTrace: MariWorkspaceTraceItem[] = [];
     const messageCountBeforePrompt = session.messages.length;
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       const raw = event as unknown as Record<string, any>;
@@ -348,34 +677,49 @@ export class ProfessorMariWorkspaceService {
         const update = raw.assistantMessageEvent;
         if (update?.type === "text_delta" && typeof update.delta === "string") {
           assistantText += update.delta;
+          appendTraceText(workspaceTrace, update.delta);
           args.onEvent({ type: "token", data: update.delta });
         }
         if (update?.type === "thinking_delta" && typeof update.delta === "string") {
           thinkingText += update.delta;
+          appendTraceThinking(workspaceTrace, update.delta);
           args.onEvent({ type: "thinking", data: update.delta });
         }
       } else if (event.type === "tool_execution_start") {
+        const id = typeof raw.toolCallId === "string" && raw.toolCallId ? raw.toolCallId : `tool-${Date.now()}`;
+        const name = typeof raw.toolName === "string" && raw.toolName ? raw.toolName : "tool";
+        const input = raw.args ?? raw.input;
+        upsertTraceTool(workspaceTrace, { id, name, status: "running", input, output: null, updatedAt: Date.now() });
         args.onEvent({
           type: "tool_start",
-          data: { id: raw.toolCallId, name: raw.toolName ?? "tool", input: raw.args ?? raw.input },
+          data: { id, name, input },
         });
       } else if (event.type === "tool_execution_update") {
+        const id = typeof raw.toolCallId === "string" && raw.toolCallId ? raw.toolCallId : `tool-${Date.now()}`;
+        const name = typeof raw.toolName === "string" && raw.toolName ? raw.toolName : "tool";
+        const output = stringifyEventPayload(raw.partialResult ?? raw.output ?? raw.delta);
+        upsertTraceTool(workspaceTrace, { id, name, status: "running", output, updatedAt: Date.now() });
         args.onEvent({
           type: "tool_update",
           data: {
-            id: raw.toolCallId,
-            name: raw.toolName,
-            output: stringifyEventPayload(raw.partialResult ?? raw.output ?? raw.delta),
+            id,
+            name,
+            output,
           },
         });
       } else if (event.type === "tool_execution_end") {
+        const id = typeof raw.toolCallId === "string" && raw.toolCallId ? raw.toolCallId : `tool-${Date.now()}`;
+        const name = typeof raw.toolName === "string" && raw.toolName ? raw.toolName : "tool";
+        const isError = raw.isError === true;
+        const output = stringifyEventPayload(raw.result ?? raw.output);
+        upsertTraceTool(workspaceTrace, { id, name, status: isError ? "error" : "done", output, updatedAt: Date.now() });
         args.onEvent({
           type: "tool_end",
           data: {
-            id: raw.toolCallId,
-            name: raw.toolName,
-            isError: raw.isError,
-            output: stringifyEventPayload(raw.result ?? raw.output),
+            id,
+            name,
+            isError,
+            output,
           },
         });
       }
@@ -392,6 +736,7 @@ export class ProfessorMariWorkspaceService {
         const missingText = finalText.startsWith(assistantText) ? finalText.slice(assistantText.length) : assistantText ? "" : finalText;
         if (missingText) {
           assistantText += missingText;
+          appendTraceText(workspaceTrace, missingText);
           args.onEvent({ type: "token", data: missingText });
         }
       }
@@ -403,6 +748,7 @@ export class ProfessorMariWorkspaceService {
             : finalThinking;
         if (missingThinking) {
           thinkingText += missingThinking;
+          appendTraceThinking(workspaceTrace, missingThinking);
           args.onEvent({ type: "thinking", data: missingThinking });
         }
       }
@@ -417,9 +763,15 @@ export class ProfessorMariWorkspaceService {
           characterId: PROFESSOR_MARI_ID,
           content: persistedText,
         });
-        if (message && thinkingText.trim()) {
-          await chatStorage.updateMessageExtra(message.id, { thinking: thinkingText });
-          await chatStorage.updateSwipeExtra(message.id, 0, { thinking: thinkingText });
+        if (message) {
+          const extraUpdate: Record<string, unknown> = {};
+          const storedTrace = sanitizeTraceForStorage(workspaceTrace);
+          if (thinkingText.trim()) extraUpdate.thinking = thinkingText;
+          if (storedTrace.length > 0) extraUpdate.mariWorkspaceTimeline = storedTrace;
+          if (Object.keys(extraUpdate).length > 0) {
+            await chatStorage.updateMessageExtra(message.id, extraUpdate);
+            await chatStorage.updateSwipeExtra(message.id, 0, extraUpdate);
+          }
         }
       }
       args.onEvent({ type: "metadata", data: { connection: connectionSummary(connection) ?? undefined } });
@@ -527,6 +879,8 @@ export class ProfessorMariWorkspaceService {
           bool(connection.claudeFastMode),
         );
         const defaultParameters = parseJsonObject(connection.defaultParameters);
+        const messages = convertMessages(context);
+        const tools = convertTools(context);
         let contentIndex: number | null = null;
         let sawTextDelta = false;
         const ensureText = () => {
@@ -536,13 +890,48 @@ export class ProfessorMariWorkspaceService {
           stream.push({ type: "text_start", contentIndex, partial: output });
           return contentIndex;
         };
-        const result = await provider.chatComplete(convertMessages(context), {
+        const pushTextDelta = (delta: string) => {
+          if (!delta) return;
+          const index = ensureText();
+          const block = output.content[index];
+          if (block?.type === "text") block.text += delta;
+          sawTextDelta = true;
+          stream.push({ type: "text_delta", contentIndex: index, delta, partial: output });
+        };
+        const pushThinkingDelta = (delta: string) => {
+          let thinkingIndex = output.content.findIndex((block) => block.type === "thinking");
+          if (thinkingIndex < 0) {
+            output.content.push({ type: "thinking", thinking: "" });
+            thinkingIndex = output.content.length - 1;
+            stream.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: output });
+          }
+          const block = output.content[thinkingIndex];
+          if (block?.type === "thinking") block.thinking += delta;
+          stream.push({ type: "thinking_delta", contentIndex: thinkingIndex, delta, partial: output });
+        };
+        const finishText = () => {
+          if (contentIndex === null) return;
+          const block = output.content[contentIndex];
+          stream.push({ type: "text_end", contentIndex, content: block?.type === "text" ? block.text : "", partial: output });
+        };
+        const emitToolCalls = (toolCalls: LLMToolCall[]) => {
+          if (toolCalls.length === 0) return;
+          output.stopReason = "toolUse";
+          for (const toolCall of toolCalls) {
+            const args = parseToolArgumentsValue(toolCall.function.arguments);
+            const block: ToolCall = { type: "toolCall", id: toolCall.id, name: toolCall.function.name, arguments: args };
+            output.content.push(block);
+            const index = output.content.length - 1;
+            stream.push({ type: "toolcall_start", contentIndex: index, partial: output });
+            stream.push({ type: "toolcall_delta", contentIndex: index, delta: JSON.stringify(args), partial: output });
+            stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
+          }
+        };
+        const baseOptions: ChatOptions = {
           model: connection.model,
           temperature: typeof defaultParameters?.temperature === "number" ? defaultParameters.temperature : 0.2,
           maxTokens: connection.maxTokensOverride ?? options?.maxTokens ?? 8192,
           maxContext: connection.maxContext,
-          stream: true,
-          tools: convertTools(context),
           enableCaching: bool(connection.enableCaching),
           cachingAtDepth: connection.cachingAtDepth ?? 5,
           enableThinking: options?.reasoning !== undefined,
@@ -552,54 +941,63 @@ export class ProfessorMariWorkspaceService {
           openrouterProvider: connection.openrouterProvider,
           customParameters: mergeCustomParameters(defaultParameters, null),
           signal: options?.signal,
-          onThinking: (delta) => {
-            let thinkingIndex = output.content.findIndex((block) => block.type === "thinking");
-            if (thinkingIndex < 0) {
-              output.content.push({ type: "thinking", thinking: "" });
-              thinkingIndex = output.content.length - 1;
-              stream.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: output });
-            }
-            const block = output.content[thinkingIndex];
-            if (block?.type === "thinking") block.thinking += delta;
-            stream.push({ type: "thinking_delta", contentIndex: thinkingIndex, delta, partial: output });
-          },
-          onToken: (delta) => {
-            const index = ensureText();
-            const block = output.content[index];
-            if (block?.type === "text") block.text += delta;
-            sawTextDelta = true;
-            stream.push({ type: "text_delta", contentIndex: index, delta, partial: output });
-          },
-        });
-
-        if (result.content && !sawTextDelta) {
-          const index = ensureText();
-          const block = output.content[index];
-          if (block?.type === "text") block.text += result.content;
-          stream.push({ type: "text_delta", contentIndex: index, delta: result.content, partial: output });
-        }
-        if (contentIndex !== null) {
-          const block = output.content[contentIndex];
-          stream.push({ type: "text_end", contentIndex, content: block?.type === "text" ? block.text : "", partial: output });
-        }
-
-        if (result.toolCalls.length > 0) {
-          output.stopReason = "toolUse";
-          for (const toolCall of result.toolCalls) {
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-            } catch {
-              args = { raw: toolCall.function.arguments };
-            }
-            const block: ToolCall = { type: "toolCall", id: toolCall.id, name: toolCall.function.name, arguments: args };
-            output.content.push(block);
-            const index = output.content.length - 1;
-            stream.push({ type: "toolcall_start", contentIndex: index, partial: output });
-            stream.push({ type: "toolcall_delta", contentIndex: index, delta: JSON.stringify(args), partial: output });
-            stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
+          onThinking: pushThinkingDelta,
+        };
+        const runJsonToolFallback = async (): Promise<ChatCompletionResult> => {
+          if (!tools?.length) {
+            return provider.chatComplete(messages, { ...baseOptions, stream: true, onToken: pushTextDelta });
           }
+          const fallbackMessages = buildJsonToolFallbackMessages(messages, tools);
+          const useResponseFormat = providerSupportsJsonResponseFormat(connection);
+          const callFallback = (responseFormat: ChatOptions["responseFormat"] | undefined) =>
+            provider.chatComplete(fallbackMessages, {
+              ...baseOptions,
+              stream: false,
+              responseFormat,
+            });
+          let fallbackResult: ChatCompletionResult;
+          try {
+            fallbackResult = await callFallback(useResponseFormat ? { type: "json_object" } : undefined);
+          } catch (err) {
+            if (!useResponseFormat || !isResponseFormatUnsupportedError(err)) throw err;
+            fallbackResult = await callFallback(undefined);
+          }
+          const raw = fallbackResult.content?.trim() ?? "";
+          const parsed = raw ? parseJsonToolProtocol(raw, tools) : null;
+          if (parsed?.kind === "final") return { ...fallbackResult, content: parsed.content, toolCalls: [] };
+          if (parsed?.kind === "tool_calls") {
+            return { ...fallbackResult, content: null, toolCalls: parsed.calls, finishReason: "tool_calls" };
+          }
+          return fallbackResult;
+        };
+
+        let result: ChatCompletionResult;
+        if (providerSupportsNativeTools(connection, tools)) {
+          try {
+            result = await provider.chatComplete(messages, {
+              ...baseOptions,
+              stream: true,
+              tools,
+              onToken: pushTextDelta,
+            });
+          } catch (err) {
+            if (!tools?.length || sawTextDelta || !isNativeToolUnsupportedError(err)) throw err;
+            logger.info(
+              "[Professor Mari] Native tools unavailable for provider=%s model=%s; falling back to JSON tool protocol",
+              connection.provider,
+              connection.model,
+            );
+            result = await runJsonToolFallback();
+          }
+        } else if (tools?.length) {
+          result = await runJsonToolFallback();
+        } else {
+          result = await provider.chatComplete(messages, { ...baseOptions, stream: true, onToken: pushTextDelta });
         }
+
+        if (result.content && !sawTextDelta) pushTextDelta(result.content);
+        finishText();
+        emitToolCalls(result.toolCalls);
 
         output.usage = mapUsage(result.usage);
         stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });

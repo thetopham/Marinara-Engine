@@ -23,6 +23,7 @@ import {
   type MariDbHistoryEntry,
   type MariDbPendingApproval,
   type MariWorkspaceStatus,
+  type MariWorkspaceTraceItem,
   type Message,
 } from "@marinara-engine/shared";
 import { useConnections } from "../../hooks/use-connections";
@@ -127,16 +128,26 @@ type WorkspaceToolCall = {
   id: string;
   name: string;
   status: "running" | "done" | "error";
+  input?: unknown;
   detail: string | null;
   output: string | null;
   updatedAt: number;
+};
+
+type ToolTone = "db" | "shell" | "file" | "search" | "write" | "generic";
+
+type ToolPresentation = {
+  eyebrow: string;
+  title: string;
+  detail: string | null;
+  tone: ToolTone;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-function previewValue(value: unknown, limit = 120): string | null {
+function previewValue(value: unknown, limit = 180): string | null {
   if (value == null) return null;
   let text: string;
   if (typeof value === "string") text = value;
@@ -160,6 +171,22 @@ function previewValue(value: unknown, limit = 120): string | null {
   return compact.length > limit ? `${compact.slice(0, limit - 1)}…` : compact;
 }
 
+function outputValue(value: unknown, limit = 8000): string | null {
+  if (value == null) return null;
+  let text: string;
+  if (typeof value === "string") text = value;
+  else {
+    try {
+      text = JSON.stringify(value, null, 2);
+    } catch {
+      text = String(value);
+    }
+  }
+  const trimmed = text.trimEnd();
+  if (!trimmed) return null;
+  return trimmed.length > limit ? `${trimmed.slice(0, limit - 1)}…` : trimmed;
+}
+
 function getToolCallId(data: Record<string, unknown> | null, name: string) {
   const id = data?.id;
   return typeof id === "string" && id.trim() ? id : `${name}-${Date.now()}`;
@@ -167,6 +194,23 @@ function getToolCallId(data: Record<string, unknown> | null, name: string) {
 
 function formatToolName(name: string) {
   return name.replace(/^functions\./, "").replace(/^multi_tool_use\./, "").replace(/_/g, " ");
+}
+
+function isWorkspaceTraceItem(value: unknown): value is MariWorkspaceTraceItem {
+  const record = asRecord(value);
+  if (!record || typeof record.type !== "string") return false;
+  if (["text", "thinking", "status"].includes(record.type)) return typeof record.content === "string";
+  if (record.type !== "tool") return false;
+  const tool = asRecord(record.tool);
+  return !!tool && typeof tool.id === "string" && typeof tool.name === "string" && ["running", "done", "error"].includes(String(tool.status));
+}
+
+function getMessageWorkspaceTrace(message: Message): MariWorkspaceTraceItem[] | null {
+  const extra = toMessageExtra(message);
+  const trace = extra?.mariWorkspaceTimeline;
+  if (!Array.isArray(trace)) return null;
+  const items = trace.filter(isWorkspaceTraceItem);
+  return items.length > 0 ? items : null;
 }
 
 type WorkspaceTimelineItem =
@@ -179,28 +223,37 @@ function timelineId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function timelineItemsFromTrace(trace: MariWorkspaceTraceItem[], message: Message): WorkspaceTimelineItem[] {
+  const items = trace.map((item, index): WorkspaceTimelineItem => {
+    if (item.type === "tool") {
+      return {
+        id: `${message.id}-tool-${item.tool.id || index}`,
+        type: "tool",
+        tool: {
+          id: item.tool.id || `${message.id}-${index}`,
+          name: item.tool.name || "tool",
+          status: item.tool.status === "running" ? "done" : item.tool.status,
+          input: item.tool.input,
+          detail: previewValue(item.tool.input),
+          output: item.tool.output ?? null,
+          updatedAt: item.tool.updatedAt ?? 0,
+        },
+      };
+    }
+    return { id: `${message.id}-${item.type}-${index}`, type: item.type, content: item.content };
+  });
+
+  if (!items.some((item) => item.type === "text") && message.content.trim()) {
+    items.push({ id: `${message.id}-text-fallback`, type: "text", content: message.content });
+  }
+  return items;
+}
+
 function appendTextTimeline(current: WorkspaceTimelineItem[], delta: string): WorkspaceTimelineItem[] {
   if (!delta) return current;
-  let next = [...current];
-  let forceNewText = false;
-  for (const segment of delta.split(/(\n{2,})/)) {
-    if (!segment) continue;
-    if (/^\n{2,}$/.test(segment)) {
-      const last = next[next.length - 1];
-      if (last?.type === "text") next = [...next.slice(0, -1), { ...last, content: `${last.content}${segment}` }];
-      forceNewText = true;
-      continue;
-    }
-
-    const last = next[next.length - 1];
-    if (last?.type === "text" && !forceNewText) {
-      next = [...next.slice(0, -1), { ...last, content: `${last.content}${segment}` }];
-    } else {
-      next = [...next, { id: timelineId("text"), type: "text", content: segment }];
-    }
-    forceNewText = false;
-  }
-  return next;
+  const last = current[current.length - 1];
+  if (last?.type === "text") return [...current.slice(0, -1), { ...last, content: `${last.content}${delta}` }];
+  return [...current, { id: timelineId("text"), type: "text", content: delta }];
 }
 
 function appendThinkingTimeline(current: WorkspaceTimelineItem[], delta: string): WorkspaceTimelineItem[] {
@@ -224,6 +277,7 @@ function upsertToolTimeline(current: WorkspaceTimelineItem[], update: WorkspaceT
         ...item.tool,
         ...update,
         name: update.name === "tool" && item.tool.name !== "tool" ? item.tool.name : update.name,
+        input: update.input ?? item.tool.input,
         detail: update.detail ?? item.tool.detail,
         output: update.output ?? item.tool.output,
       },
@@ -231,13 +285,170 @@ function upsertToolTimeline(current: WorkspaceTimelineItem[], update: WorkspaceT
   });
 }
 
-function ToolGlyph({ name, status }: { name: string; status: WorkspaceToolCall["status"] }) {
-  if (status === "running") return <Loader2 size="0.72rem" className="animate-spin" />;
-  if (status === "error") return <AlertTriangle size="0.72rem" />;
-  const lower = name.toLowerCase();
-  if (lower.includes("bash") || lower.includes("command")) return <Terminal size="0.72rem" />;
-  if (lower.includes("db") || lower.includes("mari")) return <Database size="0.72rem" />;
-  if (/(read|write|edit|grep|find|file)/.test(lower)) return <FileText size="0.72rem" />;
+const MARI_DB_MUTATIONS = new Set(["insert", "patch", "replace", "delete", "transform"]);
+
+function splitShellWords(command: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if ((char === '"' || char === "'") && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      continue;
+    }
+    if (!quote && /\s/.test(char)) {
+      if (current) words.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current) words.push(current);
+  return words;
+}
+
+function humanizeIdentifier(value: string | null | undefined) {
+  if (!value) return "data";
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function compactCommand(command: string, limit = 220) {
+  const compact = command.replace(/\s+/g, " ").trim();
+  return compact.length > limit ? `${compact.slice(0, limit - 1)}…` : compact;
+}
+
+function getBashCommand(tool: WorkspaceToolCall) {
+  const input = asRecord(tool.input);
+  const command = input?.command;
+  if (typeof command === "string" && command.trim()) return command.trim();
+  return null;
+}
+
+function extractMariDbCommand(command: string) {
+  const start = command.indexOf("mari db");
+  if (start < 0) return null;
+  const tokens = splitShellWords(command.slice(start));
+  if (tokens[0] !== "mari" || tokens[1] !== "db") return null;
+  const action = tokens[2] ?? "status";
+  const target = tokens.slice(3).find((token) => token && !token.startsWith("-") && !token.includes("=")) ?? null;
+  return {
+    action,
+    target,
+    apply: tokens.includes("--apply"),
+    dryRun: tokens.includes("--dry-run") || (MARI_DB_MUTATIONS.has(action) && !tokens.includes("--apply")),
+  };
+}
+
+function mariDbTitle(info: NonNullable<ReturnType<typeof extractMariDbCommand>>) {
+  const target = humanizeIdentifier(info.target);
+  switch (info.action) {
+    case "status":
+      return "Checking database status";
+    case "tables":
+      return "Listing database tables";
+    case "counts":
+      return "Counting database rows";
+    case "schema":
+      return `Reading ${target} schema`;
+    case "list":
+      return `Listing ${target}`;
+    case "get":
+      return `Reading ${target} row`;
+    case "search":
+      return `Searching ${info.target === "all" ? "all tables" : target}`;
+    case "select":
+      return `Querying ${target}`;
+    case "validate":
+      return "Validating workspace data";
+    case "insert":
+      return info.apply ? `Creating ${target}` : `Previewing new ${target}`;
+    case "patch":
+      return info.apply ? `Applying ${target} update` : `Previewing ${target} update`;
+    case "replace":
+      return info.apply ? `Replacing ${target}` : `Previewing ${target} replacement`;
+    case "delete":
+      return info.apply ? `Deleting ${target}` : `Previewing ${target} deletion`;
+    case "transform":
+      return info.apply ? `Applying ${target} transform` : `Previewing ${target} transform`;
+    default:
+      return `Running mari db ${info.action}`;
+  }
+}
+
+function mariDbDetail(info: NonNullable<ReturnType<typeof extractMariDbCommand>>) {
+  if (!info.target || ["status", "tables", "counts", "validate", "data-dir", "now", "new-id"].includes(info.action)) return null;
+  return info.target === "all" ? "all tables" : humanizeIdentifier(info.target);
+}
+
+function summarizeShellCommand(command: string) {
+  const compact = compactCommand(command, 120);
+  const words = splitShellWords(command);
+  if (words[0] === "pnpm" && words[1]) return `Running pnpm ${words[1]}`;
+  if (words[0] === "git" && words[1]) return `Running git ${words[1]}`;
+  if (words[0] === "node") return "Running node script";
+  return compact ? `$ ${compact}` : "Running shell command";
+}
+
+function inferToolPresentation(tool: WorkspaceToolCall): ToolPresentation {
+  const name = formatToolName(tool.name);
+  const command = getBashCommand(tool);
+  const mariDb = command ? extractMariDbCommand(command) : null;
+  if (command && mariDb) {
+    return {
+      eyebrow: mariDb.dryRun ? "DB preview" : "Database",
+      title: mariDbTitle(mariDb),
+      detail: mariDbDetail(mariDb),
+      tone: "db",
+    };
+  }
+
+  if (command) {
+    return {
+      eyebrow: "Shell",
+      title: summarizeShellCommand(command),
+      detail: compactCommand(command, 90),
+      tone: "shell",
+    };
+  }
+
+  const input = asRecord(tool.input);
+  const detail = previewValue(input?.path ?? input?.pattern ?? input?.query ?? input?.url ?? input?.command ?? tool.detail, 90);
+  if (/grep|find|search/i.test(name)) {
+    return { eyebrow: "Search", title: name === "grep" ? "Searching text" : "Finding files", detail, tone: "search" };
+  }
+  if (/read|file/i.test(name)) {
+    return { eyebrow: "File", title: "Reading file", detail, tone: "file" };
+  }
+  if (/write|edit/i.test(name)) {
+    return { eyebrow: "File change", title: name.includes("edit") ? "Editing file" : "Writing file", detail, tone: "write" };
+  }
+  if (name === "ls") {
+    return { eyebrow: "Files", title: "Listing folder", detail, tone: "file" };
+  }
+  return { eyebrow: "Tool", title: name, detail, tone: "generic" };
+}
+
+function ToolGlyph({ tool, tone }: { tool: WorkspaceToolCall; tone: ToolTone }) {
+  if (tool.status === "running") return <Loader2 size="0.72rem" className="animate-spin" />;
+  if (tool.status === "error") return <AlertTriangle size="0.72rem" />;
+  if (tone === "db") return <Database size="0.72rem" />;
+  if (tone === "shell") return <Terminal size="0.72rem" />;
+  if (tone === "file" || tone === "write" || tone === "search") return <FileText size="0.72rem" />;
   return <Wrench size="0.72rem" />;
 }
 
@@ -246,7 +457,7 @@ function CompactMarkdown({ content, streaming }: { content: string; streaming?: 
   if (!trimmed) return null;
   return (
     <div className="mari-message-content text-[0.8125rem] leading-relaxed text-[var(--foreground)] [&_.mari-md-codeblock]:my-2 [&_.mari-md-codeblock]:max-h-44 [&_.mari-md-heading]:mb-1 [&_.mari-md-heading]:mt-2 [&_.mari-md-ol]:my-1.5 [&_.mari-md-ul]:my-1.5">
-      {renderMarkdownBlocks(content.trimEnd(), applyInlineMarkdown, "home-mari")}
+      {renderMarkdownBlocks(trimmed, applyInlineMarkdown, "home-mari")}
       {streaming && <span className="ml-1 inline-block h-3 w-1 translate-y-0.5 rounded-full bg-[var(--primary)] opacity-80 animate-pulse" />}
     </div>
   );
@@ -268,16 +479,20 @@ function MariAvatar({ active }: { active?: boolean }) {
 function MariReasoningPanel({ thinking, live, forceOpen }: { thinking: string; live?: boolean; forceOpen?: boolean }) {
   const lineCount = Math.max(1, thinking.trim().split(/\n+/).length);
   return (
-    <details open={forceOpen || undefined} className="group text-xs text-[var(--muted-foreground)]">
-      <summary className="flex min-h-6 cursor-pointer list-none items-center gap-1.5 font-semibold marker:hidden [&::-webkit-details-marker]:hidden">
+    <details
+      open={forceOpen || live || undefined}
+      className="group overflow-hidden rounded-lg border border-[var(--border)]/70 bg-[var(--muted)]/20 text-xs text-[var(--muted-foreground)]"
+    >
+      <summary className="flex min-h-7 cursor-pointer list-none items-center gap-1.5 px-2 py-1.5 font-semibold marker:hidden [&::-webkit-details-marker]:hidden">
         <Brain size="0.72rem" className={cn("shrink-0", live ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]")} />
-        <span>Reasoning</span>
-        <span className="text-[0.625rem] font-medium opacity-70">
-          {live && forceOpen ? "live" : `${lineCount} line${lineCount === 1 ? "" : "s"}`}
+        <span className="text-[var(--foreground)]">Reasoning</span>
+        <span className="rounded-full bg-[var(--background)]/70 px-1.5 py-0.5 text-[0.58rem] font-medium uppercase tracking-[0.12em] opacity-75">
+          {live ? "live" : `${lineCount} line${lineCount === 1 ? "" : "s"}`}
         </span>
+        <span className="ml-auto text-[0.65rem] opacity-60 transition-transform group-open:rotate-90">›</span>
       </summary>
-      <pre className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap break-words py-1 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
-        {thinking}
+      <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words border-t border-[var(--border)]/50 px-2 py-2 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
+        {thinking.trimEnd()}
       </pre>
     </details>
   );
@@ -301,27 +516,40 @@ function TranscriptRow({
 }
 
 function WorkspaceToolEvent({ tool }: { tool: WorkspaceToolCall }) {
+  const presentation = inferToolPresentation(tool);
   const isError = tool.status === "error";
-  const isDone = tool.status === "done";
+
   return (
     <TranscriptRow
       marker={
         <span
           className={cn(
-            "flex h-5 w-5 items-center justify-center rounded-md",
-            isError ? "text-[var(--destructive)]" : isDone ? "text-emerald-400" : "text-[var(--primary)]",
+            "mt-0.5 flex h-5 w-5 items-center justify-center rounded-md border bg-[var(--card)] shadow-sm",
+            isError ? "border-[var(--destructive)]/40 text-[var(--destructive)]" : "border-[var(--border)]/70 text-[var(--muted-foreground)]",
           )}
         >
-          <ToolGlyph name={tool.name} status={tool.status} />
+          <ToolGlyph tool={tool} tone={presentation.tone} />
         </span>
       }
     >
-      <div className="flex min-w-0 items-center gap-1.5 py-0.5 text-[0.7rem] leading-5 text-[var(--muted-foreground)]">
-        <span className="shrink-0 font-semibold text-[var(--foreground)]">{formatToolName(tool.name)}</span>
-        <span className={cn("shrink-0", isError ? "text-[var(--destructive)]" : isDone ? "text-emerald-400" : "text-[var(--primary)]")}>
-          {isError ? "failed" : isDone ? "done" : "running"}
+      <div
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[0.7rem] leading-5 shadow-sm",
+          presentation.tone === "db"
+            ? "border-[var(--primary)]/20 bg-[var(--primary)]/10"
+            : presentation.tone === "write"
+              ? "border-amber-400/20 bg-amber-400/10"
+              : "border-[var(--border)]/70 bg-[var(--card)]/70",
+          isError && "border-[var(--destructive)]/35 bg-[var(--destructive)]/10",
+        )}
+        title={presentation.detail ?? presentation.title}
+      >
+        <span className="shrink-0 rounded-full bg-[var(--background)]/70 px-1.5 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+          {presentation.eyebrow}
         </span>
-        {(tool.detail || tool.output) && <span className="min-w-0 truncate">{tool.output ?? tool.detail}</span>}
+        <span className="min-w-0 truncate font-semibold text-[var(--foreground)]">{presentation.title}</span>
+        {presentation.detail && <span className="min-w-0 truncate text-[var(--muted-foreground)]">· {presentation.detail}</span>}
+        {isError && <span className="shrink-0 text-[0.65rem] font-semibold text-[var(--destructive)]">needs attention</span>}
       </div>
     </TranscriptRow>
   );
@@ -365,6 +593,40 @@ function WorkspaceTimelineEvent({
   return <WorkspaceStatusEvent content={item.content} />;
 }
 
+function getActiveTimelineIndex(items: WorkspaceTimelineItem[], active: boolean) {
+  if (!active) return -1;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.type === "tool" && item.tool.status === "running") return index;
+    if ((item.type === "text" || item.type === "thinking") && item.content.trim()) return index;
+  }
+  return -1;
+}
+
+function WorkspaceTimelineList({
+  items,
+  active,
+  openReasoning = true,
+}: {
+  items: WorkspaceTimelineItem[];
+  active: boolean;
+  openReasoning?: boolean;
+}) {
+  const activeIndex = getActiveTimelineIndex(items, active);
+  return (
+    <>
+      {items.map((item, index) => (
+        <WorkspaceTimelineEvent
+          key={item.id}
+          item={item}
+          active={index === activeIndex}
+          forceOpenThinking={item.type === "thinking" && openReasoning}
+        />
+      ))}
+    </>
+  );
+}
+
 function CompactMariMessage({ message, thinking }: { message: Message; thinking?: string | null }) {
   const content = message.content ?? "";
 
@@ -374,6 +636,11 @@ function CompactMariMessage({ message, thinking }: { message: Message; thinking?
         <CompactMarkdown content={content} />
       </TranscriptRow>
     );
+  }
+
+  const workspaceTrace = getMessageWorkspaceTrace(message);
+  if (workspaceTrace) {
+    return <WorkspaceTimelineList items={timelineItemsFromTrace(workspaceTrace, message)} active={false} openReasoning />;
   }
 
   return (
@@ -731,6 +998,7 @@ export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: bool
               id: getToolCallId(data, name),
               name,
               status: "running",
+              input: data?.input,
               detail: previewValue(data?.input),
               output: null,
               updatedAt: Date.now(),
@@ -746,7 +1014,7 @@ export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: bool
               name,
               status: "running",
               detail: null,
-              output: previewValue(data?.output),
+              output: outputValue(data?.output),
               updatedAt: Date.now(),
             };
             setWorkspaceTimeline((current) => upsertToolTimeline(current, toolCall));
@@ -759,7 +1027,7 @@ export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: bool
               name,
               status: isError ? "error" : "done",
               detail: null,
-              output: previewValue(data?.output),
+              output: outputValue(data?.output),
               updatedAt: Date.now(),
             };
             setWorkspaceTimeline((current) => upsertToolTimeline(current, toolCall));
@@ -884,19 +1152,7 @@ export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: bool
                   {workspaceTimeline.length === 0 && workspaceTimelineActive && (
                     <WorkspaceStatusEvent content={workspaceActivity ?? "Thinking..."} />
                   )}
-                  {workspaceTimeline.map((item, index) => {
-                    const hasLaterText = workspaceTimeline
-                      .slice(index + 1)
-                      .some((nextItem) => nextItem.type === "text" && nextItem.content.trim().length > 0);
-                    return (
-                      <WorkspaceTimelineEvent
-                        key={item.id}
-                        item={item}
-                        active={workspaceTimelineActive}
-                        forceOpenThinking={item.type === "thinking" && workspaceTimelineActive && !hasLaterText}
-                      />
-                    );
-                  })}
+                  <WorkspaceTimelineList items={workspaceTimeline} active={workspaceTimelineActive} openReasoning />
                   {workspaceStatus?.error && <WorkspaceErrorEvent message={workspaceStatus.error} />}
                   {pendingApprovals.map((approval) => (
                     <WorkspaceApprovalCard

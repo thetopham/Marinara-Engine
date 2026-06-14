@@ -4,6 +4,21 @@
 
 export type MariWorkspaceToolName = "read" | "grep" | "find" | "ls" | "edit" | "write" | "bash";
 
+export interface MariWorkspaceToolTrace {
+  id: string;
+  name: string;
+  status: "running" | "done" | "error";
+  input?: unknown;
+  output?: string | null;
+  updatedAt?: number;
+}
+
+export type MariWorkspaceTraceItem =
+  | { type: "text"; content: string }
+  | { type: "thinking"; content: string }
+  | { type: "tool"; tool: MariWorkspaceToolTrace }
+  | { type: "status"; content: string };
+
 export interface MariWorkspaceConnectionSummary {
   id: string;
   name: string;

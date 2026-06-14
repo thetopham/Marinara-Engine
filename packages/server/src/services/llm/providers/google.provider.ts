@@ -6,17 +6,27 @@ import {
   BaseLLMProvider,
   llmFetch,
   sanitizeApiError,
+  type ChatCompletionResult,
   type ChatMessage,
   type ChatOptions,
+  type LLMToolCall,
+  type LLMToolDefinition,
   type LLMUsage,
 } from "../base-provider.js";
 import { decodePossiblyCompressedBody } from "../../../utils/security.js";
 
 /** A single Gemini response part (text, thought summary, or signature-only). */
+interface GeminiFunctionCall {
+  id?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+}
+
 interface GeminiPart {
   text?: string;
   thought?: boolean;
   thoughtSignature?: string;
+  functionCall?: GeminiFunctionCall;
 }
 
 type GoogleProviderKind = "google" | "google_vertex";
@@ -150,6 +160,147 @@ function capGeminiThinkingBudget(requestedBudget: number, maxOutputTokens: numbe
   return Math.max(0, Math.min(requestedBudget, maxThinkingBudget));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseToolArguments(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeGeminiSchema(value: unknown, depth = 0): unknown {
+  if (depth > 12) return value;
+  if (Array.isArray(value)) return value.map((entry) => sanitizeGeminiSchema(entry, depth + 1));
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (["$schema", "$id", "additionalProperties", "unevaluatedProperties"].includes(key)) continue;
+    out[key] = sanitizeGeminiSchema(entry, depth + 1);
+  }
+  return out;
+}
+
+function googleResponseFormatConfig(responseFormat?: { type: string; [key: string]: unknown }): Record<string, unknown> {
+  if (!responseFormat) return {};
+  if (responseFormat.type === "json_object") return { responseMimeType: "application/json" };
+  if (responseFormat.type !== "json_schema") return {};
+  const schema =
+    responseFormat.schema ??
+    (isRecord(responseFormat.json_schema) ? responseFormat.json_schema.schema : undefined) ??
+    (isRecord(responseFormat.jsonSchema) ? responseFormat.jsonSchema.schema : undefined);
+  return {
+    responseMimeType: "application/json",
+    ...(schema ? { responseSchema: sanitizeGeminiSchema(schema) } : {}),
+  };
+}
+
+function formatGoogleTools(tools?: LLMToolDefinition[]): Array<Record<string, unknown>> | undefined {
+  if (!tools?.length) return undefined;
+  return [
+    {
+      functionDeclarations: tools.map((tool) => ({
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: sanitizeGeminiSchema(tool.function.parameters),
+      })),
+    },
+  ];
+}
+
+function imageParts(images?: string[]): Array<Record<string, unknown>> {
+  if (!images?.length) return [];
+  const parts: Array<Record<string, unknown>> = [];
+  for (const img of images) {
+    const match = img.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+  }
+  return parts;
+}
+
+function parseToolResultContent(content: string): Record<string, unknown> {
+  const trimmed = content.trim();
+  if (!trimmed) return { result: "" };
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : { result: parsed };
+  } catch {
+    return { result: content };
+  }
+}
+
+function formatGoogleContents(messages: ChatMessage[]): Array<{ role: "user" | "model"; parts: Array<Record<string, unknown>> }> {
+  const contents: Array<{ role: "user" | "model"; parts: Array<Record<string, unknown>> }> = [];
+  const toolNamesById = new Map<string, string>();
+
+  for (const message of messages) {
+    if (message.role === "system") continue;
+
+    if (message.role === "assistant" && message.providerMetadata?.geminiParts) {
+      contents.push({ role: "model", parts: message.providerMetadata.geminiParts as Array<Record<string, unknown>> });
+      continue;
+    }
+
+    if (message.role === "assistant" && message.tool_calls?.length) {
+      const parts: Array<Record<string, unknown>> = [];
+      if (message.content?.trim()) parts.push({ text: message.content });
+      for (const call of message.tool_calls) {
+        toolNamesById.set(call.id, call.function.name);
+        parts.push({ functionCall: { name: call.function.name, args: parseToolArguments(call.function.arguments) } });
+      }
+      contents.push({ role: "model", parts });
+      continue;
+    }
+
+    if (message.role === "tool") {
+      const name = message.tool_call_id ? (toolNamesById.get(message.tool_call_id) ?? "tool_result") : "tool_result";
+      contents.push({
+        role: "user",
+        parts: [{ functionResponse: { name, response: parseToolResultContent(message.content || "") } }],
+      });
+      continue;
+    }
+
+    if (message.role === "user" || message.role === "assistant") {
+      const parts = [...imageParts(message.images)];
+      if (message.content?.trim()) parts.push({ text: message.content });
+      if (parts.length > 0) contents.push({ role: message.role === "assistant" ? "model" : "user", parts });
+    }
+  }
+
+  if (contents.length === 0) contents.push({ role: "user", parts: [{ text: "Continue." }] });
+  return contents;
+}
+
+function geminiToolCallFromPart(part: GeminiPart, index: number): LLMToolCall | null {
+  const call = part.functionCall;
+  if (!call || typeof call.name !== "string") return null;
+  return {
+    id: typeof call.id === "string" && call.id.trim() ? call.id : `gemini_tool_${Date.now()}_${index}`,
+    type: "function",
+    function: { name: call.name, arguments: JSON.stringify(isRecord(call.args) ? call.args : {}) },
+  };
+}
+
+function geminiUsage(usage?: {
+  promptTokenCount: number;
+  candidatesTokenCount: number;
+  totalTokenCount: number;
+  thoughtsTokenCount?: number;
+}): LLMUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    promptTokens: usage.promptTokenCount,
+    completionTokens: usage.candidatesTokenCount,
+    totalTokens: usage.totalTokenCount,
+    completionReasoningTokens: usage.thoughtsTokenCount,
+  };
+}
+
 /**
  * Handles Google Gemini API (generateContent / streamGenerateContent).
  */
@@ -163,6 +314,118 @@ export class GoogleProvider extends BaseLLMProvider {
     private readonly providerKind: GoogleProviderKind = "google",
   ) {
     super(baseUrl, apiKey, defaultMaxContext, defaultOpenrouterProvider, maxTokensOverride);
+  }
+
+  async chatComplete(messages: ChatMessage[], options: ChatOptions): Promise<ChatCompletionResult> {
+    if (!options.tools?.length) return super.chatComplete(messages, options);
+
+    const configuredMaxTokens = options.maxTokens ?? 4096;
+    const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
+    messages = contextFit.messages;
+    this.logContextTrim(contextFit, options.model || "gemini-2.0-flash");
+    const maxTokens = contextFit.maxTokens ?? configuredMaxTokens;
+    const model = options.model || "gemini-2.0-flash";
+
+    const isGemini3 = /gemini-3/i.test(model);
+    const supportsThinking = isGemini3 || /gemini-2\.5|gemini-2\.0-flash-thinking/i.test(model);
+    let thinkingConfig: Record<string, unknown> | undefined;
+    if (supportsThinking && (options.enableThinking || options.reasoningEffort)) {
+      if (isGemini3) {
+        const levelMap = { low: "low", medium: "medium", high: "high", xhigh: "high", max: "high" } as const;
+        thinkingConfig = {
+          thinkingLevel: options.reasoningEffort ? levelMap[options.reasoningEffort] : "high",
+          includeThoughts: true,
+        };
+      } else {
+        const budgetMap = { low: 1024, medium: 8192, high: 24576, xhigh: 24576, max: 24576 } as const;
+        const requestedBudget = options.reasoningEffort ? budgetMap[options.reasoningEffort] : 8192;
+        thinkingConfig = {
+          thinkingBudget: capGeminiThinkingBudget(requestedBudget, maxTokens),
+          includeThoughts: true,
+        };
+      }
+    }
+
+    let base = normalizeGoogleBaseUrl(this.baseUrl);
+    if (this.providerKind === "google" && !/\/v\d/.test(base)) base += "/v1beta";
+    const url =
+      this.providerKind === "google_vertex"
+        ? buildGoogleVertexModelUrl(base, model, "generateContent")
+        : `${base}/models/${model}:generateContent`;
+
+    const systemMessages = messages.filter((m) => m.role === "system" && m.content?.trim());
+    const body: Record<string, unknown> = {
+      contents: formatGoogleContents(messages),
+      generationConfig: {
+        temperature: options.temperature ?? 1,
+        maxOutputTokens: maxTokens,
+        topP: options.topP ?? 1,
+        ...(typeof options.topK === "number" && Number.isFinite(options.topK)
+          ? { topK: Math.max(0, Math.trunc(options.topK)) }
+          : {}),
+        ...(options.frequencyPenalty ? { frequencyPenalty: options.frequencyPenalty } : {}),
+        ...(options.presencePenalty ? { presencePenalty: options.presencePenalty } : {}),
+        ...(thinkingConfig ? { thinkingConfig } : {}),
+        ...googleResponseFormatConfig(options.responseFormat),
+      },
+      tools: formatGoogleTools(options.tools),
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+    };
+
+    if (systemMessages.length > 0) {
+      body.systemInstruction = { parts: [{ text: systemMessages.map((m) => m.content).join("\n\n") }] };
+    }
+
+    this.applyCustomParameters(body, options);
+    const authHeaders =
+      this.providerKind === "google_vertex"
+        ? await googleAuthHeadersForVertex(this.apiKey)
+        : { "x-goog-api-key": this.apiKey };
+
+    const response = await llmFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(body),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+
+    const readDecodedText = async () => decodePossiblyCompressedBody(Buffer.from(await response.arrayBuffer())).toString("utf8");
+    if (!response.ok) {
+      const errorText = await readDecodedText();
+      const label = this.providerKind === "google_vertex" ? "Vertex AI Gemini API" : "Gemini API";
+      throw new Error(`${label} error ${response.status}: ${sanitizeApiError(errorText)}`);
+    }
+
+    const json = JSON.parse(await readDecodedText()) as {
+      candidates?: Array<{ content?: { parts?: GeminiPart[] }; finishReason?: string }>;
+      usageMetadata?: {
+        promptTokenCount: number;
+        candidatesTokenCount: number;
+        totalTokenCount: number;
+        thoughtsTokenCount?: number;
+      };
+    };
+    const candidate = json.candidates?.[0];
+    const parts = candidate?.content?.parts ?? [];
+    options.onResponseParts?.(parts);
+
+    let content = "";
+    const toolCalls: LLMToolCall[] = [];
+    for (let i = 0; i < parts.length; i += 1) {
+      const part = parts[i]!;
+      if (part.thought && part.text) options.onThinking?.(part.text);
+      else if (part.text && !part.thought) content += part.text;
+      const call = geminiToolCallFromPart(part, i);
+      if (call) toolCalls.push(call);
+    }
+    if (content && options.onToken) options.onToken(content);
+
+    return {
+      content: content || null,
+      toolCalls,
+      finishReason: toolCalls.length > 0 ? "tool_calls" : (candidate?.finishReason ?? "stop"),
+      usage: geminiUsage(json.usageMetadata),
+    };
   }
 
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
@@ -260,6 +523,7 @@ export class GoogleProvider extends BaseLLMProvider {
         ...(options.frequencyPenalty ? { frequencyPenalty: options.frequencyPenalty } : {}),
         ...(options.presencePenalty ? { presencePenalty: options.presencePenalty } : {}),
         ...(thinkingConfig ? { thinkingConfig } : {}),
+        ...googleResponseFormatConfig(options.responseFormat),
       },
     };
 

@@ -1,12 +1,23 @@
 import { spawn, spawnSync } from "node:child_process";
+import { basename } from "node:path";
 
-const SERVER_PORT = Number.parseInt(process.env.PORT ?? "", 10) || 7860;
+function parseIntegerEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const SERVER_PORT = parseIntegerEnv("PORT", 7860);
 const SERVER_HEALTH_URL = `http://127.0.0.1:${SERVER_PORT}/api/health`;
-const HEALTH_TIMEOUT_MS = Number.parseInt(process.env.DEV_SERVER_READY_TIMEOUT_MS ?? "", 10) || 120_000;
+const HEALTH_TIMEOUT_MS = parseIntegerEnv("DEV_SERVER_READY_TIMEOUT_MS", 120_000);
 
 const pnpmCliPath = process.env.npm_execpath;
-const pnpmCommand = pnpmCliPath ? process.execPath : "pnpm";
-const pnpmBaseArgs = pnpmCliPath ? [pnpmCliPath] : [];
+const npmUserAgent = process.env.npm_config_user_agent ?? "";
+const useCurrentPnpm =
+  Boolean(pnpmCliPath) && (npmUserAgent.startsWith("pnpm/") || basename(pnpmCliPath ?? "").startsWith("pnpm"));
+const pnpmCommand = useCurrentPnpm ? process.execPath : "pnpm";
+const pnpmBaseArgs = useCurrentPnpm && pnpmCliPath ? [pnpmCliPath] : [];
 const children = new Set();
 let shuttingDown = false;
 
@@ -50,7 +61,7 @@ function stopChildren(signal = "SIGTERM") {
 async function waitForServer() {
   const startedAt = Date.now();
   let lastError = null;
-  while (Date.now() - startedAt < HEALTH_TIMEOUT_MS) {
+  while (!shuttingDown && Date.now() - startedAt < HEALTH_TIMEOUT_MS) {
     try {
       const response = await fetch(SERVER_HEALTH_URL, {
         signal: AbortSignal.timeout(1_500),
@@ -61,6 +72,10 @@ async function waitForServer() {
       lastError = err;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  if (shuttingDown) {
+    throw new Error(`Server process exited before it became ready at ${SERVER_HEALTH_URL}`);
   }
 
   const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
@@ -95,5 +110,7 @@ try {
 } catch (err) {
   stopChildren();
   console.error(err instanceof Error ? err.message : err);
-  process.exitCode = 1;
+  if (process.exitCode === undefined) {
+    process.exitCode = 1;
+  }
 }

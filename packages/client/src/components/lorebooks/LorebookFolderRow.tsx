@@ -72,6 +72,10 @@ export function LorebookFolderRow({
   const deleteFolder = useDeleteLorebookFolder();
   const cloneFolder = useCloneLorebookFolder();
 
+  // The native drag is armed on this row imperatively (see the handle's onMouseDown)
+  // so a heavy re-render can't lose the race against the browser's drag threshold.
+  const rowRef = useRef<HTMLDivElement>(null);
+
   // Optimistic mirrors so toggle/rename feel snappy while the mutation flushes.
   const [localEnabled, setLocalEnabled] = useState(folder.enabled);
   const [localName, setLocalName] = useState(folder.name);
@@ -176,6 +180,7 @@ export function LorebookFolderRow({
         isDragging && "opacity-40",
         isNestTarget && "ring-2 ring-amber-400",
       )}
+      ref={rowRef}
       draggable={draggable && isDragReady}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -196,7 +201,14 @@ export function LorebookFolderRow({
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => {
             e.stopPropagation();
-            if (draggable) onDragHandleMouseDown();
+            if (draggable) {
+              // Arm the native drag synchronously so it can begin on THIS gesture.
+              // The React state flip alone (onDragHandleMouseDown) can lose the race
+              // with the browser's drag threshold on a heavy re-render (deep folder
+              // trees), leaving the folder unable to lift.
+              if (rowRef.current) rowRef.current.draggable = true;
+              onDragHandleMouseDown();
+            }
           }}
           onMouseUp={(e) => {
             e.stopPropagation();

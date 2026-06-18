@@ -4,8 +4,8 @@
 // (in edit mode) renames/deletes them. Rendered into EmojiPicker via its
 // optional `customTab` slot so the picker itself stays generic.
 // ──────────────────────────────────────────────
-import { useCallback, useRef, useState, type ChangeEvent } from "react";
-import { ImagePlus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { ImagePlus, Settings, Trash2 } from "lucide-react";
 import {
   useCustomEmojis,
   useUploadCustomEmoji,
@@ -13,7 +13,16 @@ import {
   useDeleteCustomEmoji,
 } from "../../hooks/use-custom-emojis";
 import { useConversationCustomEmojis, type ConversationCustomEmoji } from "../../hooks/use-conversation-custom-emojis";
+import { useChat, useUpdateChatMetadata } from "../../hooks/use-chats";
+import { useChatStore } from "../../stores/chat.store";
+import { parseChatMetadata } from "../../lib/chat-display";
 import { readImageDimensions, validateDimensionsForKind, slugifyCustomName } from "../../lib/custom-emoji";
+import {
+  normalizeCustomEmojiSelection,
+  CUSTOM_EMOJI_SELECTION_MIN_COUNT,
+  CUSTOM_EMOJI_SELECTION_MAX_COUNT,
+  type CustomEmojiSelectionPrefs,
+} from "@marinara-engine/shared";
 import { showPromptDialog, showConfirmDialog } from "../../lib/app-dialogs";
 import { cn } from "../../lib/utils";
 
@@ -23,9 +32,25 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
   const rename = useRenameCustomEmoji();
   const remove = useDeleteCustomEmoji();
   const { list: conversationEmojis } = useConversationCustomEmojis();
+  const activeChatId = useChatStore((s) => s.activeChatId);
+  const { data: activeChat } = useChat(activeChatId);
+  const updateMeta = useUpdateChatMetadata();
   const fileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectionPrefs = normalizeCustomEmojiSelection(parseChatMetadata(activeChat?.metadata).customEmojiSelection);
+  const [maxCountDraft, setMaxCountDraft] = useState(selectionPrefs.maxCount);
+  useEffect(() => setMaxCountDraft(selectionPrefs.maxCount), [selectionPrefs.maxCount]);
+
+  const saveSelectionPrefs = useCallback(
+    (patch: Partial<CustomEmojiSelectionPrefs>) => {
+      if (!activeChatId) return;
+      updateMeta.mutate({ id: activeChatId, customEmojiSelection: { ...selectionPrefs, ...patch } });
+    },
+    [activeChatId, selectionPrefs, updateMeta],
+  );
 
   const list = emojis ?? [];
 
@@ -121,21 +146,79 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
           <ImagePlus size="0.875rem" /> Upload
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-        {list.length > 0 && (
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => setShowSettings((v) => !v)}
+            title="Selection preferences"
+            aria-label="Selection preferences"
             className={cn(
-              "rounded-md px-2 py-1 text-xs transition-colors",
-              editing
+              "flex items-center rounded-md px-1.5 py-1 text-xs transition-colors",
+              showSettings
                 ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
                 : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
             )}
           >
-            {editing ? "Done" : "Edit"}
+            <Settings size="0.875rem" />
           </button>
-        )}
+          {list.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className={cn(
+                "rounded-md px-2 py-1 text-xs transition-colors",
+                editing
+                  ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
+                  : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
+              )}
+            >
+              {editing ? "Done" : "Edit"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {showSettings && (
+        <div className="mb-2 rounded-md bg-foreground/5 p-2 ring-1 ring-foreground/10">
+          <p className="mb-1.5 text-[0.6875rem] text-foreground/55">
+            When a character has more custom emojis than the max, how should the ones offered to the model be chosen?
+          </p>
+          <div className="mb-1.5 flex items-center gap-1">
+            {(["semantic", "random"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => saveSelectionPrefs({ mode })}
+                className={cn(
+                  "flex-1 rounded px-2 py-1 text-xs capitalize transition-colors",
+                  selectionPrefs.mode === mode
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-foreground/5 text-foreground/60 ring-1 ring-foreground/10 hover:bg-foreground/10",
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          <p className="mb-2 text-[0.625rem] text-foreground/40">
+            {selectionPrefs.mode === "semantic"
+              ? "Offers the emojis most relevant to the recent conversation (falls back to random if the local embedder is unavailable)."
+              : "Offers a random set for each reply."}
+          </p>
+          <label className="flex items-center justify-between gap-2 text-xs text-foreground/60">
+            <span>Max emojis offered</span>
+            <input
+              type="number"
+              min={CUSTOM_EMOJI_SELECTION_MIN_COUNT}
+              max={CUSTOM_EMOJI_SELECTION_MAX_COUNT}
+              value={maxCountDraft}
+              onChange={(e) => setMaxCountDraft(Number(e.target.value))}
+              onBlur={() => saveSelectionPrefs({ maxCount: maxCountDraft })}
+              className="w-16 rounded bg-foreground/5 px-2 py-1 text-right text-foreground ring-1 ring-foreground/10 focus:outline-none focus:ring-[var(--primary)]"
+            />
+          </label>
+        </div>
+      )}
 
       {error && <p className="mb-2 px-1 text-[0.6875rem] text-red-400">{error}</p>}
 

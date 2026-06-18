@@ -57,6 +57,8 @@ import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js
 import { createRegexScriptsStorage } from "../services/storage/regex-scripts.storage.js";
 import { createCustomEmojisStorage } from "../services/storage/custom-emojis.storage.js";
 import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
+import { localEmbed, isLocalEmbedderAvailable } from "../services/local-embedder.js";
+import { cosineSimilarity } from "../services/lorebook/embeddings.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
 import { resolveConversationSelfieSystemPrompt } from "../services/conversation/selfie-prompt.js";
@@ -155,7 +157,7 @@ import { extractFileText, getSourceFilePath } from "./knowledge-sources.routes.j
 import { gameStateSnapshots as gameStateSnapshotsTable } from "../db/schema/index.js";
 import { chats as chatsTable } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
-import { PROFESSOR_MARI_ID } from "@marinara-engine/shared";
+import { PROFESSOR_MARI_ID, normalizeCustomEmojiSelection, type CustomEmojiSelectionPrefs } from "@marinara-engine/shared";
 import { chunkAndEmbedMessages, embedMemoryRecallTexts } from "../services/memory-recall.js";
 import { resolveMemoryRecallEmbeddingSource } from "../services/memory-recall-embedding.js";
 import { postToDiscordWebhook } from "../services/discord-webhook.js";
@@ -759,38 +761,75 @@ async function isConversationYoutubeCommandAvailable(storage: {
   return typeof settings.youtubeApiKey === "string" && settings.youtubeApiKey.trim().length > 0;
 }
 
-const CUSTOM_EMOJI_ADVERTISEMENT_GLOBAL_CAP = 25;
-const CUSTOM_EMOJI_ADVERTISEMENT_OWN_CAP = 25;
+/** Fisher-Yates shuffle (in place); used for random emoji selection. */
+function shuffleInPlace<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = items[i]!;
+    items[i] = items[j]!;
+    items[j] = tmp;
+  }
+  return items;
+}
+
+/** Order emoji names by semantic relevance to `query` via the local embedder. Returns null when unavailable. */
+async function rankEmojiNamesBySemantic(names: string[], query: string): Promise<string[] | null> {
+  if (names.length <= 1 || !query.trim() || !isLocalEmbedderAvailable()) return null;
+  const vectors = await localEmbed([query, ...names.map((name) => name.replace(/_/g, " "))]);
+  if (!vectors || vectors.length !== names.length + 1) return null;
+  const queryVector = vectors[0]!;
+  return names
+    .map((name, index) => ({ name, score: cosineSimilarity(queryVector, vectors[index + 1]!) }))
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.name);
+}
+
+/** Order a pool of emoji names per the selection mode (does NOT cap — the formatter slices to maxCount). */
+async function orderEmojiNames(names: string[], prefs: CustomEmojiSelectionPrefs, query: string): Promise<string[]> {
+  if (names.length <= 1) return names;
+  // "tool-call" falls back to semantic until its dedicated selection path lands.
+  if (prefs.mode === "semantic" || prefs.mode === "tool-call") {
+    const ranked = await rankEmojiNamesBySemantic(names, query);
+    if (ranked) return ranked;
+  }
+  return shuffleInPlace([...names]);
+}
 
 /**
  * Build the Conversation-mode system-prompt block that tells the responding
- * character(s) which custom emojis they may use (`:name:`). A character gets the
- * global pool plus its own gallery emojis, with its own listed first (weighted
- * above global). Returns null when there are no custom emojis to advertise.
+ * character(s) which custom emojis they may use (`:name:`). A character gets its
+ * own gallery emojis first (weighted above global), then the global pool, capped
+ * at maxCount; the name pools arrive already ordered by the active selection mode.
+ * Returns null when there are no custom emojis to advertise.
  */
 function buildCustomEmojiAdvertisement(
   responders: { charId: string; name: string }[],
-  globalNames: string[],
-  ownByChar: Map<string, string[]>,
+  orderedGlobal: string[],
+  orderedOwnByChar: Map<string, string[]>,
+  maxCount: number,
 ): string | null {
-  const global = globalNames.slice(0, CUSTOM_EMOJI_ADVERTISEMENT_GLOBAL_CAP);
   const toTokens = (names: string[]) => names.map((name) => `:${name}:`).join(" ");
   const lead =
     "You can use custom emojis in your reply by writing their name between colons, e.g. :name: — they render as small inline images. Use them only where they fit naturally; do not overuse them.";
 
-  // Single responder (1:1 chats and individual-turn group mode): one merged list, own first.
+  // Single responder (1:1 chats and individual-turn group mode): own first, then global, capped to maxCount total.
   if (responders.length === 1) {
-    const own = (ownByChar.get(responders[0]!.charId) ?? []).slice(0, CUSTOM_EMOJI_ADVERTISEMENT_OWN_CAP);
-    const merged = [...own, ...global.filter((name) => !own.includes(name))];
-    if (merged.length === 0) return null;
-    return `${lead}\nBeyond the full standard emoji set, you may use these custom emojis: ${toTokens(merged)}`;
+    const merged = [...(orderedOwnByChar.get(responders[0]!.charId) ?? [])];
+    for (const name of orderedGlobal) {
+      if (merged.length >= maxCount) break;
+      if (!merged.includes(name)) merged.push(name);
+    }
+    const capped = merged.slice(0, maxCount);
+    if (capped.length === 0) return null;
+    return `${lead}\nBeyond the full standard emoji set, you may use these custom emojis: ${toTokens(capped)}`;
   }
 
-  // Multiple responders (merged group mode): shared global pool + each character's own.
+  // Multiple responders (merged group mode): shared global pool + each character's own, each capped to maxCount.
   const lines: string[] = [];
+  const global = orderedGlobal.slice(0, maxCount);
   if (global.length > 0) lines.push(`Available to everyone: ${toTokens(global)}`);
   for (const responder of responders) {
-    const own = (ownByChar.get(responder.charId) ?? []).slice(0, CUSTOM_EMOJI_ADVERTISEMENT_OWN_CAP);
+    const own = (orderedOwnByChar.get(responder.charId) ?? []).slice(0, maxCount);
     if (own.length > 0) lines.push(`${responder.name} also has: ${toTokens(own)}`);
   }
   if (lines.length === 0) return null;
@@ -2379,7 +2418,7 @@ export async function generateRoutes(app: FastifyInstance) {
 
           // ── Custom emojis: advertise the available :name: emojis to the responding character(s) ──
           if (chatMode === "conversation") {
-            const globalEmojiNames = (await customEmojisStore.list()).map((emoji) => emoji.name);
+            const allGlobalEmojiNames = (await customEmojisStore.list()).map((emoji) => emoji.name);
             const ownEmojisByChar = new Map<string, string[]>();
             for (const info of respondingConvoCharInfo) {
               const images = await characterGallery.listByCharacterId(info.charId);
@@ -2388,12 +2427,22 @@ export async function generateRoutes(app: FastifyInstance) {
                 .map((img) => img.customName as string);
               if (names.length > 0) ownEmojisByChar.set(info.charId, names);
             }
-            const emojiAdvertisement = buildCustomEmojiAdvertisement(
-              respondingConvoCharInfo,
-              globalEmojiNames,
-              ownEmojisByChar,
-            );
-            if (emojiAdvertisement) conversationSystemPrompt += "\n\n" + emojiAdvertisement;
+            if (allGlobalEmojiNames.length > 0 || ownEmojisByChar.size > 0) {
+              const emojiPrefs = normalizeCustomEmojiSelection(chatMeta.customEmojiSelection);
+              const emojiQuery = typeof input.userMessage === "string" ? input.userMessage : "";
+              const orderedGlobal = await orderEmojiNames(allGlobalEmojiNames, emojiPrefs, emojiQuery);
+              const orderedOwnByChar = new Map<string, string[]>();
+              for (const [charId, names] of ownEmojisByChar) {
+                orderedOwnByChar.set(charId, await orderEmojiNames(names, emojiPrefs, emojiQuery));
+              }
+              const emojiAdvertisement = buildCustomEmojiAdvertisement(
+                respondingConvoCharInfo,
+                orderedGlobal,
+                orderedOwnByChar,
+                emojiPrefs.maxCount,
+              );
+              if (emojiAdvertisement) conversationSystemPrompt += "\n\n" + emojiAdvertisement;
+            }
           }
 
           // ── Professor Mari: inject assistant knowledge & commands ──

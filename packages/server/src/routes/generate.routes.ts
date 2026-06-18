@@ -937,6 +937,40 @@ function buildCustomStickerAdvertisement(
   return `${lead}\nAvailable stickers (send by writing sticker:name:):\n${lines.join("\n")}`;
 }
 
+/**
+ * Build a compact reaction note for a message's prompt content so the responding
+ * character perceives who reacted to it and with what. Reactions live on
+ * `message.extra.reactions` (one `{ emoji, by[] }` entry per emoji); `emoji` is a
+ * unicode emoji or a custom-emoji token (`:name:`, already advertised separately).
+ * The note is appended to the message content (like the `[Sent a photo]` marker)
+ * and is deliberately not timestamp-shaped, so the conversation timestamp stripper
+ * leaves it intact. `resolveReactorName` maps a reactor id ("user" or a character
+ * id) to a display name. Returns "" when there is nothing to annotate.
+ */
+function buildReactionAnnotation(
+  reactions: unknown,
+  resolveReactorName: (reactorId: string) => string,
+): string {
+  if (!Array.isArray(reactions) || reactions.length === 0) return "";
+  const parts: string[] = [];
+  for (const entry of reactions as Array<{ emoji?: unknown; by?: unknown }>) {
+    const emoji = typeof entry.emoji === "string" ? entry.emoji : null;
+    const reactors = Array.isArray(entry.by)
+      ? entry.by.filter((id): id is string => typeof id === "string")
+      : [];
+    if (!emoji || reactors.length === 0) continue;
+    const names = reactors.map(resolveReactorName);
+    const who =
+      names.length === 1
+        ? names[0]!
+        : names.length === 2
+          ? `${names[0]} and ${names[1]}`
+          : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    parts.push(`${who} reacted with ${emoji}`);
+  }
+  return parts.length === 0 ? "" : `\n[${parts.join("; ")}]`;
+}
+
 export async function generateRoutes(app: FastifyInstance) {
   const isDebug = logger.isLevelEnabled("debug");
 
@@ -2034,6 +2068,21 @@ export async function generateRoutes(app: FastifyInstance) {
           const charIdToName = new Map<string, string>();
           for (let ci = 0; ci < characterIds.length; ci++) {
             if (convoCharInfo[ci]) charIdToName.set(characterIds[ci]!, convoCharInfo[ci]!.name);
+          }
+
+          // Annotate each message with its reactions so the responding character
+          // perceives who reacted and with what. finalMessages[i] is index-aligned
+          // with chatMessages[i] here (same invariant the bucket loop below relies
+          // on); the note rides on the content through the formatting that follows.
+          // "user" is the human reactor (matches the client USER_REACTOR sentinel);
+          // any other id is a character.
+          const reactorDisplayName = (reactorId: string): string =>
+            reactorId === "user" ? personaName : (charIdToName.get(reactorId) ?? "a character");
+          for (let i = 0; i < finalMessages.length; i++) {
+            const raw = chatMessages[i];
+            if (!raw) continue;
+            const note = buildReactionAnnotation(parseExtra(raw.extra).reactions, reactorDisplayName);
+            if (note) finalMessages[i]!.content += note;
           }
 
           // Separate into past-day groups and today's messages, preserving order

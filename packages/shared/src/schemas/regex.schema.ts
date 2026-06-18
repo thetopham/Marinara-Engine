@@ -13,7 +13,10 @@ export const createRegexScriptSchema = z.object({
     .string()
     .min(1)
     .refine(
-      (pattern) => isPatternSafe(pattern),
+      // Macros like {{char}}/{{user}} are resolved before the pattern is compiled
+      // at apply-time; strip them here so the static check doesn't read the macro
+      // braces as a malformed `{n,m}` quantifier and reject a legitimate pattern.
+      (pattern) => isPatternSafe(pattern.replace(/\{\{[^}]*\}\}/g, "x")),
       "Regex pattern is unsafe: it may cause catastrophic backtracking. Avoid nested quantifiers and overly long patterns.",
     ),
   replaceString: z.string().default(""),

@@ -7,7 +7,7 @@
 // ──────────────────────────────────────────────
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, Trash2 } from "lucide-react";
+import { ImagePlus, Settings, Trash2 } from "lucide-react";
 import {
   useCustomStickers,
   useUploadCustomSticker,
@@ -23,6 +23,7 @@ import { readImageDimensions, validateDimensionsForKind, slugifyCustomName } fro
 import { showPromptDialog, showConfirmDialog } from "../../lib/app-dialogs";
 import { downloadJsonFile } from "../../lib/download-json";
 import { api } from "../../lib/api-client";
+import { CustomEmojiSelectionSettings } from "./CustomEmojiSelectionSettings";
 import { cn } from "../../lib/utils";
 
 interface StickerPickerProps {
@@ -53,6 +54,7 @@ export function StickerPicker({ open, onClose, onSelect, anchorRef, containerRef
   const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [pos, setPos] = useState<{ bottom: number; right?: number; left?: number }>({ bottom: 0 });
 
   // Position the popover above the input bar (skipped when embedded).
@@ -283,19 +285,37 @@ export function StickerPicker({ open, onClose, onSelect, anchorRef, containerRef
           className="hidden"
           onChange={handleImportFile}
         />
-        <button
-          type="button"
-          onClick={() => setEditing((v) => !v)}
-          className={cn(
-            "rounded-md px-2 py-1 text-xs transition-colors",
-            editing
-              ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
-              : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
-          )}
-        >
-          {editing ? "Done" : "Edit"}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setShowSettings((v) => !v)}
+            title="Selection preferences"
+            aria-label="Selection preferences"
+            className={cn(
+              "flex items-center rounded-md px-1.5 py-1 text-xs transition-colors",
+              showSettings
+                ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
+                : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
+            )}
+          >
+            <Settings size="0.875rem" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className={cn(
+              "rounded-md px-2 py-1 text-xs transition-colors",
+              editing
+                ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
+                : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
+            )}
+          >
+            {editing ? "Done" : "Edit"}
+          </button>
+        </div>
       </div>
+
+      {showSettings && <CustomEmojiSelectionSettings />}
 
       {error && <p className="px-3 py-1.5 text-[0.6875rem] text-red-400">{error}</p>}
 

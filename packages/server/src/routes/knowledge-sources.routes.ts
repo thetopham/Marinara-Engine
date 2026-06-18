@@ -143,6 +143,10 @@ export async function extractFileText(
   if (fileId && metadata) {
     const cached = textCache.get(fileId);
     if (cached && cached.size === metadata.size && cached.uploadedAt === metadata.uploadedAt) {
+      // Refresh recency so eviction is LRU, not FIFO: re-inserting moves this id
+      // to the end of the Map (same entry, so the char count is unchanged).
+      textCache.delete(fileId);
+      textCache.set(fileId, cached);
       return cached.text;
     }
   }

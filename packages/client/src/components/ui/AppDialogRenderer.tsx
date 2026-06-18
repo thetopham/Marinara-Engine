@@ -57,6 +57,15 @@ export function AppDialogRenderer() {
               resolveActiveDialog(promptValue);
             }}
           >
+            {dialog.previewImageUrl && (
+              <div className="flex justify-center">
+                <img
+                  src={dialog.previewImageUrl}
+                  alt="Preview"
+                  className="max-h-24 max-w-[8rem] rounded-md object-contain ring-1 ring-[var(--border)]"
+                />
+              </div>
+            )}
             <input
               ref={promptInputRef}
               value={promptValue}

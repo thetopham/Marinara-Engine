@@ -41,6 +41,7 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
   const [editing, setEditing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const selectionPrefs = normalizeCustomEmojiSelection(parseChatMetadata(activeChat?.metadata).customEmojiSelection);
   const [maxCountDraft, setMaxCountDraft] = useState(selectionPrefs.maxCount);
@@ -66,40 +67,59 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
   }
   const sourceGroups = [...bySource.entries()];
 
-  const handleFile = useCallback(
+  // Search filter (by emoji name) over the global pool and each source group.
+  const q = query.trim().toLowerCase();
+  const filteredGlobal = q ? list.filter((emoji) => emoji.name.toLowerCase().includes(q)) : list;
+  const filteredGroups: [string, ConversationCustomEmoji[]][] = q
+    ? sourceGroups
+        .map(
+          ([source, emojis]) =>
+            [source, emojis.filter((emoji) => emoji.name.toLowerCase().includes(q))] as [
+              string,
+              ConversationCustomEmoji[],
+            ],
+        )
+        .filter(([, emojis]) => emojis.length > 0)
+    : sourceGroups;
+
+  const handleFiles = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+      const files = Array.from(event.target.files ?? []);
       event.target.value = "";
-      if (!file) return;
+      if (files.length === 0) return;
       setError(null);
 
-      const objectUrl = URL.createObjectURL(file);
-      try {
-        const { width, height } = await readImageDimensions(objectUrl);
-        const valid = validateDimensionsForKind(width, height, "emoji");
-        if (!valid.ok) {
-          setError(valid.reason);
-          return;
+      // Name and upload each file one at a time, previewing the image in the name dialog.
+      for (const file of files) {
+        const objectUrl = URL.createObjectURL(file);
+        try {
+          const { width, height } = await readImageDimensions(objectUrl);
+          const valid = validateDimensionsForKind(width, height, "emoji");
+          if (!valid.ok) {
+            setError(valid.reason);
+            continue;
+          }
+          const suggested = slugifyCustomName(file.name.replace(/\.[^.]+$/, ""));
+          const raw = await showPromptDialog({
+            title: "Name this emoji",
+            message: "Use it in messages as :name: — lowercase letters, numbers, and underscores.",
+            defaultValue: suggested,
+            placeholder: "e.g. kekw",
+            confirmLabel: "Add",
+            previewImageUrl: objectUrl,
+          });
+          if (raw == null) continue; // skipped this one — keep going through the rest
+          const name = slugifyCustomName(raw);
+          if (!name) {
+            setError("Enter a valid name (letters, numbers, or underscores).");
+            continue;
+          }
+          await upload.mutateAsync({ file, name, width, height });
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to add emoji.");
+        } finally {
+          URL.revokeObjectURL(objectUrl);
         }
-        const suggested = slugifyCustomName(file.name.replace(/\.[^.]+$/, ""));
-        const raw = await showPromptDialog({
-          title: "Name this emoji",
-          message: "Use it in messages as :name: — lowercase letters, numbers, and underscores.",
-          defaultValue: suggested,
-          placeholder: "e.g. kekw",
-          confirmLabel: "Add",
-        });
-        if (raw == null) return;
-        const name = slugifyCustomName(raw);
-        if (!name) {
-          setError("Enter a valid name (letters, numbers, or underscores).");
-          return;
-        }
-        await upload.mutateAsync({ file, name, width, height });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to add emoji.");
-      } finally {
-        URL.revokeObjectURL(objectUrl);
       }
     },
     [upload],
@@ -147,7 +167,7 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
         >
           <ImagePlus size="0.875rem" /> Upload
         </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -179,6 +199,16 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
           )}
         </div>
       </div>
+
+      {(list.length > 0 || sourceGroups.length > 0) && (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search emojis..."
+          className="mb-2 w-full rounded-md bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground ring-1 ring-foreground/10 placeholder:text-foreground/40 focus:outline-none focus:ring-[var(--primary)]"
+        />
+      )}
 
       {showSettings && (
         <div className="mb-2 rounded-md bg-foreground/5 p-2 ring-1 ring-foreground/10">
@@ -247,21 +277,27 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
 
       {error && <p className="mb-2 px-1 text-[0.6875rem] text-red-400">{error}</p>}
 
-      {list.length === 0 && sourceGroups.length === 0 ? (
+      {filteredGlobal.length === 0 && filteredGroups.length === 0 ? (
         <p className="px-1 py-6 text-center text-[0.6875rem] text-foreground/45">
-          No custom emojis yet. Upload one (max 256×256) to use it as <span className="font-mono">:name:</span>.
+          {q ? (
+            <>No custom emojis match “{query.trim()}”.</>
+          ) : (
+            <>
+              No custom emojis yet. Upload one (max 256×256) to use it as <span className="font-mono">:name:</span>.
+            </>
+          )}
         </p>
       ) : (
         <>
-          {list.length > 0 && (
+          {filteredGlobal.length > 0 && (
             <>
-              {sourceGroups.length > 0 && (
+              {filteredGroups.length > 0 && (
                 <p className="mb-1 px-1 text-[0.625rem] font-semibold uppercase tracking-wide text-foreground/40">
                   Global
                 </p>
               )}
               <div className="grid grid-cols-6 gap-1">
-                {list.map((emoji) => (
+                {filteredGlobal.map((emoji) => (
                   <div key={emoji.id} className="group relative">
                     <button
                       type="button"
@@ -287,7 +323,7 @@ export function CustomEmojiTab({ onInsert }: { onInsert: (token: string) => void
             </>
           )}
 
-          {sourceGroups.map(([source, sourceEmojis]) => (
+          {filteredGroups.map(([source, sourceEmojis]) => (
             <div key={source} className="mt-2">
               <p className="mb-1 px-1 text-[0.625rem] font-semibold uppercase tracking-wide text-foreground/40">
                 {source}

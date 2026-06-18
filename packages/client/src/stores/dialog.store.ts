@@ -24,6 +24,8 @@ export type PromptDialogState = AppDialogCommon & {
   kind: "prompt";
   defaultValue?: string;
   placeholder?: string;
+  /** Optional image shown above the input (e.g. a preview of the emoji being named). */
+  previewImageUrl?: string;
 };
 
 export type AppDialogState = AlertDialogState | ConfirmDialogState | PromptDialogState;

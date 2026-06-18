@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, readSync, statSync } from "node:fs";
 import { copyFile, open, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "../lib/logger.js";
 import { getFileStorageDir } from "../config/runtime-config.js";
 import * as schema from "./schema/index.js";
@@ -810,6 +811,12 @@ class FileTableStore {
   private migratedFromSqlite: TableSnapshotManifest["migratedFromSqlite"];
   private legacyRepair: TableSnapshotManifest["legacyRepair"];
   private loadedManifest: TableSnapshotManifest | null = null;
+  // Rollback state for the active transaction lives in this AsyncLocalStorage so
+  // it is bound to the transaction's own async call path. A concurrent
+  // non-transactional write that interleaves during an await runs OUTSIDE this
+  // context and is therefore never recorded — so it survives a rollback. See
+  // transaction() / recordTxMutation().
+  private readonly txContext = new AsyncLocalStorage<{ snapshots: Map<string, Row[]>; dirtyTables: Set<string> }>();
 
   constructor(
     private readonly rootDir: string,
@@ -846,20 +853,49 @@ class FileTableStore {
   }
 
   async transaction<T>(fn: (tx: FileNativeDB) => Promise<T> | T, tx: FileNativeDB): Promise<T> {
-    const tableSnapshot = new Map<string, Row[]>(
-      Array.from(this.tables, ([table, rows]) => [table, rows.map((row) => ({ ...row }))]),
-    );
+    // Copy-on-write rollback, isolated to this transaction's async context:
+    // instead of cloning every table up front (O(total rows) per call, on the
+    // per-turn setMemories hot path) and restoring the whole map on throw (which
+    // also dropped concurrent writes), snapshot each table only on its first
+    // mutation by THIS transaction and restore only those. Mutations made on
+    // other async call paths (concurrent non-transactional writes) run outside
+    // the context, are never recorded, and so survive a rollback.
+    if (this.txContext.getStore()) {
+      // Nested call: run inside the outer transaction's context so the whole
+      // nest rolls back together; the outermost owns snapshot/restore.
+      return await fn(tx);
+    }
+    const ctx = { snapshots: new Map<string, Row[]>(), dirtyTables: new Set<string>() };
     const dirtySnapshot = this.dirty;
     const dirtyTablesSnapshot = new Set(this.dirtyTables);
 
     try {
-      return await fn(tx);
+      return await this.txContext.run(ctx, () => fn(tx));
     } catch (err) {
-      this.tables = tableSnapshot;
+      for (const tableName of ctx.dirtyTables) {
+        const snapshot = ctx.snapshots.get(tableName);
+        if (snapshot) this.tables.set(tableName, snapshot);
+      }
       this.dirty = dirtySnapshot;
       this.dirtyTables = dirtyTablesSnapshot;
       throw err;
     }
+  }
+
+  /**
+   * Snapshot a table's current rows the first time the active transaction mutates
+   * it, so a rollback can restore just that table. No-op outside a transaction
+   * context (so concurrent non-transactional writes are not captured) or after
+   * the table has already been snapshotted this transaction. Must be called
+   * BEFORE the in-place mutation so the snapshot captures the pre-mutation state.
+   */
+  private recordTxMutation(tableName: string) {
+    const ctx = this.txContext.getStore();
+    if (!ctx) return;
+    if (ctx.dirtyTables.has(tableName)) return;
+    const currentRows = this.tables.get(tableName);
+    ctx.snapshots.set(tableName, currentRows ? currentRows.map((row) => ({ ...row })) : []);
+    ctx.dirtyTables.add(tableName);
   }
 
   select(projection?: Projection): SelectFromBuilder {
@@ -877,6 +913,7 @@ class FileTableStore {
             const conflictColumns = normalizeConflictTargets(onConflict?.target);
             const inputRows = Array.isArray(rows) ? rows : [rows];
             const target = this.rows(meta.name);
+            this.recordTxMutation(meta.name);
             for (const input of inputRows) {
               const row = prepareInsertRow(meta, input);
               const duplicateIndex = findDuplicateIndex(meta, target, row, conflictColumns);
@@ -917,6 +954,9 @@ class FileTableStore {
             target.forEach((row, index) => {
               const ctx = this.contextForRow(meta, row, index);
               if (!evaluateCondition(condition, ctx)) return;
+              // Snapshot lazily, just before the first actual row mutation, so an
+              // update whose WHERE matches nothing never clones the table.
+              this.recordTxMutation(meta.name);
               for (const [key, value] of Object.entries(patch)) {
                 const column = meta.byKey.get(key) ?? meta.byDbName.get(key);
                 row[column?.key ?? key] = resolveValue(value, ctx);
@@ -1027,6 +1067,7 @@ class FileTableStore {
       }
     });
     if (deleted.length === 0) return;
+    this.recordTxMutation(meta.name);
     this.tables.set(meta.name, kept);
     this.markDirty(meta.name);
     this.applyCascades(meta.name as FileBackedTable, deleted);

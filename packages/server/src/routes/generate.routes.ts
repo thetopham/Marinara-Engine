@@ -3905,8 +3905,8 @@ export async function generateRoutes(app: FastifyInstance) {
                 try {
                   const sourceInfo = await getSourceFilePath(fileId);
                   if (!sourceInfo) continue;
-                  const { filePath, originalName } = sourceInfo;
-                  const text = await extractFileText(filePath);
+                  const { filePath, originalName, size, uploadedAt } = sourceInfo;
+                  const text = await extractFileText(filePath, fileId, { size, uploadedAt });
                   if (text.trim()) {
                     materialParts.push(`## File: ${originalName}\n${text}`);
                   }

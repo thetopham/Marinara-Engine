@@ -376,6 +376,29 @@ export function sanitizeProfileTableRows(tableName: string, rows: Array<Record<s
   return rows;
 }
 
+// Secret-bearing columns to omit on the conflict-UPDATE path so an existing row
+// keeps its stored secret (Drizzle leaves an unmentioned column untouched); only
+// the fresh-insert path carries the export's redacted values. For
+// api_connections/custom_tools the export blanks the whole column; for
+// agent_configs the export redacts secret keys *inside* the settings JSON, so we
+// omit the entire settings column on update rather than overwrite live secrets
+// with the redacted blob (an existing row's non-secret settings are left as-is).
+const REDACTED_UPDATE_COLUMNS: Record<string, string> = {
+  api_connections: "apiKeyEncrypted",
+  agent_configs: "settings",
+  custom_tools: "webhookUrl",
+};
+
+export function buildProfileUpdateSet(
+  tableName: string,
+  cleanRow: Record<string, unknown>,
+): Record<string, unknown> {
+  const updateSet: Record<string, unknown> = { ...cleanRow };
+  const secretColumn = REDACTED_UPDATE_COLUMNS[tableName];
+  if (secretColumn) delete updateSet[secretColumn];
+  return updateSet;
+}
+
 async function buildProfileTableSnapshot(app: FastifyInstance): Promise<ProfileTableSnapshots> {
   const tables: ProfileTableSnapshots = {};
 
@@ -648,7 +671,10 @@ async function importProfileStorageSnapshot(
       if (tableName === "api_connections") cleanRow.apiKeyEncrypted = "";
       const insert = app.db.insert(table as any).values(cleanRow as any) as any;
       if (primaryKey) {
-        await insert.onConflictDoUpdate({ target: primaryKey, set: cleanRow });
+        // Preserve live secrets on rows that still exist: the export redacts secret
+        // columns, so upserting the blanks would wipe them unrecoverably. The fresh
+        // insert above still carries the blanks (no prior secret to keep).
+        await insert.onConflictDoUpdate({ target: primaryKey, set: buildProfileUpdateSet(tableName, cleanRow) });
       } else {
         await insert;
       }

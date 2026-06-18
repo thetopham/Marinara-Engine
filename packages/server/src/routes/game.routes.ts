@@ -96,6 +96,7 @@ import {
   scoreMusic,
   scoreAmbient,
   serializeResolvedSkillCheckTag,
+  parseTrackerFieldLocks,
 } from "@marinara-engine/shared";
 import { mergeCustomParameters } from "./generate/generate-route-utils.js";
 import {
@@ -4113,8 +4114,7 @@ export async function gameRoutes(app: FastifyInstance) {
       return;
     }
 
-    await chats.updateMetadata(chatId, {
-      ...meta,
+    await chats.patchMetadata(chatId, (freshMeta) => ({
       ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
       gamePartyCharacterIds: syncedPartyIds,
       gameSessionNumber: sessionNumber,
@@ -4122,10 +4122,13 @@ export async function gameRoutes(app: FastifyInstance) {
       gameStoryArc: appliedConclusion.updatedStoryArc,
       gamePlotTwists: appliedConclusion.updatedPlotTwists,
       gamePartyArcs: appliedConclusion.updatedPartyArcs,
-      gamePreviousSessionSummaries: [...prevSummaries, appliedConclusion.summary],
+      gamePreviousSessionSummaries: [
+        ...normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries),
+        appliedConclusion.summary,
+      ],
       gameCharacterCards: appliedConclusion.updatedCards,
-      ...buildMoraleMetadataUpdates(meta, appliedConclusion.updatedMorale),
-    });
+      ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+    }));
 
     const sessionSummaryMsg = await chats.createMessage({
       chatId,
@@ -4239,8 +4242,7 @@ export async function gameRoutes(app: FastifyInstance) {
       return;
     }
 
-    await chats.updateMetadata(chatId, {
-      ...meta,
+    await chats.patchMetadata(chatId, (freshMeta) => ({
       ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
       gamePartyCharacterIds: syncedPartyIds,
       gameSessionNumber: sessionNumber,
@@ -4248,10 +4250,13 @@ export async function gameRoutes(app: FastifyInstance) {
       gameStoryArc: appliedConclusion.updatedStoryArc,
       gamePlotTwists: appliedConclusion.updatedPlotTwists,
       gamePartyArcs: appliedConclusion.updatedPartyArcs,
-      gamePreviousSessionSummaries: [...prevSummaries, appliedConclusion.summary],
+      gamePreviousSessionSummaries: [
+        ...normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries),
+        appliedConclusion.summary,
+      ],
       gameCharacterCards: appliedConclusion.updatedCards,
-      ...buildMoraleMetadataUpdates(meta, appliedConclusion.updatedMorale),
-    });
+      ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+    }));
 
     const summaryContent = `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`;
     await chats.createMessage({
@@ -5078,12 +5083,11 @@ export async function gameRoutes(app: FastifyInstance) {
 
     const updatedChatCharacterIds = updatedPartyIds.filter((id) => !isPartyNpcId(id));
     await chats.update(chat.id, { characterIds: updatedChatCharacterIds });
-    const updatedSession = await chats.updateMetadata(chat.id, {
-      ...meta,
+    const updatedSession = await chats.patchMetadata(chat.id, () => ({
       gameSetupConfig: updatedSetupConfig,
       gamePartyCharacterIds: updatedPartyIds,
       gameCharacterCards: updatedCards,
-    });
+    }));
     if (!updatedSession) throw new Error("Failed to update game session");
 
     return {
@@ -5296,7 +5300,7 @@ export async function gameRoutes(app: FastifyInstance) {
     const currentMorale = (meta.gameMorale as number) ?? 50;
     const result = applyMoraleEvent(currentMorale, input.event as MoraleEvent);
 
-    await chats.updateMetadata(input.chatId, { ...meta, ...buildMoraleMetadataUpdates(meta, result.value) });
+    await chats.patchMetadata(input.chatId, (freshMeta) => buildMoraleMetadataUpdates(freshMeta, result.value));
 
     return { morale: result };
   });
@@ -5313,7 +5317,7 @@ export async function gameRoutes(app: FastifyInstance) {
     const currentState = (meta.gameActiveState as GameActiveState) || "exploration";
     const validatedState = validateTransition(currentState, newState);
 
-    await chats.updateMetadata(chatId, { ...meta, gameActiveState: validatedState });
+    await chats.patchMetadata(chatId, () => ({ gameActiveState: validatedState }));
 
     // Push OOC influence for combat transitions (exciting events)
     if (validatedState === "combat" && chat.connectedChatId) {
@@ -5871,7 +5875,7 @@ export async function gameRoutes(app: FastifyInstance) {
         break;
     }
 
-    await chats.updateMetadata(chatId, { ...meta, gameJournal: journal });
+    await chats.patchMetadata(chatId, () => ({ gameJournal: journal }));
 
     return { journal };
   });
@@ -5902,8 +5906,7 @@ export async function gameRoutes(app: FastifyInstance) {
     const chat = await chats.getById(req.params.chatId);
     if (!chat) throw new Error("Chat not found");
 
-    const meta = parseMeta(chat.metadata);
-    await chats.updateMetadata(req.params.chatId, { ...meta, gamePlayerNotes: notes });
+    await chats.patchMetadata(req.params.chatId, () => ({ gamePlayerNotes: notes }));
 
     return { ok: true };
   });
@@ -5916,22 +5919,22 @@ export async function gameRoutes(app: FastifyInstance) {
     const chat = await chats.getById(req.params.chatId);
     if (!chat) throw new Error("Chat not found");
 
-    const meta = parseMeta(chat.metadata);
-    const setupConfig = (meta.gameSetupConfig as GameSetupConfig | null) ?? null;
     const enableCustomWidgets = widgets.length > 0;
-    await chats.updateMetadata(req.params.chatId, {
-      ...meta,
-      gameWidgetState: widgets,
-      enableCustomWidgets,
-      ...(setupConfig
-        ? {
-            gameSetupConfig: {
-              ...setupConfig,
-              enableCustomWidgets,
-              customHudWidgets: widgets.length > 0 ? widgets : undefined,
-            },
-          }
-        : {}),
+    await chats.patchMetadata(req.params.chatId, (freshMeta) => {
+      const setupConfig = (freshMeta.gameSetupConfig as GameSetupConfig | null) ?? null;
+      return {
+        gameWidgetState: widgets,
+        enableCustomWidgets,
+        ...(setupConfig
+          ? {
+              gameSetupConfig: {
+                ...setupConfig,
+                enableCustomWidgets,
+                customHudWidgets: widgets.length > 0 ? widgets : undefined,
+              },
+            }
+          : {}),
+      };
     });
 
     return { ok: true };
@@ -7701,29 +7704,37 @@ export async function gameRoutes(app: FastifyInstance) {
     });
     if (!restoreMsg) throw new Error("Failed to create restore message");
 
-    // Clone the snapshot state onto the new message
-    await stateStore.create({
-      chatId: input.chatId,
-      messageId: restoreMsg.id,
-      swipeIndex: 0,
-      date: snapshot.date,
-      time: snapshot.time,
-      location: snapshot.location,
-      weather: snapshot.weather,
-      temperature: snapshot.temperature,
-      presentCharacters: JSON.parse((snapshot.presentCharacters as string) ?? "[]"),
-      recentEvents: JSON.parse((snapshot.recentEvents as string) ?? "[]"),
-      playerStats: snapshot.playerStats ? JSON.parse(snapshot.playerStats as string) : null,
-      personaStats: snapshot.personaStats ? JSON.parse(snapshot.personaStats as string) : null,
-      committed: true,
-    });
+    // Clone the snapshot state onto the new message, preserving tracker field
+    // locks and manual overrides so they keep protecting fields after a restore.
+    // Tolerant parse: malformed JSON must not throw after the restore message is
+    // already created, and an object value (not a string) must not be dropped.
+    const manualOverrides = parseJsonField<Record<string, string> | null>(snapshot.manualOverrides, null);
+    await stateStore.create(
+      {
+        chatId: input.chatId,
+        messageId: restoreMsg.id,
+        swipeIndex: 0,
+        date: snapshot.date,
+        time: snapshot.time,
+        location: snapshot.location,
+        weather: snapshot.weather,
+        temperature: snapshot.temperature,
+        presentCharacters: parseJsonField(snapshot.presentCharacters, []),
+        recentEvents: parseJsonField(snapshot.recentEvents, []),
+        playerStats: parseJsonField(snapshot.playerStats, null),
+        personaStats: parseJsonField(snapshot.personaStats, null),
+        fieldLocks: parseTrackerFieldLocks(snapshot.fieldLocks),
+        committed: true,
+      },
+      manualOverrides,
+    );
 
     // Restore chat metadata fields from checkpoint
     const chat = await chats.getById(input.chatId);
-    if (chat) {
-      const meta = parseMeta(chat.metadata);
-      if (cp.gameState) meta.gameActiveState = cp.gameState as GameActiveState;
-      await chats.updateMetadata(input.chatId, meta);
+    if (chat && cp.gameState) {
+      await chats.patchMetadata(input.chatId, () => ({
+        gameActiveState: cp.gameState as GameActiveState,
+      }));
     }
 
     return { ok: true, messageId: restoreMsg.id };

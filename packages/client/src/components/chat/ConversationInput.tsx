@@ -1234,6 +1234,8 @@ export function ConversationInput({
       const value = el.value;
       el.value = value.slice(0, start) + emoji + value.slice(end);
       el.selectionStart = el.selectionEnd = start + emoji.length;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
       syncInputState(el.value);
       if (activeChatId) setInputDraft(activeChatId, el.value);
       el.focus();
@@ -1257,6 +1259,10 @@ export function ConversationInput({
       el.value = before + insertText + after;
       const cursor = before.length + insertText.length;
       el.selectionStart = el.selectionEnd = cursor;
+      // Grow the textarea now — programmatic value changes don't fire the input-event auto-resize,
+      // so without this the newline'd sticker line stays hidden until the user types.
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
       syncInputState(el.value);
       if (activeChatId) setInputDraft(activeChatId, el.value);
       el.focus();

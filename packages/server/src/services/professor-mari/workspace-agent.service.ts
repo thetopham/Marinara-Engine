@@ -140,6 +140,7 @@ Command families:
 - \`mari db\`: generic live app data and storage-backed rows, including customization tables such as \`agent_configs\`, \`custom_tools\`, and \`installed_extensions\` when no narrower helper exists.
 - \`mari themes\`: synced custom themes and active theme state. Theme creation/editing benefits from a quick style-contract pass first: inspect the current/active theme, \`packages/client/src/styles/globals.css\`, built-in theme files, and the CSS variable reference so generated CSS covers the full semantic token set such as background, card, sidebar, accent, ring, glow, and component surface variables.
 - \`mari images\`: image-generation connections, HITL image prompt previews, generated/edited preview assets, and assignment/deletion for avatars, personas, lorebooks, sprites, backgrounds, and galleries.
+- \`mari wiki\`: read-only Fandom/MediaWiki discovery and page reads. Use \`mari wiki --help\` to find wikis, search pages, read summaries/source/sections, list categories, and search within a page.
 - \`mari characters\`, \`mari personas\`, \`mari lorebooks\`, \`mari presets\`: common creative app data helpers when available; otherwise use \`mari db\` for their storage-backed records.
 - \`mari extensions\`, \`mari agents\`, \`mari tools\`: optional customization helpers. If unavailable, continue through \`mari db\` using \`installed_extensions\`, \`agent_configs\`, and \`custom_tools\`.
 - \`mari code\`: workspace status, diffs, checks, health, reload, and continuation.

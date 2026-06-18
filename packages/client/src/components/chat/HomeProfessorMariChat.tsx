@@ -8,13 +8,16 @@ import {
   Database,
   FileUp,
   FileText,
+  ImageIcon,
   Link,
   Loader2,
+  Palette,
   PanelRightClose,
   PanelRightOpen,
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
   ShieldAlert,
   Square,
@@ -168,7 +171,7 @@ type WorkspaceToolCall = {
   updatedAt: number;
 };
 
-type ToolTone = "db" | "shell" | "file" | "search" | "write" | "generic";
+type ToolTone = "db" | "shell" | "file" | "search" | "write" | "theme" | "image" | "wiki" | "skill" | "generic";
 
 type ToolPresentation = {
   eyebrow: string;
@@ -373,12 +376,40 @@ function getBashCommand(tool: WorkspaceToolCall) {
   return null;
 }
 
+function shellTokenBasename(token: string) {
+  const clean = token.trim().replace(/^["']|["']$/g, "");
+  const parts = clean.split(/[\\/]/);
+  return parts[parts.length - 1]?.toLowerCase() ?? "";
+}
+
+function isMariExecutableToken(token: string) {
+  return /^(?:mari|mari\.(?:cmd|ps1|exe))$/i.test(shellTokenBasename(token));
+}
+
+function getMariTokens(command: string): string[] | null {
+  const tokens = splitShellWords(command);
+  const start = tokens.findIndex(isMariExecutableToken);
+  return start >= 0 ? tokens.slice(start) : null;
+}
+
+function firstCommandValue(tokens: string[], start = 0) {
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token === "--" || token.startsWith("-") || token.includes("=")) continue;
+    return token;
+  }
+  return null;
+}
+
+function looksLikeHelpToken(token: string | null | undefined) {
+  return !token || token === "help" || token === "--help" || token === "-h";
+}
+
 function extractMariDbCommand(command: string) {
-  const start = command.indexOf("mari db");
-  if (start < 0) return null;
-  const tokens = splitShellWords(command.slice(start));
-  if (tokens[0] !== "mari" || tokens[1] !== "db") return null;
-  const action = tokens[2] ?? "status";
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || tokens[1] !== "db") return null;
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "status");
   const target = tokens.slice(3).find((token) => token && !token.startsWith("-") && !token.includes("=")) ?? null;
   return {
     action,
@@ -393,6 +424,8 @@ function mariDbTitle(info: NonNullable<ReturnType<typeof extractMariDbCommand>>)
   switch (info.action) {
     case "status":
       return "Checking database status";
+    case "help":
+      return "Opening database command help";
     case "tables":
       return "Listing database tables";
     case "counts":
@@ -438,11 +471,10 @@ function tokenFlagValue(tokens: string[], flag: string) {
 }
 
 function extractMariCodeCommand(command: string) {
-  const start = command.indexOf("mari code");
-  if (start < 0) return null;
-  const tokens = splitShellWords(command.slice(start));
-  if (tokens[0] !== "mari" || tokens[1] !== "code") return null;
-  const action = tokens[2] ?? "status";
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || tokens[1] !== "code") return null;
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "status");
   return {
     action,
     subaction: action === "reload" ? (tokens[3] ?? null) : null,
@@ -456,6 +488,8 @@ function mariCodeTitle(info: NonNullable<ReturnType<typeof extractMariCodeComman
   switch (info.action) {
     case "status":
       return "Checking workspace status";
+    case "help":
+      return "Opening workspace command help";
     case "diff":
       return info.patch ? "Inspecting workspace diff" : "Summarizing workspace diff";
     case "check":
@@ -481,13 +515,10 @@ function mariCodeDetail(info: NonNullable<ReturnType<typeof extractMariCodeComma
 const MARI_THEME_MUTATIONS = new Set(["create", "update", "set-active"]);
 
 function extractMariThemesCommand(command: string) {
-  const themesStart = command.indexOf("mari themes");
-  const themeStart = command.indexOf("mari theme");
-  const start = themesStart >= 0 ? themesStart : themeStart;
-  if (start < 0) return null;
-  const tokens = splitShellWords(command.slice(start));
-  if (tokens[0] !== "mari" || (tokens[1] !== "themes" && tokens[1] !== "theme")) return null;
-  const action = tokens[2] ?? "list";
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || (tokens[1] !== "themes" && tokens[1] !== "theme")) return null;
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "list");
   const name = tokenFlagValue(tokens, "--name");
   return {
     action,
@@ -503,6 +534,8 @@ function mariThemesTitle(info: NonNullable<ReturnType<typeof extractMariThemesCo
   switch (info.action) {
     case "list":
       return "Listing themes";
+    case "help":
+      return "Opening theme command help";
     case "active":
       return "Checking active theme";
     case "get":
@@ -524,6 +557,174 @@ function mariThemesDetail(info: NonNullable<ReturnType<typeof extractMariThemesC
   return null;
 }
 
+const MARI_IMAGE_WRITES = new Set(["assign", "add", "replace", "delete", "remove", "clear"]);
+
+function extractMariImagesCommand(command: string) {
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || !["image", "images", "media"].includes(tokens[1] ?? "")) return null;
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "help");
+  return {
+    action,
+    target: tokenFlagValue(tokens, "--target") ?? firstCommandValue(tokens, 3),
+    asset: tokenFlagValue(tokens, "--asset") ?? tokenFlagValue(tokens, "--id"),
+    prompt: tokenFlagValue(tokens, "--prompt"),
+    source: tokenFlagValue(tokens, "--source"),
+    connection: tokenFlagValue(tokens, "--connection"),
+    edit: tokens.includes("--edit"),
+    mutating: MARI_IMAGE_WRITES.has(action),
+  };
+}
+
+function mariImagesTitle(info: NonNullable<ReturnType<typeof extractMariImagesCommand>>) {
+  switch (info.action) {
+    case "connections":
+      return info.edit ? "Finding edit-capable image connections" : "Checking image connections";
+    case "capabilities":
+      return info.edit ? "Checking image edit capabilities" : "Checking image capabilities";
+    case "preview":
+      return "Preparing image preview";
+    case "generate":
+      return "Generating review image";
+    case "edit":
+      return "Editing review image";
+    case "assign":
+    case "add":
+    case "replace":
+      return "Assigning image asset";
+    case "delete":
+    case "remove":
+    case "clear":
+      return "Removing image asset";
+    case "list":
+      return `Listing ${humanizeIdentifier(info.target)}`;
+    case "get":
+      return "Reading image asset";
+    case "help":
+      return "Opening image command help";
+    default:
+      return `Running mari images ${info.action}`;
+  }
+}
+
+function mariImagesDetail(info: NonNullable<ReturnType<typeof extractMariImagesCommand>>) {
+  if (info.target && !["list", "get"].includes(info.action)) return humanizeIdentifier(info.target);
+  if (info.asset) return compactCommand(info.asset, 70);
+  if (info.source) return compactCommand(info.source, 70);
+  if (info.prompt) return compactCommand(info.prompt, 70);
+  if (info.connection) return compactCommand(info.connection, 70);
+  return null;
+}
+
+function extractMariWikiCommand(command: string) {
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || !["wiki", "fandom"].includes(tokens[1] ?? "")) return null;
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "help");
+  const wiki = tokenFlagValue(tokens, "--wiki") ?? (["search", "search-wiki", "pages", "category", "category-members", "site-info"].includes(action) ? tokens[3] : null);
+  return {
+    action,
+    wiki,
+    title: tokenFlagValue(tokens, "--title"),
+    pageUrl: tokenFlagValue(tokens, "--page-url") ?? tokenFlagValue(tokens, "--pageUrl"),
+    query: tokenFlagValue(tokens, "--query") ?? firstCommandValue(tokens, action === "search-in-page" ? 5 : 3),
+    category: tokenFlagValue(tokens, "--category") ?? (["category", "category-members"].includes(action) ? tokens.slice(4).find((token) => token && !token.startsWith("-")) : null),
+    content: tokenFlagValue(tokens, "--content"),
+  };
+}
+
+function mariWikiTitle(info: NonNullable<ReturnType<typeof extractMariWikiCommand>>) {
+  switch (info.action) {
+    case "find":
+    case "find-wikis":
+      return "Finding Fandom wikis";
+    case "search-all":
+      return "Searching Fandom pages";
+    case "search":
+    case "search-wiki":
+      return "Searching wiki";
+    case "get":
+    case "get-page":
+      return "Reading wiki page";
+    case "pages":
+      return "Reading wiki pages";
+    case "sections":
+      return "Reading wiki sections";
+    case "category":
+    case "category-members":
+      return "Listing wiki category";
+    case "site-info":
+      return "Checking wiki site info";
+    case "search-in-page":
+      return "Searching inside wiki page";
+    case "help":
+      return "Opening wiki command help";
+    default:
+      return `Running mari wiki ${info.action}`;
+  }
+}
+
+function mariWikiDetail(info: NonNullable<ReturnType<typeof extractMariWikiCommand>>) {
+  const detail = info.title ?? info.category ?? info.pageUrl ?? info.wiki ?? info.query ?? info.content;
+  return detail ? compactCommand(detail, 70) : null;
+}
+
+function extractMariStorageCommand(command: string) {
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  if (!isMariExecutableToken(tokens[0] ?? "") || tokens[1] !== "storage") return null;
+  return {
+    action: looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "help"),
+  };
+}
+
+function extractMariGenericCommand(command: string) {
+  const tokens = getMariTokens(command);
+  if (!tokens) return null;
+  const group = looksLikeHelpToken(tokens[1]) ? "help" : (tokens[1] ?? "help");
+  const action = looksLikeHelpToken(tokens[2]) ? "help" : (tokens[2] ?? "help");
+  return { group, action };
+}
+
+function mariGenericTitle(info: NonNullable<ReturnType<typeof extractMariGenericCommand>>) {
+  if (info.group === "help") return "Opening Mari CLI help";
+  if (info.group === "storage") return "Checking reserved storage command";
+  if (info.action === "help") return `Opening mari ${info.group} help`;
+  return `Running mari ${info.group} ${info.action}`;
+}
+
+function mariGenericDetail(info: NonNullable<ReturnType<typeof extractMariGenericCommand>>) {
+  if (info.group === "help") return null;
+  return info.action === "help" ? info.group : `${info.group} ${info.action}`;
+}
+
+function toolInputPath(tool: WorkspaceToolCall) {
+  const input = asRecord(tool.input);
+  const candidate = input?.path ?? input?.file ?? input?.filePath ?? input?.file_path ?? input?.uri ?? tool.detail;
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function skillNameFromPath(path: string) {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  const file = parts[parts.length - 1]?.toLowerCase();
+  const parent = file === "skill.md" ? parts[parts.length - 2] : parts[parts.length - 1];
+  return humanizeIdentifier(parent ?? "skill");
+}
+
+function getSkillReadPresentation(tool: WorkspaceToolCall): ToolPresentation | null {
+  const path = toolInputPath(tool);
+  if (!path) return null;
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  if (!normalized.endsWith("/skill.md") && normalized !== "skill.md") return null;
+  const professorMariSkill = normalized.includes("/.mari-workspace/skills/");
+  return {
+    eyebrow: "Skill",
+    title: "Loading " + skillNameFromPath(path),
+    detail: '',
+    tone: "skill",
+  };
+}
+
 function summarizeShellCommand(command: string) {
   const compact = compactCommand(command, 120);
   const words = splitShellWords(command);
@@ -539,6 +740,10 @@ function inferToolPresentation(tool: WorkspaceToolCall): ToolPresentation {
   const mariDb = command ? extractMariDbCommand(command) : null;
   const mariCode = command ? extractMariCodeCommand(command) : null;
   const mariThemes = command ? extractMariThemesCommand(command) : null;
+  const mariImages = command ? extractMariImagesCommand(command) : null;
+  const mariWiki = command ? extractMariWikiCommand(command) : null;
+  const mariStorage = command ? extractMariStorageCommand(command) : null;
+  const mariGeneric = command ? extractMariGenericCommand(command) : null;
   if (command && mariDb) {
     return {
       eyebrow: mariDb.dryRun ? "DB preview" : "Database",
@@ -560,7 +765,39 @@ function inferToolPresentation(tool: WorkspaceToolCall): ToolPresentation {
       eyebrow: mariThemes.dryRun ? "Theme preview" : "Theme",
       title: mariThemesTitle(mariThemes),
       detail: mariThemesDetail(mariThemes),
-      tone: mariThemes.dryRun ? "write" : "db",
+      tone: "theme",
+    };
+  }
+  if (command && mariImages) {
+    return {
+      eyebrow: mariImages.mutating ? "Image change" : "Images",
+      title: mariImagesTitle(mariImages),
+      detail: mariImagesDetail(mariImages),
+      tone: mariImages.mutating ? "write" : "image",
+    };
+  }
+  if (command && mariWiki) {
+    return {
+      eyebrow: "Wiki",
+      title: mariWikiTitle(mariWiki),
+      detail: mariWikiDetail(mariWiki),
+      tone: "wiki",
+    };
+  }
+  if (command && mariStorage) {
+    return {
+      eyebrow: "Storage",
+      title: "Checking reserved storage command",
+      detail: mariStorage.action === "help" ? null : mariStorage.action,
+      tone: "shell",
+    };
+  }
+  if (command && mariGeneric) {
+    return {
+      eyebrow: "Mari CLI",
+      title: mariGenericTitle(mariGeneric),
+      detail: mariGenericDetail(mariGeneric),
+      tone: "shell",
     };
   }
 
@@ -572,6 +809,9 @@ function inferToolPresentation(tool: WorkspaceToolCall): ToolPresentation {
       tone: "shell",
     };
   }
+
+  const skillPresentation = getSkillReadPresentation(tool);
+  if (skillPresentation) return skillPresentation;
 
   const input = asRecord(tool.input);
   const detail = previewValue(input?.path ?? input?.pattern ?? input?.query ?? input?.url ?? input?.command ?? tool.detail, 90);
@@ -590,10 +830,34 @@ function inferToolPresentation(tool: WorkspaceToolCall): ToolPresentation {
   return { eyebrow: "Tool", title: name, detail, tone: "generic" };
 }
 
+function toolToneClasses(tone: ToolTone) {
+  switch (tone) {
+    case "db":
+    case "skill":
+      return "border-[var(--primary)]/20 bg-[var(--primary)]/10";
+    case "theme":
+      return "border-fuchsia-400/20 bg-fuchsia-400/10";
+    case "image":
+      return "border-sky-400/20 bg-sky-400/10";
+    case "wiki":
+      return "border-emerald-400/20 bg-emerald-400/10";
+    case "write":
+      return "border-amber-400/20 bg-amber-400/10";
+    case "search":
+      return "border-cyan-400/20 bg-cyan-400/10";
+    default:
+      return "border-[var(--border)]/70 bg-[var(--card)]/70";
+  }
+}
+
 function ToolGlyph({ tool, tone }: { tool: WorkspaceToolCall; tone: ToolTone }) {
   if (tool.status === "running") return <Loader2 size="0.72rem" className="animate-spin" />;
   if (tool.status === "error") return <AlertTriangle size="0.72rem" />;
   if (tone === "db") return <Database size="0.72rem" />;
+  if (tone === "theme") return <Palette size="0.72rem" />;
+  if (tone === "image") return <ImageIcon size="0.72rem" />;
+  if (tone === "wiki" || tone === "skill") return <BookOpen size="0.72rem" />;
+  if (tone === "search") return <Search size="0.72rem" />;
   if (tone === "shell") return <Terminal size="0.72rem" />;
   if (tone === "file" || tone === "write" || tone === "search") return <FileText size="0.72rem" />;
   return <Wrench size="0.72rem" />;
@@ -689,11 +953,7 @@ function WorkspaceToolEvent({ tool }: { tool: WorkspaceToolCall }) {
       <div
         className={cn(
           "inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[0.7rem] leading-5 shadow-sm",
-          presentation.tone === "db"
-            ? "border-[var(--primary)]/20 bg-[var(--primary)]/10"
-            : presentation.tone === "write"
-              ? "border-amber-400/20 bg-amber-400/10"
-              : "border-[var(--border)]/70 bg-[var(--card)]/70",
+          toolToneClasses(presentation.tone),
           isError && "border-[var(--destructive)]/35 bg-[var(--destructive)]/10",
         )}
         title={presentation.detail ?? presentation.title}

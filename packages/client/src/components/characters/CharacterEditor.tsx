@@ -226,7 +226,9 @@ export function CharacterEditor() {
   const uploadPersonaAvatar = useUploadPersonaAvatar();
   const { data: connectionsList } = useConnections();
 
-  const [activeTab, setActiveTab] = useState<TabId>("metadata");
+  const [activeTab, setActiveTab] = useState<TabId>(
+    () => (useUIStore.getState().characterDetailInitialTab as TabId | null) ?? "metadata",
+  );
   const [formData, setFormData] = useState<CharacterData | null>(null);
   const [characterComment, setCharacterComment] = useState("");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);

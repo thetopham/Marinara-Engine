@@ -145,9 +145,12 @@ export function CharacterRegexSection({
         });
         if (!proceed) return;
       }
-      openRegexDetail(id, options);
+      openRegexDetail(id, {
+        ...options,
+        ...(characterId ? { returnTo: { characterId, tab: "advanced" } } : {}),
+      });
     },
-    [editorDirty, openRegexDetail],
+    [editorDirty, openRegexDetail, characterId],
   );
 
   const handleCreate = useCallback(() => {

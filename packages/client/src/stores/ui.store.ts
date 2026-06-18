@@ -364,6 +364,10 @@ interface UIState {
   regexDetailId: string | null;
   /** Pre-selected target characters for a NEW regex script opened via openRegexDetail("__new__") */
   regexDetailDefaultCharacterIds: string[] | null;
+  /** Where to return when the regex editor closes — e.g. back to a character's Advanced tab */
+  regexDetailReturn: { characterId: string; tab?: string } | null;
+  /** One-shot tab the character editor should open to (set by the regex-editor return path) */
+  characterDetailInitialTab: string | null;
   /** When true, the main area shows the browser */
   botBrowserOpen: boolean;
   /** When true, the main area shows the game assets browser */
@@ -641,7 +645,10 @@ interface UIState {
   closeToolDetail: () => void;
   openPersonaDetail: (id: string) => void;
   closePersonaDetail: () => void;
-  openRegexDetail: (id: string, options?: { defaultCharacterIds?: string[] }) => void;
+  openRegexDetail: (
+    id: string,
+    options?: { defaultCharacterIds?: string[]; returnTo?: { characterId: string; tab?: string } },
+  ) => void;
   closeRegexDetail: () => void;
   openCharacterLibrary: () => void;
   closeCharacterLibrary: () => void;
@@ -981,6 +988,8 @@ export const useUIStore = create<UIState>()(
       personaDetailId: null,
       regexDetailId: null,
       regexDetailDefaultCharacterIds: null,
+      regexDetailReturn: null,
+      characterDetailInitialTab: null,
       botBrowserOpen: false,
       gameAssetsBrowserOpen: false,
       characterLibraryOpen: false,
@@ -1183,6 +1192,7 @@ export const useUIStore = create<UIState>()(
           const preserveCharacterLibrary = options?.preserveCharacterLibrary ?? s.characterLibraryOpen;
           return {
             characterDetailId: id,
+            characterDetailInitialTab: null,
             lorebookDetailId: null,
             presetDetailId: null,
             connectionDetailId: null,
@@ -1333,6 +1343,7 @@ export const useUIStore = create<UIState>()(
         set((s) => ({
           regexDetailId: id,
           regexDetailDefaultCharacterIds: options?.defaultCharacterIds ?? null,
+          regexDetailReturn: options?.returnTo ?? null,
           personaDetailId: null,
           characterLibraryOpen: false,
           botBrowserOpen: false,
@@ -1346,11 +1357,26 @@ export const useUIStore = create<UIState>()(
           ...getMobileDetailReturnState(s),
         })),
       closeRegexDetail: () =>
-        set((s) => ({
-          regexDetailId: null,
-          editorDirty: false,
-          ...restoreMobileDetailReturnPanel(s.detailReturnRightPanel),
-        })),
+        set((s) => {
+          const ret = s.regexDetailReturn;
+          if (ret) {
+            // Opened from a character's scoped-regex manager — return to that character's tab.
+            return {
+              regexDetailId: null,
+              regexDetailReturn: null,
+              regexDetailDefaultCharacterIds: null,
+              characterDetailId: ret.characterId,
+              characterDetailInitialTab: ret.tab ?? null,
+              editorDirty: false,
+            };
+          }
+          return {
+            regexDetailId: null,
+            regexDetailReturn: null,
+            editorDirty: false,
+            ...restoreMobileDetailReturnPanel(s.detailReturnRightPanel),
+          };
+        }),
       openCharacterLibrary: () =>
         set({
           characterLibraryOpen: true,

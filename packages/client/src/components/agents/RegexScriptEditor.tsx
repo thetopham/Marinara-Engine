@@ -108,6 +108,7 @@ function parseCharacterData(value: unknown): Record<string, unknown> {
 export function RegexScriptEditor() {
   const regexDetailId = useUIStore((s) => s.regexDetailId);
   const regexDetailDefaultCharacterIds = useUIStore((s) => s.regexDetailDefaultCharacterIds);
+  const regexDetailReturn = useUIStore((s) => s.regexDetailReturn);
   const closeRegexDetail = useUIStore((s) => s.closeRegexDetail);
   const openRegexDetail = useUIStore((s) => s.openRegexDetail);
 
@@ -291,7 +292,8 @@ export function RegexScriptEditor() {
       } else {
         const created = (await createScript.mutateAsync(payload)) as RegexScriptRow | undefined;
         if (created?.id) {
-          openRegexDetail(created.id);
+          // Preserve the return target (e.g. back to the character card) across the post-save re-open.
+          openRegexDetail(created.id, regexDetailReturn ? { returnTo: regexDetailReturn } : undefined);
         }
       }
       setDirty(false);
@@ -319,6 +321,7 @@ export function RegexScriptEditor() {
     updateScript,
     createScript,
     openRegexDetail,
+    regexDetailReturn,
   ]);
 
   const markDirty = useCallback(() => setDirty(true), []);

@@ -1778,26 +1778,32 @@ export function ChatSettingsDrawer({
     return false;
   };
 
-  const toggleAgent = async (agentId: string) => {
+  const getNarrativeDirectorRemovalWarning = async (): Promise<string | null> => {
+    let shouldWarn: boolean;
+    try {
+      const res = await api.get<{ memory: Record<string, unknown> }>(`/agents/memory/director/${chat.id}`);
+      shouldWarn = hasSecretPlotMemory(res.memory);
+    } catch {
+      shouldWarn = true;
+    }
+    return shouldWarn
+      ? "Are you sure you want to remove Narrative Director from this chat? This will wipe its hidden secret plot arc for this chat. This cannot be undone."
+      : null;
+  };
+
+  const toggleAgent = async (agentId: string, options?: { skipDirectorRemovalWarning?: boolean }) => {
     const readLatestActiveAgentIds = () => {
       const latestChat = qc.getQueryData<Chat>(chatKeys.detail(chat.id));
       const ids = latestChat ? getChatActiveAgentIds(latestChat) : [...activeAgentIds];
       return ids.filter((id) => !deletedBuiltInAgentTypes.has(id));
     };
     const wasRemoving = readLatestActiveAgentIds().includes(agentId);
-    if (wasRemoving && agentId === "director") {
-      let shouldWarn: boolean;
-      try {
-        const res = await api.get<{ memory: Record<string, unknown> }>(`/agents/memory/${agentId}/${chat.id}`);
-        shouldWarn = hasSecretPlotMemory(res.memory);
-      } catch {
-        shouldWarn = true;
-      }
-      if (shouldWarn) {
+    if (wasRemoving && agentId === "director" && !options?.skipDirectorRemovalWarning) {
+      const warningMessage = await getNarrativeDirectorRemovalWarning();
+      if (warningMessage) {
         const ok = await showConfirmDialog({
           title: "Remove Narrative Director",
-          message:
-            "Remove Narrative Director from this chat? This will wipe its hidden secret plot arc for this chat. This cannot be undone.",
+          message: warningMessage,
           confirmLabel: "Remove Agent",
           tone: "destructive",
         });
@@ -1847,6 +1853,25 @@ export function ChatSettingsDrawer({
         message: error instanceof Error ? error.message : "The agent list could not be updated. Please try again.",
       });
     }
+  };
+
+  const removeAgentFromMenu = async (agentId: string, agentName: string) => {
+    const warningMessage = agentId === "director" ? await getNarrativeDirectorRemovalWarning() : null;
+    const ok = await showConfirmDialog({
+      title: `Remove ${agentName}?`,
+      message: warningMessage ?? `Are you sure you want to remove ${agentName} from this chat?`,
+      confirmLabel: "Remove Agent",
+      tone: "destructive",
+    });
+    if (!ok) return;
+    await toggleAgent(agentId, { skipDirectorRemovalWarning: true });
+  };
+
+  const getRoleplayAgentMenuRemoveHandler = (agentId: string, agentName: string) => {
+    if (!isRoleplayMode) return undefined;
+    return () => {
+      void removeAgentFromMenu(agentId, agentName);
+    };
   };
 
   const updateAgentPromptTemplateSelection = useCallback(
@@ -4954,6 +4979,7 @@ export function ChatSettingsDrawer({
                         title={lorebookKeeperAgentMeta.name}
                         description={lorebookKeeperAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("lorebook-keeper")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("lorebook-keeper", lorebookKeeperAgentMeta.name)}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--background)]/75 px-3 py-2 ring-1 ring-[var(--border)]">
                           <p className="min-w-0 flex-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
@@ -5045,6 +5071,10 @@ export function ChatSettingsDrawer({
                         title={cardEvolutionAuditorAgentMeta.name}
                         description={cardEvolutionAuditorAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("card-evolution-auditor")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler(
+                          "card-evolution-auditor",
+                          cardEvolutionAuditorAgentMeta.name,
+                        )}
                       >
                         <div className="space-y-2 rounded-lg bg-[var(--background)]/75 px-3 py-2 ring-1 ring-[var(--border)]">
                           <p className="text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
@@ -5073,6 +5103,7 @@ export function ChatSettingsDrawer({
                         title={proseGuardianAgentMeta.name}
                         description={proseGuardianAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("prose-guardian")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("prose-guardian", proseGuardianAgentMeta.name)}
                       >
                         <AgentSettingsTextarea
                           label="Banned Words"
@@ -5138,6 +5169,7 @@ export function ChatSettingsDrawer({
                         title={directorAgentMeta.name}
                         description={directorAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("director")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("director", directorAgentMeta.name)}
                       >
                         <AgentSettingsSegmentedControl
                           value={narrativeDirectorMode}
@@ -5216,6 +5248,7 @@ export function ChatSettingsDrawer({
                         title={continuityAgentMeta.name}
                         description={continuityAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("continuity")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("continuity", continuityAgentMeta.name)}
                       >
                         <AgentSettingsToggle
                           label="Hold Message Until Rewrite"
@@ -5242,6 +5275,10 @@ export function ChatSettingsDrawer({
                         settings={getKnowledgeAgentSourceSettings("knowledge-retrieval")}
                         order={getRoleplayAgentSettingsOrder("knowledge-retrieval")}
                         onChange={(patch) => updateKnowledgeAgentSourceSettings("knowledge-retrieval", patch)}
+                        onRemove={getRoleplayAgentMenuRemoveHandler(
+                          "knowledge-retrieval",
+                          knowledgeRetrievalAgentMeta.name,
+                        )}
                       />
                     )}
 
@@ -5255,6 +5292,7 @@ export function ChatSettingsDrawer({
                         settings={getKnowledgeAgentSourceSettings("knowledge-router")}
                         order={getRoleplayAgentSettingsOrder("knowledge-router")}
                         onChange={(patch) => updateKnowledgeAgentSourceSettings("knowledge-router", patch)}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("knowledge-router", knowledgeRouterAgentMeta.name)}
                       />
                     )}
 
@@ -5265,6 +5303,7 @@ export function ChatSettingsDrawer({
                         title={expressionAgentMeta.name}
                         description={expressionAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("expression")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("expression", expressionAgentMeta.name)}
                         badge={
                           spriteCharacterIds.length > 0 ? (
                             <span className="shrink-0 rounded-full bg-[var(--primary)]/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--primary)]">
@@ -5513,6 +5552,7 @@ export function ChatSettingsDrawer({
                         title={echoChamberAgentMeta.name}
                         description={echoChamberAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("echo-chamber")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("echo-chamber", echoChamberAgentMeta.name)}
                       >
                         <AgentPromptTemplateSelect
                           options={getPromptOptionsForAgent("echo-chamber")}
@@ -5547,6 +5587,7 @@ export function ChatSettingsDrawer({
                         title={illustratorAgentMeta.name}
                         description={illustratorAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("illustrator")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("illustrator", illustratorAgentMeta.name)}
                       >
                         <AgentPromptTemplateSelect
                           options={getPromptOptionsForAgent("illustrator")}
@@ -5593,6 +5634,7 @@ export function ChatSettingsDrawer({
                         title={musicDjAgentMeta.name}
                         description={musicDjAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("spotify")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("spotify", musicDjAgentMeta.name)}
                       >
                         <p className="text-[0.55rem] text-[var(--muted-foreground)]/80">
                           Active player: {musicPlayerSource === "spotify" ? "Spotify" : "YouTube"}.
@@ -5791,6 +5833,7 @@ export function ChatSettingsDrawer({
                         title={hapticAgentMeta.name}
                         description={hapticAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("haptic")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("haptic", hapticAgentMeta.name)}
                       >
                         <AgentSettingsToggle
                           label="Haptic Feedback"
@@ -7148,6 +7191,7 @@ function AgentSettingsCard({
   description,
   badge,
   order,
+  onRemove,
   children,
 }: {
   id?: string;
@@ -7156,6 +7200,7 @@ function AgentSettingsCard({
   description: string;
   badge?: React.ReactNode;
   order?: number;
+  onRemove?: () => void;
   children?: React.ReactNode;
 }) {
   return (
@@ -7174,6 +7219,17 @@ function AgentSettingsCard({
           </div>
           <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">{description}</p>
         </div>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)] focus:outline-none focus:ring-1 focus:ring-[var(--destructive)]/45 active:scale-95"
+            title={`Remove ${title} from chat`}
+            aria-label={`Remove ${title} from chat`}
+          >
+            <Trash2 size="0.75rem" />
+          </button>
+        )}
       </div>
       {children}
     </div>
@@ -7263,6 +7319,7 @@ function KnowledgeAgentSettingsCard({
   settings,
   order,
   onChange,
+  onRemove,
 }: {
   id?: string;
   agentType: KnowledgeAgentType;
@@ -7272,6 +7329,7 @@ function KnowledgeAgentSettingsCard({
   settings: KnowledgeAgentSourceSettings;
   order?: number;
   onChange: (patch: Partial<KnowledgeAgentSourceSettings>) => void;
+  onRemove?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const knowledgeSourcesQuery = useKnowledgeSources();
@@ -7314,6 +7372,7 @@ function KnowledgeAgentSettingsCard({
       title={title}
       description={description}
       order={order}
+      onRemove={onRemove}
     >
       <AgentSettingsToggle
         label="Use chat-active lorebooks"

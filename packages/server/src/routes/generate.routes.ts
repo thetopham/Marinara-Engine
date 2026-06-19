@@ -57,6 +57,7 @@ import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js
 import { createRegexScriptsStorage } from "../services/storage/regex-scripts.storage.js";
 import { createCustomEmojisStorage } from "../services/storage/custom-emojis.storage.js";
 import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
+import { createPersonaGalleryStorage } from "../services/storage/persona-gallery.storage.js";
 import { localEmbed, isLocalEmbedderAvailable } from "../services/local-embedder.js";
 import { cosineSimilarity } from "../services/lorebook/embeddings.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
@@ -778,13 +779,18 @@ function shuffleInPlace<T>(items: T[]): T[] {
 /** Order emoji names by semantic relevance to `query` via the local embedder. Returns null when unavailable. */
 async function rankEmojiNamesBySemantic(names: string[], query: string): Promise<string[] | null> {
   if (names.length <= 1 || !query.trim() || !isLocalEmbedderAvailable()) return null;
-  const vectors = await localEmbed([query, ...names.map((name) => name.replace(/_/g, " "))]);
-  if (!vectors || vectors.length !== names.length + 1) return null;
-  const queryVector = vectors[0]!;
-  return names
-    .map((name, index) => ({ name, score: cosineSimilarity(queryVector, vectors[index + 1]!) }))
-    .sort((a, b) => b.score - a.score)
-    .map((entry) => entry.name);
+  try {
+    const vectors = await localEmbed([query, ...names.map((name) => name.replace(/_/g, " "))]);
+    if (!vectors || vectors.length !== names.length + 1) return null;
+    const queryVector = vectors[0]!;
+    return names
+      .map((name, index) => ({ name, score: cosineSimilarity(queryVector, vectors[index + 1]!) }))
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.name);
+  } catch (err) {
+    logger.debug(err, "[custom-emoji] semantic ranking failed; falling back to random");
+    return null;
+  }
 }
 
 /** Order a pool of emoji names per the selection mode (does NOT cap — the formatter slices to maxCount). */
@@ -812,6 +818,8 @@ async function selectEmojiNamesByToolCall(
   maxCount: number,
 ): Promise<string[] | null> {
   if (candidates.length === 0 || !query.trim()) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("custom-emoji tool-call timeout")), 5000);
   try {
     const conn = await connections.getWithKey(connectionId);
     if (!conn?.model) return null;
@@ -823,7 +831,7 @@ async function selectEmojiNamesByToolCall(
       conn.openrouterProvider,
       conn.maxTokensOverride,
     );
-    const completion = provider.chatComplete(
+    const result = await provider.chatComplete(
       [
         {
           role: "system",
@@ -836,13 +844,10 @@ async function selectEmojiNamesByToolCall(
           content: `Available custom emojis: ${candidates.join(", ")}\n\nLatest message: "${query}"\n\nFitting emoji names:`,
         },
       ],
-      { model: conn.model, temperature: 0.3, maxTokens: 200 },
+      { model: conn.model, temperature: 0.3, maxTokens: 200, signal: controller.signal },
     );
-    const result = await Promise.race([
-      completion,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("custom-emoji tool-call timeout")), 5000)),
-    ]);
-    const text = (result.content ?? "").toLowerCase();
+    const text = (result.content ?? "").toLowerCase().trim();
+    if (text.replace(/[^a-z0-9_]/g, "") === "none") return [];
     const candidateSet = new Set(candidates);
     const picked: string[] = [];
     for (const token of text.split(/[\s,]+/)) {
@@ -856,7 +861,36 @@ async function selectEmojiNamesByToolCall(
   } catch (err) {
     logger.debug(err, "[custom-emoji] tool-call selection failed; falling back to semantic/random");
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+function uniqueEmojiNames(names: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of names) {
+    const name = typeof raw === "string" ? raw.trim() : "";
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    result.push(name);
+  }
+  return result;
+}
+
+function appendToFirstSystemMessage(messages: GenerationPromptMessage[], content: string): void {
+  const systemMessage = messages.find((message) => message.role === "system");
+  if (systemMessage) {
+    systemMessage.content = systemMessage.content ? `${systemMessage.content}\n\n${content}` : content;
+    return;
+  }
+  messages.unshift({ role: "system", content });
+}
+
+function latestHistoryUserContent(messages: GenerationPromptMessage[]): string {
+  const historyTurn = [...messages].reverse().find((message) => message.role === "user" && message.contextKind === "history");
+  if (historyTurn) return historyTurn.content;
+  return [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 }
 
 /**
@@ -914,6 +948,7 @@ export async function generateRoutes(app: FastifyInstance) {
   const regexScriptsStore = createRegexScriptsStorage(app.db);
   const customEmojisStore = createCustomEmojisStorage(app.db);
   const characterGallery = createCharacterGalleryStorage(app.db);
+  const personaGallery = createPersonaGalleryStorage(app.db);
 
   /**
    * In-memory cache for OpenAI Responses API encrypted reasoning items.
@@ -2496,63 +2531,6 @@ export async function generateRoutes(app: FastifyInstance) {
             }
           }
 
-          // ── Custom emojis: advertise the available :name: emojis to the responding character(s) ──
-          if (chatMode === "conversation") {
-            const allGlobalEmojiNames = (await customEmojisStore.list()).map((emoji) => emoji.name);
-            const ownEmojisByChar = new Map<string, string[]>();
-            for (const info of respondingConvoCharInfo) {
-              const images = await characterGallery.listByCharacterId(info.charId);
-              const names = images
-                .filter((img) => img.customKind === "emoji" && img.customName)
-                .map((img) => img.customName as string);
-              if (names.length > 0) ownEmojisByChar.set(info.charId, names);
-            }
-            if (allGlobalEmojiNames.length > 0 || ownEmojisByChar.size > 0) {
-              const emojiPrefs = normalizeCustomEmojiSelection(chatMeta.customEmojiSelection);
-              const emojiQuery = typeof input.userMessage === "string" ? input.userMessage : "";
-              let emojiAdvertisement: string | null = null;
-
-              // Tool-call mode (single responder only): one model call picks from the full candidate set.
-              if (emojiPrefs.mode === "tool-call" && emojiPrefs.toolConnectionId && respondingConvoCharInfo.length === 1) {
-                const responder = respondingConvoCharInfo[0]!;
-                const own = ownEmojisByChar.get(responder.charId) ?? [];
-                const candidates = [...own, ...allGlobalEmojiNames.filter((name) => !own.includes(name))];
-                const picked = await selectEmojiNamesByToolCall(
-                  candidates,
-                  emojiQuery,
-                  emojiPrefs.toolConnectionId,
-                  connections,
-                  emojiPrefs.maxCount,
-                );
-                if (picked) {
-                  emojiAdvertisement = buildCustomEmojiAdvertisement(
-                    respondingConvoCharInfo,
-                    [],
-                    new Map([[responder.charId, picked]]),
-                    emojiPrefs.maxCount,
-                  );
-                }
-              }
-
-              // Random/semantic — and the fallback when tool-call is unset, multi-responder, or failed.
-              if (!emojiAdvertisement) {
-                const orderedGlobal = await orderEmojiNames(allGlobalEmojiNames, emojiPrefs, emojiQuery);
-                const orderedOwnByChar = new Map<string, string[]>();
-                for (const [charId, names] of ownEmojisByChar) {
-                  orderedOwnByChar.set(charId, await orderEmojiNames(names, emojiPrefs, emojiQuery));
-                }
-                emojiAdvertisement = buildCustomEmojiAdvertisement(
-                  respondingConvoCharInfo,
-                  orderedGlobal,
-                  orderedOwnByChar,
-                  emojiPrefs.maxCount,
-                );
-              }
-
-              if (emojiAdvertisement) conversationSystemPrompt += "\n\n" + emojiAdvertisement;
-            }
-          }
-
           // ── Professor Mari: inject assistant knowledge & commands ──
           const isMariChat = characterIds.includes(PROFESSOR_MARI_ID);
           if (isMariChat) {
@@ -3353,6 +3331,94 @@ export async function generateRoutes(app: FastifyInstance) {
           character.postHistoryInstructions = resolveCharacterPromptText(character.postHistoryInstructions);
         }
         const characterMacroProfilesById = buildCharacterMacroProfilesById(charInfo);
+
+        // ── Custom emojis: advertise the available :name: emojis to Conversation responders ──
+        if (chatMode === "conversation") {
+          const mentionedNames = new Set(
+            (input.mentionedCharacterNames ?? [])
+              .map((name: string) => name.toLowerCase())
+              .filter((name: string) => name.length > 0),
+          );
+          const scopedResponders = promptTargetCharacterId
+            ? charInfo.filter((character) => character.id === promptTargetCharacterId)
+            : mentionedNames.size > 0
+              ? charInfo.filter((character) => mentionedNames.has(character.name.toLowerCase()))
+              : charInfo;
+          const respondingEmojiChars = (scopedResponders.length > 0 ? scopedResponders : charInfo).map((character) => ({
+            charId: character.id,
+            name: character.name,
+          }));
+
+          const [globalEmojiRows, personaEmojiRows] = await Promise.all([
+            customEmojisStore.list(),
+            personaId ? personaGallery.listByPersonaId(personaId) : Promise.resolve([]),
+          ]);
+          const personaEmojiNames = uniqueEmojiNames(
+            personaEmojiRows
+              .filter((img) => img.customKind === "emoji" && img.customName)
+              .map((img) => img.customName as string),
+          );
+          const sharedEmojiNames = uniqueEmojiNames([
+            ...personaEmojiNames,
+            ...globalEmojiRows.map((emoji) => emoji.name as string),
+          ]);
+          const ownEmojisByChar = new Map<string, string[]>();
+          for (const info of respondingEmojiChars) {
+            const images = await characterGallery.listByCharacterId(info.charId);
+            const names = uniqueEmojiNames(
+              images.filter((img) => img.customKind === "emoji" && img.customName).map((img) => img.customName as string),
+            );
+            if (names.length > 0) ownEmojisByChar.set(info.charId, names);
+          }
+
+          if (sharedEmojiNames.length > 0 || ownEmojisByChar.size > 0) {
+            const emojiPrefs = normalizeCustomEmojiSelection(chatMeta.customEmojiSelection);
+            const emojiQuery = latestHistoryUserContent(finalMessages) || currentUserInputContent() || "";
+            let emojiAdvertisement: string | null = null;
+            let toolSelectionHandled = false;
+
+            // Tool-call mode (single responder only): one model call picks from the full candidate set.
+            if (emojiPrefs.mode === "tool-call" && emojiPrefs.toolConnectionId && respondingEmojiChars.length === 1) {
+              const responder = respondingEmojiChars[0]!;
+              const candidates = uniqueEmojiNames([...(ownEmojisByChar.get(responder.charId) ?? []), ...sharedEmojiNames]);
+              const picked = await selectEmojiNamesByToolCall(
+                candidates,
+                emojiQuery,
+                emojiPrefs.toolConnectionId,
+                connections,
+                emojiPrefs.maxCount,
+              );
+              if (picked !== null) {
+                toolSelectionHandled = true;
+                if (picked.length > 0) {
+                  emojiAdvertisement = buildCustomEmojiAdvertisement(
+                    respondingEmojiChars,
+                    [],
+                    new Map([[responder.charId, picked]]),
+                    emojiPrefs.maxCount,
+                  );
+                }
+              }
+            }
+
+            // Random/semantic — and the fallback when tool-call is unset, multi-responder, or failed.
+            if (!toolSelectionHandled && !emojiAdvertisement) {
+              const orderedShared = await orderEmojiNames(sharedEmojiNames, emojiPrefs, emojiQuery);
+              const orderedOwnByChar = new Map<string, string[]>();
+              for (const [charId, names] of ownEmojisByChar) {
+                orderedOwnByChar.set(charId, await orderEmojiNames(names, emojiPrefs, emojiQuery));
+              }
+              emojiAdvertisement = buildCustomEmojiAdvertisement(
+                respondingEmojiChars,
+                orderedShared,
+                orderedOwnByChar,
+                emojiPrefs.maxCount,
+              );
+            }
+
+            if (emojiAdvertisement) appendToFirstSystemMessage(finalMessages, emojiAdvertisement);
+          }
+        }
 
         let resolvedGameDiscordSpeakerName: string | null = null;
         let gameDiscordSpeakerResolved = false;

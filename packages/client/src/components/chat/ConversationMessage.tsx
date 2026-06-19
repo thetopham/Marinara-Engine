@@ -31,6 +31,9 @@ import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
 import { ConversationMessageLine } from "./ConversationMessageLine";
 
+const EMPTY_CUSTOM_EMOJI_MAP = new Map<string, string>();
+const EMPTY_CUSTOM_STICKER_MAP = new Map<string, string>();
+
 // ── Public props interface (unchanged external API) ──────────────
 
 interface ConversationMessageProps {
@@ -58,6 +61,8 @@ interface ConversationMessageProps {
   isLastAssistantMessage?: boolean;
   characterMap?: CharacterMap;
   personaInfo?: PersonaInfo;
+  emojiMap?: Map<string, string>;
+  stickerMap?: Map<string, string>;
   onEditClick?: () => void;
   chatCharacterIds?: string[];
   messageIndex?: number;
@@ -95,6 +100,8 @@ export const ConversationMessage = memo(function ConversationMessage({
   isLastAssistantMessage,
   characterMap,
   personaInfo,
+  emojiMap,
+  stickerMap,
   onEditClick,
   chatCharacterIds,
   messageIndex,
@@ -521,6 +528,8 @@ export const ConversationMessage = memo(function ConversationMessage({
     quoteFormat,
     renderedContent,
     renderedContentParts,
+    emojiMap: emojiMap ?? EMPTY_CUSTOM_EMOJI_MAP,
+    stickerMap: stickerMap ?? EMPTY_CUSTOM_STICKER_MAP,
     groupedSegments,
     visibleSegments,
     streamingBubbleDraftContent,

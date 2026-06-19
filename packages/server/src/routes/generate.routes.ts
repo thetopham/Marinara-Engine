@@ -55,6 +55,11 @@ import { createGameStateStorage } from "../services/storage/game-state.storage.j
 import { createCustomToolsStorage } from "../services/storage/custom-tools.storage.js";
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createRegexScriptsStorage } from "../services/storage/regex-scripts.storage.js";
+import { createCustomEmojisStorage } from "../services/storage/custom-emojis.storage.js";
+import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
+import { createPersonaGalleryStorage } from "../services/storage/persona-gallery.storage.js";
+import { localEmbed, isLocalEmbedderAvailable } from "../services/local-embedder.js";
+import { cosineSimilarity } from "../services/lorebook/embeddings.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
 import { resolveConversationSelfieSystemPrompt } from "../services/conversation/selfie-prompt.js";
@@ -155,7 +160,7 @@ import { extractFileText, getSourceFilePath } from "./knowledge-sources.routes.j
 import { gameStateSnapshots as gameStateSnapshotsTable } from "../db/schema/index.js";
 import { chats as chatsTable } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
-import { PROFESSOR_MARI_ID } from "@marinara-engine/shared";
+import { PROFESSOR_MARI_ID, normalizeCustomEmojiSelection, type CustomEmojiSelectionPrefs } from "@marinara-engine/shared";
 import { chunkAndEmbedMessages, embedMemoryRecallTexts } from "../services/memory-recall.js";
 import { resolveMemoryRecallEmbeddingSource } from "../services/memory-recall-embedding.js";
 import { postToDiscordWebhook } from "../services/discord-webhook.js";
@@ -760,6 +765,175 @@ async function isConversationYoutubeCommandAvailable(storage: {
   return typeof settings.youtubeApiKey === "string" && settings.youtubeApiKey.trim().length > 0;
 }
 
+/** Fisher-Yates shuffle (in place); used for random emoji selection. */
+function shuffleInPlace<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = items[i]!;
+    items[i] = items[j]!;
+    items[j] = tmp;
+  }
+  return items;
+}
+
+/** Order emoji names by semantic relevance to `query` via the local embedder. Returns null when unavailable. */
+async function rankEmojiNamesBySemantic(names: string[], query: string): Promise<string[] | null> {
+  if (names.length <= 1 || !query.trim() || !isLocalEmbedderAvailable()) return null;
+  try {
+    const vectors = await localEmbed([query, ...names.map((name) => name.replace(/_/g, " "))]);
+    if (!vectors || vectors.length !== names.length + 1) return null;
+    const queryVector = vectors[0]!;
+    return names
+      .map((name, index) => ({ name, score: cosineSimilarity(queryVector, vectors[index + 1]!) }))
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.name);
+  } catch (err) {
+    logger.debug(err, "[custom-emoji] semantic ranking failed; falling back to random");
+    return null;
+  }
+}
+
+/** Order a pool of emoji names per the selection mode (does NOT cap — the formatter slices to maxCount). */
+async function orderEmojiNames(names: string[], prefs: CustomEmojiSelectionPrefs, query: string): Promise<string[]> {
+  if (names.length <= 1) return names;
+  // Reached for random/semantic, and as the tool-call fallback path — rank semantically when possible.
+  if (prefs.mode === "semantic" || prefs.mode === "tool-call") {
+    const ranked = await rankEmojiNamesBySemantic(names, query);
+    if (ranked) return ranked;
+  }
+  return shuffleInPlace([...names]);
+}
+
+/**
+ * Tool-call selection: one short auxiliary completion (on the chosen connection)
+ * picks which candidate emoji names fit the latest message. Returns the validated
+ * picks (≤ maxCount), or null on any failure so the caller can fall back to
+ * semantic/random. Never throws — generation must not depend on it.
+ */
+async function selectEmojiNamesByToolCall(
+  candidates: string[],
+  query: string,
+  connectionId: string,
+  connections: ReturnType<typeof createConnectionsStorage>,
+  maxCount: number,
+): Promise<string[] | null> {
+  if (candidates.length === 0 || !query.trim()) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("custom-emoji tool-call timeout")), 5000);
+  try {
+    const conn = await connections.getWithKey(connectionId);
+    if (!conn?.model) return null;
+    const provider = createLLMProvider(
+      conn.provider,
+      resolveBaseUrl(conn),
+      conn.apiKey,
+      conn.maxContext,
+      conn.openrouterProvider,
+      conn.maxTokensOverride,
+    );
+    const result = await provider.chatComplete(
+      [
+        {
+          role: "system",
+          content:
+            `You select which custom emojis fit the current moment in a chat. You receive a list of available emoji names and the latest message. ` +
+            `Reply with ONLY a comma-separated list of at most ${maxCount} names taken verbatim from the list (most fitting first), or "none". No other text, no colons.`,
+        },
+        {
+          role: "user",
+          content: `Available custom emojis: ${candidates.join(", ")}\n\nLatest message: "${query}"\n\nFitting emoji names:`,
+        },
+      ],
+      { model: conn.model, temperature: 0.3, maxTokens: 200, signal: controller.signal },
+    );
+    const text = (result.content ?? "").toLowerCase().trim();
+    if (text.replace(/[^a-z0-9_]/g, "") === "none") return [];
+    const candidateSet = new Set(candidates);
+    const picked: string[] = [];
+    for (const token of text.split(/[\s,]+/)) {
+      const name = token.replace(/[^a-z0-9_]/g, "");
+      if (name && candidateSet.has(name) && !picked.includes(name)) {
+        picked.push(name);
+        if (picked.length >= maxCount) break;
+      }
+    }
+    return picked.length > 0 ? picked : null;
+  } catch (err) {
+    logger.debug(err, "[custom-emoji] tool-call selection failed; falling back to semantic/random");
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function uniqueEmojiNames(names: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of names) {
+    const name = typeof raw === "string" ? raw.trim() : "";
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    result.push(name);
+  }
+  return result;
+}
+
+function appendToFirstSystemMessage(messages: GenerationPromptMessage[], content: string): void {
+  const systemMessage = messages.find((message) => message.role === "system");
+  if (systemMessage) {
+    systemMessage.content = systemMessage.content ? `${systemMessage.content}\n\n${content}` : content;
+    return;
+  }
+  messages.unshift({ role: "system", content });
+}
+
+function latestHistoryUserContent(messages: GenerationPromptMessage[]): string {
+  const historyTurn = [...messages].reverse().find((message) => message.role === "user" && message.contextKind === "history");
+  if (historyTurn) return historyTurn.content;
+  return [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+}
+
+/**
+ * Build the Conversation-mode system-prompt block that tells the responding
+ * character(s) which custom emojis they may use (`:name:`). A character gets its
+ * own gallery emojis first (weighted above global), then the global pool, capped
+ * at maxCount; the name pools arrive already ordered by the active selection mode.
+ * Returns null when there are no custom emojis to advertise.
+ */
+function buildCustomEmojiAdvertisement(
+  responders: { charId: string; name: string }[],
+  orderedGlobal: string[],
+  orderedOwnByChar: Map<string, string[]>,
+  maxCount: number,
+): string | null {
+  const toTokens = (names: string[]) => names.map((name) => `:${name}:`).join(" ");
+  const lead =
+    "You can use custom emojis in your reply by writing their name between colons, e.g. :name: — they render as small inline images. Use them only where they fit naturally; do not overuse them.";
+
+  // Single responder (1:1 chats and individual-turn group mode): own first, then global, capped to maxCount total.
+  if (responders.length === 1) {
+    const merged = [...(orderedOwnByChar.get(responders[0]!.charId) ?? [])];
+    for (const name of orderedGlobal) {
+      if (merged.length >= maxCount) break;
+      if (!merged.includes(name)) merged.push(name);
+    }
+    const capped = merged.slice(0, maxCount);
+    if (capped.length === 0) return null;
+    return `${lead}\nBeyond the full standard emoji set, you may use these custom emojis: ${toTokens(capped)}`;
+  }
+
+  // Multiple responders (merged group mode): shared global pool + each character's own, each capped to maxCount.
+  const lines: string[] = [];
+  const global = orderedGlobal.slice(0, maxCount);
+  if (global.length > 0) lines.push(`Available to everyone: ${toTokens(global)}`);
+  for (const responder of responders) {
+    const own = (orderedOwnByChar.get(responder.charId) ?? []).slice(0, maxCount);
+    if (own.length > 0) lines.push(`${responder.name} also has: ${toTokens(own)}`);
+  }
+  if (lines.length === 0) return null;
+  return `${lead}\nBeyond the full standard emoji set, these custom emojis are available (use by typing :name:):\n${lines.join("\n")}`;
+}
+
 export async function generateRoutes(app: FastifyInstance) {
   const isDebug = logger.isLevelEnabled("debug");
 
@@ -772,6 +946,9 @@ export async function generateRoutes(app: FastifyInstance) {
   const customToolsStore = createCustomToolsStorage(app.db);
   const lorebooksStore = createLorebooksStorage(app.db);
   const regexScriptsStore = createRegexScriptsStorage(app.db);
+  const customEmojisStore = createCustomEmojisStorage(app.db);
+  const characterGallery = createCharacterGalleryStorage(app.db);
+  const personaGallery = createPersonaGalleryStorage(app.db);
 
   /**
    * In-memory cache for OpenAI Responses API encrypted reasoning items.
@@ -3154,6 +3331,94 @@ export async function generateRoutes(app: FastifyInstance) {
           character.postHistoryInstructions = resolveCharacterPromptText(character.postHistoryInstructions);
         }
         const characterMacroProfilesById = buildCharacterMacroProfilesById(charInfo);
+
+        // ── Custom emojis: advertise the available :name: emojis to Conversation responders ──
+        if (chatMode === "conversation") {
+          const mentionedNames = new Set(
+            (input.mentionedCharacterNames ?? [])
+              .map((name: string) => name.toLowerCase())
+              .filter((name: string) => name.length > 0),
+          );
+          const scopedResponders = promptTargetCharacterId
+            ? charInfo.filter((character) => character.id === promptTargetCharacterId)
+            : mentionedNames.size > 0
+              ? charInfo.filter((character) => mentionedNames.has(character.name.toLowerCase()))
+              : charInfo;
+          const respondingEmojiChars = (scopedResponders.length > 0 ? scopedResponders : charInfo).map((character) => ({
+            charId: character.id,
+            name: character.name,
+          }));
+
+          const [globalEmojiRows, personaEmojiRows] = await Promise.all([
+            customEmojisStore.list(),
+            personaId ? personaGallery.listByPersonaId(personaId) : Promise.resolve([]),
+          ]);
+          const personaEmojiNames = uniqueEmojiNames(
+            personaEmojiRows
+              .filter((img) => img.customKind === "emoji" && img.customName)
+              .map((img) => img.customName as string),
+          );
+          const sharedEmojiNames = uniqueEmojiNames([
+            ...personaEmojiNames,
+            ...globalEmojiRows.map((emoji) => emoji.name as string),
+          ]);
+          const ownEmojisByChar = new Map<string, string[]>();
+          for (const info of respondingEmojiChars) {
+            const images = await characterGallery.listByCharacterId(info.charId);
+            const names = uniqueEmojiNames(
+              images.filter((img) => img.customKind === "emoji" && img.customName).map((img) => img.customName as string),
+            );
+            if (names.length > 0) ownEmojisByChar.set(info.charId, names);
+          }
+
+          if (sharedEmojiNames.length > 0 || ownEmojisByChar.size > 0) {
+            const emojiPrefs = normalizeCustomEmojiSelection(chatMeta.customEmojiSelection);
+            const emojiQuery = latestHistoryUserContent(finalMessages) || currentUserInputContent() || "";
+            let emojiAdvertisement: string | null = null;
+            let toolSelectionHandled = false;
+
+            // Tool-call mode (single responder only): one model call picks from the full candidate set.
+            if (emojiPrefs.mode === "tool-call" && emojiPrefs.toolConnectionId && respondingEmojiChars.length === 1) {
+              const responder = respondingEmojiChars[0]!;
+              const candidates = uniqueEmojiNames([...(ownEmojisByChar.get(responder.charId) ?? []), ...sharedEmojiNames]);
+              const picked = await selectEmojiNamesByToolCall(
+                candidates,
+                emojiQuery,
+                emojiPrefs.toolConnectionId,
+                connections,
+                emojiPrefs.maxCount,
+              );
+              if (picked !== null) {
+                toolSelectionHandled = true;
+                if (picked.length > 0) {
+                  emojiAdvertisement = buildCustomEmojiAdvertisement(
+                    respondingEmojiChars,
+                    [],
+                    new Map([[responder.charId, picked]]),
+                    emojiPrefs.maxCount,
+                  );
+                }
+              }
+            }
+
+            // Random/semantic — and the fallback when tool-call is unset, multi-responder, or failed.
+            if (!toolSelectionHandled && !emojiAdvertisement) {
+              const orderedShared = await orderEmojiNames(sharedEmojiNames, emojiPrefs, emojiQuery);
+              const orderedOwnByChar = new Map<string, string[]>();
+              for (const [charId, names] of ownEmojisByChar) {
+                orderedOwnByChar.set(charId, await orderEmojiNames(names, emojiPrefs, emojiQuery));
+              }
+              emojiAdvertisement = buildCustomEmojiAdvertisement(
+                respondingEmojiChars,
+                orderedShared,
+                orderedOwnByChar,
+                emojiPrefs.maxCount,
+              );
+            }
+
+            if (emojiAdvertisement) appendToFirstSystemMessage(finalMessages, emojiAdvertisement);
+          }
+        }
 
         let resolvedGameDiscordSpeakerName: string | null = null;
         let gameDiscordSpeakerResolved = false;

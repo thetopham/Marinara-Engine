@@ -1126,11 +1126,15 @@ interface EmojiPickerProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
   /** Container (e.g. input bar) whose top edge determines vertical placement */
   containerRef?: React.RefObject<HTMLElement | null>;
+  /** Optional extra tab (e.g. custom emojis) shown after the standard categories. */
+  customTab?: { icon: React.ReactNode; label?: string; render: (query: string) => React.ReactNode };
+  /** Render inline to fill a parent (no portal/positioning) — e.g. inside the mobile composer sheet. */
+  embedded?: boolean;
 }
 
-export function EmojiPicker({ open, onClose, onSelect, anchorRef, containerRef }: EmojiPickerProps) {
+export function EmojiPicker({ open, onClose, onSelect, anchorRef, containerRef, customTab, embedded }: EmojiPickerProps) {
   const [search, setSearch] = useState("");
-  const [activeCategory, setActiveCategory] = useState(0);
+  const [activeCategory, setActiveCategory] = useState<number | "custom">(0);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -1208,17 +1212,9 @@ export function EmojiPicker({ open, onClose, onSelect, anchorRef, containerRef }
       })()
     : CATEGORIES;
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      className="fixed z-[9999] flex h-[22rem] w-[21rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] shadow-xl"
-      style={{
-        bottom: pos.bottom,
-        ...(pos.right != null ? { right: pos.right } : {}),
-        ...(pos.left != null ? { left: pos.left } : {}),
-      }}
-    >
-      {/* Search */}
+  const content = (
+    <>
+      {/* Search — filters the active standard category, or the custom tab's emojis */}
       <div className="border-b border-foreground/10 px-3 py-2">
         <input
           type="text"
@@ -1226,7 +1222,7 @@ export function EmojiPicker({ open, onClose, onSelect, anchorRef, containerRef }
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search emojis..."
           className="w-full rounded-md bg-foreground/5 px-2.5 py-1.5 text-xs outline-none ring-1 ring-foreground/10 transition-shadow placeholder:text-foreground/35 focus:ring-foreground/20"
-          autoFocus
+          autoFocus={!embedded}
         />
       </div>
 
@@ -1247,29 +1243,66 @@ export function EmojiPicker({ open, onClose, onSelect, anchorRef, containerRef }
             {cat.icon}
           </button>
         ))}
+        {customTab && (
+          <button
+            onClick={() => setActiveCategory("custom")}
+            className={cn(
+              "ml-auto flex items-center rounded-md p-1.5 text-sm transition-colors",
+              activeCategory === "custom"
+                ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
+                : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
+            )}
+            title={customTab.label ?? "Custom"}
+          >
+            {customTab.icon}
+          </button>
+        )}
       </div>
 
-      {/* Emoji grid */}
+      {/* Emoji grid (or the custom-emoji tab content) */}
       <div className="flex-1 overflow-y-auto px-2 py-2">
-        {(search.trim() ? filteredCategories : [CATEGORIES[activeCategory]]).map((cat) => (
-          <div key={cat.label}>
-            <p className="mb-1 px-1 text-[0.625rem] font-semibold uppercase tracking-wide text-foreground/45">
-              {cat.label}
-            </p>
-            <div className="grid grid-cols-8 gap-0.5">
-              {cat.emojis.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => handleSelect(emoji)}
-                  className="rounded-md p-1 text-xl transition-transform hover:scale-125 hover:bg-foreground/10 active:scale-100"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+        {activeCategory === "custom" && customTab
+          ? customTab.render(search)
+          : (search.trim()
+              ? filteredCategories
+              : [CATEGORIES[typeof activeCategory === "number" ? activeCategory : 0]]
+            ).map((cat) => (
+              <div key={cat.label}>
+                <p className="mb-1 px-1 text-[0.625rem] font-semibold uppercase tracking-wide text-foreground/45">
+                  {cat.label}
+                </p>
+                <div className="grid grid-cols-8 gap-0.5">
+                  {cat.emojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => handleSelect(emoji)}
+                      className="rounded-md p-1 text-xl transition-transform hover:scale-125 hover:bg-foreground/10 active:scale-100"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex h-full min-h-0 flex-col overflow-hidden">{content}</div>;
+  }
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      className="fixed z-[9999] flex h-[22rem] w-[21rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] shadow-xl"
+      style={{
+        bottom: pos.bottom,
+        ...(pos.right != null ? { right: pos.right } : {}),
+        ...(pos.left != null ? { left: pos.left } : {}),
+      }}
+    >
+      {content}
     </div>,
     document.body,
   );

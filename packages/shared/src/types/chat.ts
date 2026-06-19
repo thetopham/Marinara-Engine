@@ -5,6 +5,7 @@
 import type { MariWorkspaceTraceItem } from "./professor-mari-workspace.js";
 import type { GenerationGuideSource } from "../utils/generation-guide.js";
 import type { HapticFeedbackSensitivity } from "./haptic.js";
+import type { CustomEmojiSelectionPrefs } from "../schemas/custom-emoji.schema.js";
 
 /** The four primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "visual_novel" | "game";
@@ -209,6 +210,8 @@ export interface ChatMetadata {
   lorebookKeeperTargetLorebookId?: string | null;
   /** How many assistant responses behind the latest available one Lorebook Keeper should read from. */
   lorebookKeeperReadBehindMessages?: number;
+  /** Per-chat custom-emoji selection preferences — how the model is told which custom emojis it may use. */
+  customEmojiSelection?: CustomEmojiSelectionPrefs;
   /** Tool/function IDs scoped to this chat. Non-empty = only these tools are sent; empty = use all enabled tools. */
   activeToolIds: string[];
   /** Per-chat variable selections for preset variables (variableName → value or values) */

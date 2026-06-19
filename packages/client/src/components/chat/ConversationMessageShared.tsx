@@ -7,6 +7,7 @@ import { ChevronRight, EyeOff, FileText, X } from "lucide-react";
 import type { MessageExtra, QuoteFormat } from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
+import { renderInlineWithCustomEmojis } from "../../lib/custom-emoji-render";
 import { applyTextareaQuoteFormat } from "../../lib/textarea-quotes";
 import { ImagePromptPanel } from "./ImagePromptPanel";
 import { SwipeJumpControl } from "./SwipeJumpControl";
@@ -74,6 +75,7 @@ export interface MessageRenderContext {
   quoteFormat: QuoteFormat;
   renderedContent: string;
   renderedContentParts: string[] | null;
+  emojiMap: Map<string, string>;
   groupedSegments: GroupedSegment[] | null;
   visibleSegments: number;
   streamingBubbleDraftContent: string | null;
@@ -331,10 +333,12 @@ export function HiddenFromAIConversationSummary({ onExpand }: { onExpand: () => 
 export function MessageContent({
   content,
   mentionNames,
+  emojiMap,
   onImageOpen,
 }: {
   content: string;
   mentionNames?: string[];
+  emojiMap?: Map<string, string>;
   onImageOpen: (url: string) => void;
 }) {
   if (IMAGE_URL_RE.test(content.trim())) {
@@ -346,9 +350,13 @@ export function MessageContent({
     );
   }
   const compacted = content.replace(/\n{3,}/g, "\n\n");
-  const renderInline = mentionNames?.length
+  const baseInline = mentionNames?.length
     ? (text: string, kp: string) => highlightMentions(applyInlineMarkdown(text, kp), mentionNames, kp)
     : applyInlineMarkdown;
+  const renderInline =
+    emojiMap && emojiMap.size > 0
+      ? (text: string, kp: string) => renderInlineWithCustomEmojis(text, kp, emojiMap, baseInline)
+      : baseInline;
   return <>{renderMarkdownBlocks(compacted, renderInline)}</>;
 }
 

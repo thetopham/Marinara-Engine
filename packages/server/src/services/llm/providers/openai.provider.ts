@@ -811,7 +811,7 @@ export class OpenAIProvider extends BaseLLMProvider {
 
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
     const suppressModelParameters = this.shouldSuppressModelParameters(options);
-    const configuredMaxTokens = suppressModelParameters ? undefined : this.applyMaxTokensCap(options.maxTokens ?? 4096);
+    const configuredMaxTokens = this.applyMaxTokensCap(options.maxTokens ?? 4096);
     const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
     messages = contextFit.messages;
     this.logContextTrim(contextFit, options.model);
@@ -1048,7 +1048,7 @@ export class OpenAIProvider extends BaseLLMProvider {
   /** Non-streaming completion with tool-call support */
   async chatComplete(messages: ChatMessage[], options: ChatOptions): Promise<ChatCompletionResult> {
     const suppressModelParameters = this.shouldSuppressModelParameters(options);
-    const configuredMaxTokens = suppressModelParameters ? undefined : this.applyMaxTokensCap(options.maxTokens ?? 4096);
+    const configuredMaxTokens = this.applyMaxTokensCap(options.maxTokens ?? 4096);
     const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
     messages = contextFit.messages;
     this.logContextTrim(contextFit, options.model);

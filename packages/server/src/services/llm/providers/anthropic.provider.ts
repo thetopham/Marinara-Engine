@@ -321,7 +321,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
     const suppressModelParameters = this.shouldSuppressModelParameters(options);
-    const configuredMaxTokens = suppressModelParameters ? undefined : (options.maxTokens ?? 4096);
+    const configuredMaxTokens = options.maxTokens ?? 4096;
     const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
     messages = contextFit.messages;
     this.logContextTrim(contextFit, options.model);

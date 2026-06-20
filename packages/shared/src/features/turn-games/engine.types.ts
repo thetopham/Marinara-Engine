@@ -118,6 +118,13 @@ export interface TurnGameEngine<TState, TMove, TConfig, TPublic = unknown> {
   /** Render surface for the client. `viewerSeatId === null` = spectator (all hands hidden). */
   publicView(state: TState, viewerSeatId: string | null): TPublic;
 
+  /**
+   * A short, hand-free board summary for injecting game awareness into OTHER
+   * prompts — e.g. so characters can reference the game naturally when the user
+   * chats mid-game. Reveals no private hands.
+   */
+  spectatorSummary(state: TState): string;
+
   /** A deterministic legal move, so a misbehaving bot can never stall the game. */
   pickFallbackMove(state: TState, seatId: string): TMove;
 

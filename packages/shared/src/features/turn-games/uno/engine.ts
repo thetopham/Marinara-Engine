@@ -743,6 +743,33 @@ function buildInstructions(state: UnoState, seatId: string): string {
   return parts.join(" ");
 }
 
+/** Hand-free board summary for injecting game awareness into other (free-chat) prompts. */
+function buildSpectatorSummary(state: UnoState): string {
+  if (state.status === "finished") {
+    const winner = state.winnerSeatId ? nameOf(state, state.winnerSeatId) : null;
+    return `A game of UNO just finished${winner ? ` — ${winner} won` : ""}.`;
+  }
+  const top = topCard(state);
+  const lines: string[] = ["A game of UNO is in progress at the table."];
+  lines.push(
+    `Top card: ${top ? cardLabel(top) : "—"} (active color: ${cap(state.activeColor)}). ` +
+      `Play direction: ${state.direction === 1 ? "clockwise" : "counter-clockwise"}.`,
+  );
+  if (state.pendingDraw > 0) {
+    lines.push(`A +${state.pendingDraw} draw penalty is currently stacked on the next player.`);
+  }
+  lines.push(
+    "Card counts: " +
+      state.seatOrder.map((s) => `${nameOf(state, s)} has ${state.hands[s]?.length ?? 0}`).join(", ") +
+      ".",
+  );
+  lines.push(`It is currently ${nameOf(state, currentSeatId(state))}'s turn.`);
+  if (state.lastAction) {
+    lines.push(`Most recent move: ${nameOf(state, state.lastAction.seatId)} ${state.lastAction.summary}.`);
+  }
+  return lines.join("\n");
+}
+
 // ── the engine object ──────────────────────────────────────────────────────────
 
 export const unoEngine: TurnGameEngine<UnoState, UnoMove, UnoConfig, UnoPublicView> = {
@@ -927,6 +954,10 @@ export const unoEngine: TurnGameEngine<UnoState, UnoMove, UnoConfig, UnoPublicVi
       legalMoves: enumerateLegalMoves(state, seatId),
       instructions: buildInstructions(state, seatId),
     };
+  },
+
+  spectatorSummary(state): string {
+    return buildSpectatorSummary(state);
   },
 
   publicView(state, viewerSeatId): UnoPublicView {

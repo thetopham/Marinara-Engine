@@ -262,6 +262,28 @@ export async function getActiveTurnGame(db: DB, chatId: string): Promise<LoadedG
   return loaded.engine.isTerminal(loaded.state).done ? null : loaded;
 }
 
+/**
+ * A short context block telling conversation bots that a game is in progress and
+ * what the board looks like, so their free-chat replies are game-aware. Returns
+ * null when no unfinished game exists.
+ */
+export async function getTurnGameContextText(db: DB, chatId: string): Promise<string | null> {
+  const active = await getActiveTurnGame(db, chatId);
+  if (!active) return null;
+  try {
+    const summary = active.engine.spectatorSummary(active.state);
+    if (!summary) return null;
+    return (
+      `${summary}\n` +
+      `You are at this table. Stay fully in character; you may reference the game naturally when it's relevant, ` +
+      `but never restate these stats verbatim and never reveal anyone's specific cards.`
+    );
+  } catch (err) {
+    logger.warn(err, "Failed to build turn-game context text for chat %s", chatId);
+    return null;
+  }
+}
+
 /** End and remove the game for a chat. */
 export async function resignTurnGame(db: DB, chatId: string): Promise<void> {
   await createGameEngineStateStorage(db).deleteForChat(chatId);

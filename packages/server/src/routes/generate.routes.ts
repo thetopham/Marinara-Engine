@@ -235,6 +235,7 @@ import { registerRetryAgentsRoute } from "./generate/retry-agents-route.js";
 import { fingerprintChatSummary } from "../services/prompt/chat-summary-fingerprint.js";
 import { sendSseEvent, startSseReply, trySendSseEvent } from "./generate/sse.js";
 import { runTurnGameBotTurns } from "../services/turn-games/turn-game-bot-runner.service.js";
+import { getTurnGameContextText } from "../services/turn-games/turn-game-runner.service.js";
 import { normalizeContextInjections } from "./generate/agent-normalizers.js";
 import {
   buildGenerationPromptPresetCandidates,
@@ -5562,6 +5563,16 @@ export async function generateRoutes(app: FastifyInstance) {
           sendSseEvent(reply, { type: "response_queue_failed", data: "No response queue was created." });
           sendSseEvent(reply, { type: "done", data: "" });
           return;
+        }
+
+        // Turn-game board awareness: when a UNO (etc.) game is active, tell the
+        // responding bots the current board so their free-chat replies know a
+        // game is in progress (the move-narration path is already board-aware).
+        if (chatMode === "conversation") {
+          const turnGameContext = await getTurnGameContextText(app.db, input.chatId);
+          if (turnGameContext) {
+            finalMessages = injectAtDepth(finalMessages, [{ content: turnGameContext, role: "system", depth: 0 }]);
+          }
         }
 
         // Manual mode with forCharacterId: only generate for the specified character

@@ -9,6 +9,7 @@ import {
   applyTrackerFieldLocksToGameStatePatch,
   getDefaultBuiltInAgentSettings,
   NARRATIVE_DIRECTOR_SECRET_PLOT_PROMPT,
+  customAgentHasCapability,
   isAgentAvailableInChatMode,
   isAgentConfigDeleted,
   normalizeAgentPromptTemplateSelectionMap,
@@ -130,6 +131,50 @@ type ResolvedRetryAgent = {
 };
 
 const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+
+function findRetryResultAgent(result: AgentResult, agents: ResolvedRetryAgent[]): ResolvedAgent | null {
+  return (
+    agents.find((entry) => entry.resolved.id === result.agentId || entry.resolved.type === result.agentType)
+      ?.resolved ?? null
+  );
+}
+
+function customAgentCanApplyRetryResult(
+  result: AgentResult,
+  agents: ResolvedRetryAgent[],
+  capability: Parameters<typeof customAgentHasCapability>[1],
+): boolean {
+  if (BUILT_IN_AGENT_TYPE_SET.has(result.agentType)) return true;
+  const agent = findRetryResultAgent(result, agents);
+  return agent ? customAgentHasCapability(agent.settings, capability) : false;
+}
+
+function customAgentCanEmitRetryResult(result: AgentResult, agents: ResolvedRetryAgent[]): boolean {
+  if (BUILT_IN_AGENT_TYPE_SET.has(result.agentType)) return true;
+  switch (result.type) {
+    case "text_rewrite":
+      return customAgentCanApplyRetryResult(result, agents, "edit_messages");
+    case "lorebook_update":
+      return (
+        customAgentCanApplyRetryResult(result, agents, "edit_lorebooks") ||
+        customAgentCanApplyRetryResult(result, agents, "create_lorebooks")
+      );
+    case "game_state_update":
+    case "character_tracker_update":
+    case "persona_stats_update":
+    case "custom_tracker_update":
+    case "quest_update":
+      return customAgentCanApplyRetryResult(result, agents, "edit_trackers");
+    case "image_prompt":
+      return customAgentCanApplyRetryResult(result, agents, "trigger_image_generation");
+    case "prompt_patch":
+      return customAgentCanApplyRetryResult(result, agents, "edit_main_prompt");
+    case "frontend_theme_update":
+      return customAgentCanApplyRetryResult(result, agents, "change_frontend_styling");
+    default:
+      return true;
+  }
+}
 
 function applyDefaultBuiltInAgentTools(agentType: string, settings: unknown): Record<string, unknown> {
   const next =
@@ -2187,7 +2232,8 @@ async function applyRetryResultEffects(args: {
       result.type === "game_state_update" &&
       result.agentType !== "combat" &&
       result.data &&
-      typeof result.data === "object"
+      typeof result.data === "object" &&
+      customAgentCanApplyRetryResult(result, resolvedAgents, "edit_trackers")
     ) {
       try {
         const gs = result.data as Record<string, unknown>;
@@ -2271,7 +2317,8 @@ async function applyRetryResultEffects(args: {
       result.success &&
       result.type === "character_tracker_update" &&
       result.data &&
-      typeof result.data === "object"
+      typeof result.data === "object" &&
+      customAgentCanApplyRetryResult(result, resolvedAgents, "edit_trackers")
     ) {
       try {
         const ctData = result.data as Record<string, unknown>;
@@ -2317,7 +2364,13 @@ async function applyRetryResultEffects(args: {
       }
     }
 
-    if (result.success && result.type === "persona_stats_update" && result.data && typeof result.data === "object") {
+    if (
+      result.success &&
+      result.type === "persona_stats_update" &&
+      result.data &&
+      typeof result.data === "object" &&
+      customAgentCanApplyRetryResult(result, resolvedAgents, "edit_trackers")
+    ) {
       try {
         const psData = result.data as Record<string, unknown>;
         const hasStats = Array.isArray(psData.stats);
@@ -2390,7 +2443,13 @@ async function applyRetryResultEffects(args: {
       }
     }
 
-    if (result.success && result.type === "quest_update" && result.data && typeof result.data === "object") {
+    if (
+      result.success &&
+      result.type === "quest_update" &&
+      result.data &&
+      typeof result.data === "object" &&
+      customAgentCanApplyRetryResult(result, resolvedAgents, "edit_trackers")
+    ) {
       try {
         const qData = result.data as Record<string, unknown>;
         const updates = Array.isArray(qData.updates) ? qData.updates : [];
@@ -2403,7 +2462,9 @@ async function applyRetryResultEffects(args: {
         if (updates.length > 0) {
           const snap = await loadRetryTargetGameStateSnapshot();
           const existingPS = parseSnapshotPlayerStats(snap);
-          const questMerge = applyQuestUpdatesToPlayerStats(existingPS, updates);
+          const questMerge = applyQuestUpdatesToPlayerStats(existingPS, updates, {
+            autoRemoveFullyCompleted: true,
+          });
           const questTrackerPatch = buildLockedPlayerStatsArrayPatch<any>({
             field: "activeQuests",
             values: questMerge.quests,
@@ -2463,7 +2524,13 @@ async function applyRetryResultEffects(args: {
       }
     }
 
-    if (result.success && result.type === "custom_tracker_update" && result.data && typeof result.data === "object") {
+    if (
+      result.success &&
+      result.type === "custom_tracker_update" &&
+      result.data &&
+      typeof result.data === "object" &&
+      customAgentCanApplyRetryResult(result, resolvedAgents, "edit_trackers")
+    ) {
       try {
         const ctData = result.data as Record<string, unknown>;
         const hasFields = Array.isArray(ctData.fields);
@@ -3102,6 +3169,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       }
 
       for (const result of results) {
+        if (!customAgentCanEmitRetryResult(result, resolvedAgents)) continue;
         const cfg = resolvedAgents.find((entry) => entry.resolved.type === result.agentType)?.cfg;
         sendSseEvent(reply, {
           type: "agent_result",
@@ -3126,6 +3194,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       }
 
       for (const entry of lorebookKeeperRunEntries) {
+        if (!customAgentCanEmitRetryResult(entry.result, resolvedAgents)) continue;
         const cfg = lorebookKeeperAgent?.cfg;
         sendSseEvent(reply, {
           type: "agent_result",

@@ -4008,6 +4008,17 @@ export async function gameRoutes(app: FastifyInstance) {
     string,
     Promise<{ sessionChat: StoredChatRecord; sessionNumber: number; recap: string }>
   >();
+  const pendingSessionConclusions = new Map<string, Promise<unknown>>();
+
+  const findSessionSummaryForNumber = (summaries: SessionSummary[], sessionNumber: number): SessionSummary | null =>
+    summaries.find((summary) => summary.sessionNumber === sessionNumber) ?? null;
+
+  const getAlreadyConcludedSummary = (meta: Record<string, unknown>): SessionSummary | null => {
+    if (meta.gameSessionStatus !== "concluded") return null;
+    const summaries = normalizeStoredSessionSummaries(meta.gamePreviousSessionSummaries);
+    const sessionNumber = typeof meta.gameSessionNumber === "number" ? meta.gameSessionNumber : summaries.length;
+    return findSessionSummaryForNumber(summaries, sessionNumber) ?? summaries.at(-1) ?? null;
+  };
 
   // ── POST /game/session/start ──
   app.post("/session/start", async (req) => {
@@ -4285,6 +4296,10 @@ export async function gameRoutes(app: FastifyInstance) {
   // ── POST /game/session/conclude ──
   app.post("/session/conclude", async (req, reply) => {
     const { chatId, connectionId, streaming, nextSessionRequest } = concludeSessionSchema.parse(req.body);
+    const existingConclusion = pendingSessionConclusions.get(chatId);
+    if (existingConclusion) return existingConclusion;
+
+    const conclusionRequest = (async () => {
     const trimmedNextSessionRequest = nextSessionRequest.trim();
     logger.info("[game/session/conclude] Starting manual conclude for chat %s", chatId);
     const chats = createChatsStorage(app.db);
@@ -4294,6 +4309,11 @@ export async function gameRoutes(app: FastifyInstance) {
     if (!chat) throw new Error("Chat not found");
 
     const meta = parseMeta(chat.metadata);
+    const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
+    if (alreadyConcludedSummary) {
+      logger.info("[game/session/conclude] Session already concluded for chat %s", chatId);
+      return { summary: alreadyConcludedSummary, alreadyConcluded: true };
+    }
     const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
     const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
     const syncedPartyIds = setupConfig
@@ -4426,21 +4446,34 @@ export async function gameRoutes(app: FastifyInstance) {
       return;
     }
 
-    await chats.patchMetadata(chatId, (freshMeta) => ({
-      ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
-      gamePartyCharacterIds: syncedPartyIds,
-      gameSessionNumber: sessionNumber,
-      gameSessionStatus: "concluded",
-      gameStoryArc: appliedConclusion.updatedStoryArc,
-      gamePlotTwists: appliedConclusion.updatedPlotTwists,
-      gamePartyArcs: appliedConclusion.updatedPartyArcs,
-      gamePreviousSessionSummaries: [
-        ...normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries),
-        appliedConclusion.summary,
-      ],
-      gameCharacterCards: appliedConclusion.updatedCards,
-      ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
-    }));
+    let conclusionWasStored = false;
+    let storedConclusionSummary = appliedConclusion.summary;
+    await chats.patchMetadata(chatId, (freshMeta) => {
+      const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
+      const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
+      if (existingSummary) {
+        storedConclusionSummary = existingSummary;
+        return {};
+      }
+
+      conclusionWasStored = true;
+      return {
+        ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
+        gamePartyCharacterIds: syncedPartyIds,
+        gameSessionNumber: sessionNumber,
+        gameSessionStatus: "concluded",
+        gameStoryArc: appliedConclusion.updatedStoryArc,
+        gamePlotTwists: appliedConclusion.updatedPlotTwists,
+        gamePartyArcs: appliedConclusion.updatedPartyArcs,
+        gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
+        gameCharacterCards: appliedConclusion.updatedCards,
+        ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+      };
+    });
+    if (!conclusionWasStored) {
+      logger.info("[game/session/conclude] Session %d was already concluded for chat %s", sessionNumber, chatId);
+      return { summary: storedConclusionSummary, alreadyConcluded: true };
+    }
 
     const sessionSummaryMsg = await chats.createMessage({
       chatId,
@@ -4501,17 +4534,36 @@ export async function gameRoutes(app: FastifyInstance) {
 
     logger.info("[game/session/conclude] Session %d concluded for chat %s", sessionNumber, chatId);
     return { summary: appliedConclusion.summary };
+    })();
+
+    pendingSessionConclusions.set(chatId, conclusionRequest);
+    try {
+      return await conclusionRequest;
+    } finally {
+      if (pendingSessionConclusions.get(chatId) === conclusionRequest) {
+        pendingSessionConclusions.delete(chatId);
+      }
+    }
   });
 
   // ── POST /game/session/conclude/apply-json ──
   app.post("/session/conclude/apply-json", async (req, reply) => {
     const { chatId, rawJson, connectionId, nextSessionRequest } = jsonRepairApplySchema.parse(req.body);
+    const existingConclusion = pendingSessionConclusions.get(chatId);
+    if (existingConclusion) return existingConclusion;
+
+    const conclusionRequest = (async () => {
     const trimmedNextSessionRequest = nextSessionRequest.trim();
     const chats = createChatsStorage(app.db);
     const chat = await chats.getById(chatId);
     if (!chat) throw new Error("Chat not found");
 
     const meta = parseMeta(chat.metadata);
+    const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
+    if (alreadyConcludedSummary) {
+      logger.info("[game/session/conclude/apply-json] Session already concluded for chat %s", chatId);
+      return { summary: alreadyConcludedSummary, alreadyConcluded: true };
+    }
     const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
     const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
     const syncedPartyIds = setupConfig
@@ -4554,21 +4606,34 @@ export async function gameRoutes(app: FastifyInstance) {
       return;
     }
 
-    await chats.patchMetadata(chatId, (freshMeta) => ({
-      ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
-      gamePartyCharacterIds: syncedPartyIds,
-      gameSessionNumber: sessionNumber,
-      gameSessionStatus: "concluded",
-      gameStoryArc: appliedConclusion.updatedStoryArc,
-      gamePlotTwists: appliedConclusion.updatedPlotTwists,
-      gamePartyArcs: appliedConclusion.updatedPartyArcs,
-      gamePreviousSessionSummaries: [
-        ...normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries),
-        appliedConclusion.summary,
-      ],
-      gameCharacterCards: appliedConclusion.updatedCards,
-      ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
-    }));
+    let conclusionWasStored = false;
+    let storedConclusionSummary = appliedConclusion.summary;
+    await chats.patchMetadata(chatId, (freshMeta) => {
+      const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
+      const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
+      if (existingSummary) {
+        storedConclusionSummary = existingSummary;
+        return {};
+      }
+
+      conclusionWasStored = true;
+      return {
+        ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
+        gamePartyCharacterIds: syncedPartyIds,
+        gameSessionNumber: sessionNumber,
+        gameSessionStatus: "concluded",
+        gameStoryArc: appliedConclusion.updatedStoryArc,
+        gamePlotTwists: appliedConclusion.updatedPlotTwists,
+        gamePartyArcs: appliedConclusion.updatedPartyArcs,
+        gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
+        gameCharacterCards: appliedConclusion.updatedCards,
+        ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+      };
+    });
+    if (!conclusionWasStored) {
+      logger.info("[game/session/conclude/apply-json] Session %d was already concluded for chat %s", sessionNumber, chatId);
+      return { summary: storedConclusionSummary, alreadyConcluded: true };
+    }
 
     const summaryContent = `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`;
     await chats.createMessage({
@@ -4620,6 +4685,16 @@ export async function gameRoutes(app: FastifyInstance) {
     });
 
     return { summary: appliedConclusion.summary };
+    })();
+
+    pendingSessionConclusions.set(chatId, conclusionRequest);
+    try {
+      return await conclusionRequest;
+    } finally {
+      if (pendingSessionConclusions.get(chatId) === conclusionRequest) {
+        pendingSessionConclusions.delete(chatId);
+      }
+    }
   });
 
   // ── POST /game/session/regenerate-lorebook ──

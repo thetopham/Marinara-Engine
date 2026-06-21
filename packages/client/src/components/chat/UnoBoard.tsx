@@ -113,6 +113,11 @@ export function UnoBoard({ chatId }: Props) {
     move.mutate({ move: m, seatId: view.yourSeatId ?? undefined });
   };
 
+  // Playing one of your two cards leaves you at one: declare UNO on that play so a
+  // bot can't catch you in the instant before you could click "Call UNO!" (bots
+  // already auto-declare for themselves, so this just makes the human symmetric).
+  const goingToOne = view.yourHand.length === 2;
+
   const onCardClick = (entry: { card: UnoCard; playable: boolean }) => {
     if (disabled) return;
     const { card } = entry;
@@ -122,9 +127,9 @@ export function UnoBoard({ chatId }: Props) {
       if (card.value === "7" && view.config.sevenZero && view.seats.length > 1) {
         return setPending({ card, kind: "swap" });
       }
-      submit({ type: "play", card: { color: card.color, value: card.value } });
+      submit({ type: "play", cardId: card.id, ...(goingToOne ? { sayUno: true } : {}) });
     } else if (jumpInSet.has(card.id)) {
-      submit({ type: "jump_in", card: { color: card.color, value: card.value } });
+      submit({ type: "jump_in", cardId: card.id, ...(goingToOne ? { sayUno: true } : {}) });
     }
   };
 
@@ -309,8 +314,9 @@ export function UnoBoard({ chatId }: Props) {
                   onClick={() =>
                     submit({
                       type: "play",
-                      card: { color: pending.card.color, value: pending.card.value },
+                      cardId: pending.card.id,
                       declaredColor: color,
+                      ...(goingToOne ? { sayUno: true } : {}),
                     })
                   }
                   className="h-6 w-6 rounded-full ring-1 ring-black/20 transition-transform hover:scale-110"
@@ -330,8 +336,9 @@ export function UnoBoard({ chatId }: Props) {
                   onClick={() =>
                     submit({
                       type: "play",
-                      card: { color: pending.card.color, value: pending.card.value },
+                      cardId: pending.card.id,
                       swapTargetSeatId: seat.seatId,
+                      ...(goingToOne ? { sayUno: true } : {}),
                     })
                   }
                   className="rounded bg-[var(--primary)]/15 px-2 py-0.5 text-xs font-medium text-[var(--primary)] hover:bg-[var(--primary)]/25"

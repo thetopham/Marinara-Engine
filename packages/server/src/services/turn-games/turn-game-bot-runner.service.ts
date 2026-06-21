@@ -9,12 +9,11 @@
 //      bot can never stall the table),
 //   3. narrates the engine-confirmed outcome in character.
 // State + narration are persisted per move; group_turn / message_saved /
-// uno_state_patch SSE events stream into the client's open generate request.
+// turn_game_state_patch SSE events stream into the client's open generate request.
 //
 // Invoked from the /api/generate handler ONLY when input.turnGameBots is set,
 // so it can never affect a normal conversation/roleplay generation.
 import type { FastifyReply } from "fastify";
-import { UNO_TOOL_NAMES } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
 import { logger } from "../../lib/logger.js";
 import type { BaseLLMProvider, ChatMessage, LLMToolDefinition } from "../llm/base-provider.js";
@@ -185,8 +184,9 @@ export async function runTurnGameBotTurns(args: RunBotTurnsArgs): Promise<void> 
         maxTokens: 220,
         ...(signal ? { signal } : {}),
       });
-      const call = res.toolCalls.find((c) => UNO_TOOL_NAMES.includes(c.function.name));
-      if (call) {
+      // Take the first tool call the engine recognizes. Engine-agnostic: no per-game
+      // tool-name list — parseToolCall returns null for any tool the engine doesn't own.
+      for (const call of res.toolCalls) {
         let parsedArgs: Record<string, unknown> = {};
         try {
           parsedArgs = JSON.parse(call.function.arguments || "{}");
@@ -194,7 +194,10 @@ export async function runTurnGameBotTurns(args: RunBotTurnsArgs): Promise<void> 
           parsedArgs = {};
         }
         const raw = engine.parseToolCall(call.function.name, parsedArgs);
-        if (raw) proposed = resolveSeatRefs(raw, state);
+        if (raw) {
+          proposed = resolveSeatRefs(raw, state);
+          break;
+        }
       }
     } catch (err) {
       if (signal?.aborted) break;
@@ -251,7 +254,7 @@ export async function runTurnGameBotTurns(args: RunBotTurnsArgs): Promise<void> 
     }
 
     // Push the redacted human-perspective board so the client updates live.
-    trySendSseEvent(reply, { type: "uno_state_patch", data: engine.publicView(nextState, humanSeatId) });
+    trySendSseEvent(reply, { type: "turn_game_state_patch", data: engine.publicView(nextState, humanSeatId) });
   }
 }
 

@@ -9558,7 +9558,9 @@ export async function generateRoutes(app: FastifyInstance) {
                         humanFirst: true,
                       });
                       if (outcome.ok) {
-                        reply.raw.write(`data: ${JSON.stringify({ type: "uno_state_patch", data: outcome.view })}\n\n`);
+                        reply.raw.write(
+                          `data: ${JSON.stringify({ type: "turn_game_state_patch", data: outcome.view })}\n\n`,
+                        );
                         logger.info(
                           "[commands] UNO started in chat %s with %d player(s)",
                           input.chatId,

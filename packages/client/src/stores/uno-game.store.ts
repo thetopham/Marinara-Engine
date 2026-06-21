@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Zustand Store: Turn-Game Board (UNO and future turn-based games)
 // ──────────────────────────────────────────────
-// Holds the live, per-viewer board snapshot pushed by the server (uno_state_patch
+// Holds the live, per-viewer board snapshot pushed by the server (turn_game_state_patch
 // SSE) or fetched on mount. chatId-guarded so a background chat's game can never
 // paint over the visible board. Synchronous only — all async lives in use-uno.ts.
 import { create } from "zustand";

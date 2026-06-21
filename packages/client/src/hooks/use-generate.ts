@@ -1681,7 +1681,7 @@ export function useGenerate() {
               break;
             }
 
-            case "uno_state_patch": {
+            case "turn_game_state_patch": {
               if (!isActiveChat()) break;
               useUnoGameStore.getState().setUno(event.data as never, params.chatId);
               break;
@@ -2631,7 +2631,7 @@ export function useGenerate() {
               applyGameStatePatchToStore(chatId, patch);
               break;
             }
-            case "uno_state_patch": {
+            case "turn_game_state_patch": {
               if (!isActiveChat()) break;
               useUnoGameStore.getState().setUno(event.data as never, chatId);
               break;

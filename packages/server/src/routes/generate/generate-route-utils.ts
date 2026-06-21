@@ -359,6 +359,91 @@ export function findTrackerContextInsertIndex(
   return messages.length;
 }
 
+type PromptRoleMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  contextKind?: "prompt" | "history" | "injection";
+  characterId?: string | null;
+  images?: string[];
+  files?: Array<{ type: string; data: string; filename?: string }>;
+  providerMetadata?: Record<string, unknown>;
+};
+
+function clonePromptRoleMessage<T extends PromptRoleMessage>(message: T): T {
+  return {
+    ...message,
+    ...(message.images ? { images: [...message.images] } : {}),
+    ...(message.files ? { files: message.files.map((file) => ({ ...file })) } : {}),
+    ...(message.providerMetadata ? { providerMetadata: { ...message.providerMetadata } } : {}),
+  };
+}
+
+function appendPromptMessageContent(target: PromptRoleMessage, source: PromptRoleMessage) {
+  target.content = `${target.content}\n\n${source.content}`;
+  if (target.contextKind !== source.contextKind) {
+    delete target.contextKind;
+  }
+  if (source.images?.length) {
+    target.images = [...(target.images ?? []), ...source.images];
+  }
+  if (source.files?.length) {
+    target.files = [...(target.files ?? []), ...source.files.map((file) => ({ ...file }))];
+  }
+  if (source.providerMetadata) {
+    target.providerMetadata = {
+      ...(target.providerMetadata ?? {}),
+      ...source.providerMetadata,
+    };
+  }
+}
+
+/**
+ * Provider-safe role normalization for strict prompt presets.
+ *
+ * System blocks before chat history stay as provider system messages. Once
+ * conversation turns have started, later system blocks are appended to the
+ * latest user message so the request remains system/user/assistant/user...
+ * without making post-history preset sections removable during context fitting.
+ * Depth injections are already positioned in history, so they become user
+ * messages in place instead of moving to the latest user turn.
+ */
+export function appendNonLeadingSystemMessagesToLastUser<T extends PromptRoleMessage>(messages: T[]): T[] {
+  const result: T[] = [];
+  let pastLeadingSystem = false;
+  let lastUserIndex = -1;
+
+  for (const message of messages) {
+    const cloned = clonePromptRoleMessage(message);
+    if (!pastLeadingSystem) {
+      if (cloned.role !== "system") pastLeadingSystem = true;
+      result.push(cloned);
+      if (cloned.role === "user") lastUserIndex = result.length - 1;
+      continue;
+    }
+
+    if (cloned.role === "system") {
+      const converted = { ...cloned, role: "user" as const };
+      if (cloned.contextKind === "injection") {
+        result.push(converted as T);
+        lastUserIndex = result.length - 1;
+        continue;
+      }
+      if (lastUserIndex >= 0) {
+        appendPromptMessageContent(result[lastUserIndex]!, converted);
+      } else {
+        result.push(converted as T);
+        lastUserIndex = result.length - 1;
+      }
+      continue;
+    }
+
+    result.push(cloned);
+    if (cloned.role === "user") lastUserIndex = result.length - 1;
+  }
+
+  return result;
+}
+
 /** Parse a JSON extra field safely. */
 export function parseExtra(extra: unknown): Record<string, unknown> {
   if (!extra) return {};

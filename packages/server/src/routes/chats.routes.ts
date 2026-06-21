@@ -56,6 +56,7 @@ import { join } from "path";
 import { DATA_DIR } from "../utils/data-dir.js";
 import { normalizeTimestampOverrides } from "../services/import/import-timestamps.js";
 import {
+  appendNonLeadingSystemMessagesToLastUser,
   findTrackerContextInsertIndex,
   isManualTrackerCharacterId,
   parseExtra,
@@ -268,9 +269,16 @@ function resolveChatCharacterIds(raw: unknown): string[] {
 }
 
 function toPeekPromptMessages(
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+    contextKind?: "prompt" | "history" | "injection";
+  }>,
 ): Array<{ role: string; content: string }> {
-  return messages.map((message) => ({ role: message.role, content: message.content }));
+  return appendNonLeadingSystemMessagesToLastUser(messages).map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
 }
 
 function cardPromptText(value: unknown): string {

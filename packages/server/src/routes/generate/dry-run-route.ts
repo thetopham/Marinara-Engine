@@ -43,6 +43,7 @@ import { applyRegexScriptsToPromptMessages } from "../../services/regex/regex-ap
 import { sendSseEvent, startSseReply } from "./sse.js";
 import {
   appendReadableAttachmentsToContent,
+  appendNonLeadingSystemMessagesToLastUser,
   dedupeLastMessageWrappers,
   extractFileAttachmentInputs,
   extractImageAttachmentDataUrls,
@@ -1474,19 +1475,10 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       }));
 
     const prepareProviderMessages = (messages: ChatMessage[]): ChatMessage[] => {
-      // Convert mid-prompt system messages to user role after context fitting.
+      // Append mid-prompt system messages to the last user turn after context fitting.
       // This mirrors /api/generate while keeping prompt/injection blocks protected
       // during history trimming.
-      let pastLeadingSystem = false;
-      const converted = messages.map((m) => {
-        if (!pastLeadingSystem) {
-          if (m.role !== "system") pastLeadingSystem = true;
-          return m;
-        }
-        if (m.role === "system") return { ...m, role: "user" as const };
-        return m;
-      });
-      return mergeAdjacentMessages(converted as any) as ChatMessage[];
+      return mergeAdjacentMessages(appendNonLeadingSystemMessagesToLastUser(messages) as any) as ChatMessage[];
     };
 
     const fit = fitMessagesForModelAccess({

@@ -193,6 +193,7 @@ import {
   buildLockedPlayerStatsArrayPatch,
   buildLockedPersonaTrackerPatch,
   extractImageAttachmentDataUrls,
+  appendNonLeadingSystemMessagesToLastUser,
   injectIntoOutputFormatOrLastUser,
   isManualTrackerCharacterId,
   isMessageHiddenFromAI,
@@ -5909,19 +5910,10 @@ export async function generateRoutes(app: FastifyInstance) {
           };
 
           const prepareProviderMessages = (messages: ChatMessage[]): ChatMessage[] => {
-            // Convert mid-prompt system messages to user role after context fitting.
+            // Append mid-prompt system messages to the last user turn after context fitting.
             // This keeps prompt/injection system blocks protected while trimming history,
             // then preserves provider alternation rules for the actual request.
-            let pastLeadingSystem = false;
-            const converted = messages.map((m) => {
-              if (!pastLeadingSystem) {
-                if (m.role !== "system") pastLeadingSystem = true;
-                return m;
-              }
-              if (m.role === "system") return { ...m, role: "user" as const };
-              return m;
-            });
-            return mergeProviderAdjacentMessages(converted);
+            return mergeProviderAdjacentMessages(appendNonLeadingSystemMessagesToLastUser(messages));
           };
 
           let finalPromptSent: ChatMessage[] = [];

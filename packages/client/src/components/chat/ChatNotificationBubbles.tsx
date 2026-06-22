@@ -18,7 +18,6 @@ export function ChatNotificationBubbles() {
   const chatNotifications = useChatStore((s) => s.chatNotifications);
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const dismissNotification = useChatStore((s) => s.dismissNotification);
-  const dismissNotifications = useChatStore((s) => s.dismissNotifications);
   const setShouldOpenSettings = useChatStore((s) => s.setShouldOpenSettings);
   const setShouldOpenWizard = useChatStore((s) => s.setShouldOpenWizard);
   const setShouldOpenWizardInShortcutMode = useChatStore((s) => s.setShouldOpenWizardInShortcutMode);
@@ -74,11 +73,7 @@ export function ChatNotificationBubbles() {
                   setMobileExpanded(false);
                 }}
                 onDismiss={() => {
-                  if (mobileExpanded) {
-                    dismissNotifications(notifications.map((item) => item.chatId));
-                  } else {
-                    dismissNotification(notif.chatId);
-                  }
+                  dismissNotification(notif.chatId);
                   if (notifications.length <= 2) setMobileExpanded(false);
                 }}
               />

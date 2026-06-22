@@ -71,6 +71,8 @@ public class MainActivity extends Activity {
     private boolean mainFrameLoadFailed;
     private boolean connectionRetryPaused;
     private String currentMainFrameUrl;
+    private long currentMainFrameNavigationId;
+    private long activeServerMainFrameNavigationId;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable retryConnectionRunnable = this::tryConnect;
 
@@ -214,36 +216,42 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 currentMainFrameUrl = url;
+                currentMainFrameNavigationId++;
                 if (isServerUrl(url)) {
+                    activeServerMainFrameNavigationId = currentMainFrameNavigationId;
                     mainFrameLoadFailed = false;
+                } else {
+                    activeServerMainFrameNavigationId = 0;
                 }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (isCurrentServerMainFrame(url) && !mainFrameLoadFailed) {
+                if (isActiveServerMainFrame(url) && !mainFrameLoadFailed) {
                     showWebView();
                 }
             }
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (isCurrentServerMainFrame(failingUrl)) {
+                if (isActiveServerMainFrame(failingUrl)) {
                     handleServerLoadFailure();
                 }
             }
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame() && isServerUrl(request.getUrl().toString())) {
+                String failingUrl = request.getUrl().toString();
+                if (request.isForMainFrame() && isActiveServerMainFrame(failingUrl)) {
                     handleServerLoadFailure();
                 }
             }
 
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
-                if (request.isForMainFrame() && isServerUrl(request.getUrl().toString())) {
+                String failingUrl = request.getUrl().toString();
+                if (request.isForMainFrame() && isActiveServerMainFrame(failingUrl)) {
                     handleServerLoadFailure();
                 }
             }
@@ -341,10 +349,11 @@ public class MainActivity extends Activity {
             connection = (HttpURLConnection) new URL(SERVER_URL).openConnection();
             connection.setConnectTimeout(1_000);
             connection.setReadTimeout(1_500);
+            connection.setInstanceFollowRedirects(false);
             connection.setUseCaches(false);
             connection.setRequestProperty("User-Agent", "MarinaraEngine/Android");
             int status = connection.getResponseCode();
-            return status >= 200 && status < 400;
+            return status >= 200 && status < 300;
         } catch (Exception e) {
             return false;
         } finally {
@@ -367,8 +376,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean isCurrentServerMainFrame(String url) {
-        return textEquals(currentMainFrameUrl, url) && isServerUrl(url);
+    private boolean isActiveServerMainFrame(String url) {
+        return activeServerMainFrameNavigationId == currentMainFrameNavigationId
+                && textEquals(currentMainFrameUrl, url)
+                && isServerUrl(url);
     }
 
     private boolean hostsReferToSameServer(String left, String right) {

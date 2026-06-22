@@ -100,12 +100,31 @@ const BUILT_IN_TRACKER_AGENT_ID_SET = new Set(
   BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker" && !agent.libraryHidden).map((agent) => agent.id),
 );
 
-function flattenLoadedMessagePages<T>(pages: T[][] | undefined, pageSize: number): T[] | undefined {
+const NEWEST_MESSAGE_PAGE_INDEX = 0;
+
+// useChatMessages stores pages newest-first; individual pages remain chronological.
+function flattenNewestFirstMessagePages<T>(pages: T[][] | undefined, pageSize: number): T[] | undefined {
   if (!pages) return undefined;
-  if (pageSize > 0 && pages.length === 1 && pages[0] && pages[0].length > pageSize) {
-    return pages[0].slice(-pageSize);
+  const newestPage = pages[NEWEST_MESSAGE_PAGE_INDEX];
+  if (pageSize > 0 && pages.length === 1 && newestPage && newestPage.length > pageSize) {
+    return newestPage.slice(-pageSize);
   }
   return [...pages].reverse().flat();
+}
+
+function getNewestLoadedMessagePageLength<T>(pages: T[][] | undefined): number {
+  return pages?.[NEWEST_MESSAGE_PAGE_INDEX]?.length ?? 0;
+}
+
+function trimNewestLoadedMessagePage<T>(
+  data: InfiniteData<T[]> | undefined,
+  pageSize: number,
+): InfiniteData<T[]> | undefined {
+  const newestPage = data?.pages[NEWEST_MESSAGE_PAGE_INDEX];
+  if (!data || !newestPage || newestPage.length <= pageSize) return data;
+  const pages = [...data.pages];
+  pages[NEWEST_MESSAGE_PAGE_INDEX] = newestPage.slice(-pageSize);
+  return { ...data, pages };
 }
 
 const normalizeSpriteDisplayValue = (value: unknown, fallback: number, min: number, max: number): number => {
@@ -429,19 +448,14 @@ export function ChatArea() {
     refetch: refetchMessages,
   } = useChatMessages(activeChatId, messagePageSize, !!chat);
   const messages = useMemo<MessageWithSwipes[] | undefined>(
-    () => flattenLoadedMessagePages(msgData?.pages, messagePageSize),
+    () => flattenNewestFirstMessagePages(msgData?.pages, messagePageSize),
     [messagePageSize, msgData?.pages],
   );
-  const newestMessagePageLength = msgData?.pages[0]?.length ?? 0;
+  const newestMessagePageLength = getNewestLoadedMessagePageLength(msgData?.pages);
   useEffect(() => {
     if (!activeChatId || messagePageSize <= 0 || newestMessagePageLength <= messagePageSize) return;
     queryClient.setQueryData<InfiniteData<MessageWithSwipes[]>>(chatKeys.messages(activeChatId), (old) => {
-      const firstPage = old?.pages[0];
-      if (!old || !firstPage || firstPage.length <= messagePageSize) return old;
-      return {
-        ...old,
-        pages: [firstPage.slice(-messagePageSize), ...old.pages.slice(1)],
-      };
+      return trimNewestLoadedMessagePage(old, messagePageSize);
     });
   }, [activeChatId, messagePageSize, newestMessagePageLength, queryClient]);
   const { data: messageCountData } = useChatMessageCount(activeChatId);

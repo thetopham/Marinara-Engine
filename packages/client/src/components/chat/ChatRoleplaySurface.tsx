@@ -771,18 +771,19 @@ function AuthorNotesButton({
   open,
   onOpenChange,
   renderPanel,
+  mobilePanel,
 }: {
   chatId: string | null;
   chatMeta: Record<string, any>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   renderPanel: boolean;
+  mobilePanel: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [mobileFrame, setMobileFrame] = useState<MobileFloatingPanelFrame | null>(null);
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const compact = useUIStore((s) => s.centerCompact);
 
   useEffect(() => {
@@ -797,7 +798,7 @@ function AuthorNotesButton({
   }, [onOpenChange, open, renderPanel]);
 
   useLayoutEffect(() => {
-    if (!open || !renderPanel || !isMobile) return;
+    if (!open || !renderPanel || !mobilePanel) return;
     const update = () => setMobileFrame(getMobileFloatingPanelFrame(buttonRef.current, 288));
     update();
     window.addEventListener("resize", update);
@@ -806,7 +807,7 @@ function AuthorNotesButton({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isMobile, open, renderPanel]);
+  }, [mobilePanel, open, renderPanel]);
 
   useEffect(() => {
     if (!open || !renderPanel) return;
@@ -833,7 +834,7 @@ function AuthorNotesButton({
       </button>
       {open &&
         renderPanel &&
-        (isMobile ? (
+        (mobilePanel ? (
           createPortal(
             <div
               ref={panelRef}
@@ -859,12 +860,12 @@ function AuthorNotesButton({
                   </div>
                 }
               >
-                <AuthorNotesPanel
-                  chatId={chatId}
-                  chatMeta={chatMeta}
-                  isMobile={isMobile}
-                  onClose={() => onOpenChange(false)}
-                />
+                  <AuthorNotesPanel
+                    chatId={chatId}
+                    chatMeta={chatMeta}
+                    isMobile={mobilePanel}
+                    onClose={() => onOpenChange(false)}
+                  />
               </Suspense>
             </div>,
             document.body,
@@ -882,7 +883,7 @@ function AuthorNotesButton({
               <AuthorNotesPanel
                 chatId={chatId}
                 chatMeta={chatMeta}
-                isMobile={isMobile}
+                isMobile={mobilePanel}
                 onClose={() => onOpenChange(false)}
               />
             </Suspense>
@@ -1120,9 +1121,16 @@ export function ChatRoleplaySurface({
   const [authorNotesOpen, setAuthorNotesOpen] = useState(false);
   const isMobileToolbarViewport = useIsMobileToolbarViewport();
   const compactToolbarOwnsAuthorNotes = centerCompact || isMobileToolbarViewport;
+  const authorNotesOwnerRef = useRef(compactToolbarOwnsAuthorNotes);
   const hideEchoChamberOnMobile =
     sidebarOpen || rightPanelOpen || settingsOpen || filesOpen || galleryOpen || wizardOpen;
   const showSpriteOverlay = expressionAgentEnabled && spriteCharacterIds.length > 0 && spriteDisplayModes.length > 0;
+
+  useEffect(() => {
+    if (authorNotesOwnerRef.current === compactToolbarOwnsAuthorNotes) return;
+    authorNotesOwnerRef.current = compactToolbarOwnsAuthorNotes;
+    setAuthorNotesOpen(false);
+  }, [compactToolbarOwnsAuthorNotes]);
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -1373,6 +1381,7 @@ export function ChatRoleplaySurface({
                       open={authorNotesOpen}
                       onOpenChange={setAuthorNotesOpen}
                       renderPanel={!compactToolbarOwnsAuthorNotes}
+                      mobilePanel={false}
                     />
                     <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                     {chat?.connectedChatId && (
@@ -1473,6 +1482,7 @@ export function ChatRoleplaySurface({
                           open={authorNotesOpen}
                           onOpenChange={setAuthorNotesOpen}
                           renderPanel={compactToolbarOwnsAuthorNotes}
+                          mobilePanel
                         />
                         <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                         {chat?.connectedChatId && (
@@ -1540,6 +1550,7 @@ export function ChatRoleplaySurface({
                         open={authorNotesOpen}
                         onOpenChange={setAuthorNotesOpen}
                         renderPanel={compactToolbarOwnsAuthorNotes}
+                        mobilePanel
                       />
                       <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                       {chat?.connectedChatId && (

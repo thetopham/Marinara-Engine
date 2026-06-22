@@ -416,9 +416,10 @@ export function ConversationInput({
       if (currentInputFrameRef.current !== null) {
         window.cancelAnimationFrame(currentInputFrameRef.current);
         currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
       }
     },
-    [],
+    [setCurrentInput],
   );
 
   const replaceAttachments = useCallback((next: Attachment[]) => {
@@ -1390,10 +1391,11 @@ export function ConversationInput({
     const cursor = el.selectionStart;
     const textBefore = formatted.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
-    const atMatch = textBefore.match(/(?:^|[^\p{L}\p{N}_])@([^\n@]*)$/u);
+    const atMatch = textBefore.match(/(^|[^\p{L}\p{N}_])@([^\n@]*)$/u);
     if (atMatch && activeCharacterNames.length > 0) {
-      const query = normalizeTextForMatch(atMatch[1]);
-      const startPos = cursor - atMatch[1]!.length - 1; // position of the @
+      const queryText = atMatch[2] ?? "";
+      const query = normalizeTextForMatch(queryText);
+      const startPos = (atMatch.index ?? textBefore.length - atMatch[0].length) + (atMatch[1]?.length ?? 0);
       const matches = activeCharacterNames.filter((name) => startsWithTextForMatch(name, query));
       if (matches.length > 0) {
         setMentionQuery(query);

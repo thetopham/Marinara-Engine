@@ -767,11 +767,14 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
       updateChat.mutate(
         { id: chat.id, connectionId },
         {
-          onError: () => setSelectedConnectionId(chat.connectionId ?? ""),
+          onSuccess: () => {
+            latestChatConnectionIdRef.current = connectionId;
+          },
+          onError: () => setSelectedConnectionId(latestChatConnectionIdRef.current ?? ""),
         },
       );
     },
-    [chat.connectionId, chat.id, updateChat],
+    [chat.id, updateChat],
   );
 
   const setPreset = useCallback(

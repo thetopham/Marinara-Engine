@@ -45,26 +45,36 @@ function rawToolCalls(payload: Record<string, unknown>): unknown[] {
   return [];
 }
 
-function parseTaggedSnippets(content: string): string[] {
-  const snippets: string[] = [];
-  const patterns = [
-    /<\|tool_call\|?>([\s\S]*?)(?:<tool_call\|>|<\|\/tool_call\|>|<\/tool_call>|$)/gi,
-    /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\/arg_value>|$)/gi,
-    /<tool_code>([\s\S]*?)<\/tool_code>/gi,
-    /```(?:json)?\s*([\s\S]*?)\s*```/gi,
+type ParsedTaggedSnippet = {
+  text: string;
+  allowCommandFallback: boolean;
+};
+
+function parseTaggedSnippets(content: string): ParsedTaggedSnippet[] {
+  const snippets: ParsedTaggedSnippet[] = [];
+  const patterns: Array<{ re: RegExp; allowCommandFallback: boolean }> = [
+    {
+      re: /<\|tool_call\|?>([\s\S]*?)(?:<tool_call\|>|<\|\/tool_call\|>|<\/tool_call>|$)/gi,
+      allowCommandFallback: true,
+    },
+    { re: /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\/arg_value>|$)/gi, allowCommandFallback: true },
+    { re: /<tool_code>([\s\S]*?)<\/tool_code>/gi, allowCommandFallback: true },
+    { re: /```(?:json)?\s*([\s\S]*?)\s*```/gi, allowCommandFallback: false },
   ];
   for (const pattern of patterns) {
-    for (const match of content.matchAll(pattern)) {
+    for (const match of content.matchAll(pattern.re)) {
       const snippet = match[1]?.trim();
-      if (snippet) snippets.push(snippet);
+      if (snippet) snippets.push({ text: snippet, allowCommandFallback: pattern.allowCommandFallback });
     }
   }
   const trimmed = content.trim();
-  if (/^(?:call\s*:\s*)?[A-Za-z_][\w.-]*\s*\{[\s\S]*\}$/.test(trimmed)) snippets.push(trimmed);
+  if (/^(?:call\s*:\s*)?[A-Za-z_][\w.-]*\s*\{[\s\S]*\}$/.test(trimmed)) {
+    snippets.push({ text: trimmed, allowCommandFallback: false });
+  }
   return snippets;
 }
 
-function snippetToPayload(snippet: string): Record<string, unknown> | null {
+function snippetToPayload(snippet: string, allowCommandFallback: boolean): Record<string, unknown> | null {
   const jsonPayload = parseJsonishObject(snippet);
   if (jsonPayload) {
     return typeof jsonPayload.name === "string" || typeof jsonPayload.tool === "string"
@@ -73,6 +83,7 @@ function snippetToPayload(snippet: string): Record<string, unknown> | null {
   }
   const callMatch = snippet.trim().match(/^(?:call\s*:\s*)?([A-Za-z_][\w.-]*)\s*(\{[\s\S]*\})\s*$/);
   if (!callMatch) {
+    if (!allowCommandFallback) return null;
     const command = normalizeMariCommand(snippet);
     return command ? { name: "mari_db", arguments: { command } } : null;
   }
@@ -142,7 +153,7 @@ export function parseTextualToolCalls(content: string | null | undefined, tools:
   if (calls.length > 0) return calls;
 
   parseTaggedSnippets(content).forEach((snippet, index) => {
-    const payload = snippetToPayload(snippet);
+    const payload = snippetToPayload(snippet.text, snippet.allowCommandFallback);
     const call = toolCallFromRaw(payload, index, knownTools, hasBashTool);
     if (call) calls.push(call);
   });

@@ -622,6 +622,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   const { data: allPersonas } = usePersonas();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
+  const queryClient = useQueryClient();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
   const [autonomousEnabled, setAutonomousEnabled] = useState(true);
@@ -850,6 +851,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
     generationParameters,
     commandsEnabled,
     conversationCommandToggles,
+    queryClient,
   ]);
 
   const renderConnectionStep = () => (

@@ -994,6 +994,12 @@ export class MariDbService {
     }
   }
 
+  async clearHistory(): Promise<void> {
+    this.history = [];
+    await mkdir(this.journalDir(), { recursive: true });
+    await writeFile(this.historyPath(), "", "utf8");
+  }
+
   async approveAndWait(id: string, timeoutMs = 15_000): Promise<{ approval: MariDbPendingApproval; history: MariDbHistoryEntry | null; completed: boolean } | null> {
     const record = this.pending.get(id);
     if (!record) return null;

@@ -12,8 +12,6 @@ import type {
   ChatCompletionResult,
   ChatMessage,
   ChatOptions,
-  LLMToolCall,
-  LLMToolDefinition,
   LLMUsage,
 } from "../llm/base-provider.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
@@ -584,29 +582,6 @@ function createProviderForConnection(connection: WorkspaceConnection): BaseLLMPr
   );
 }
 
-function shouldOfferNativeToolCalls(connection: WorkspaceConnection): boolean {
-  return !isLocalSidecarConnection(connection) && !bool(connection.treatAsLocalEndpoint);
-}
-
-function workspaceNativeToolDefinitions(): LLMToolDefinition[] {
-  return WORKSPACE_TOOL_DEFINITIONS.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    },
-  }));
-}
-
-function isNativeToolUnsupportedError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return (
-    /\b(tool|function|tool_calls|function_call)\b/i.test(message) &&
-    /\b(unsupported|not supported|does not support|not enabled|invalid|unknown|400)\b/i.test(message)
-  );
-}
-
 function parseToolArgumentsValue(value: unknown): Record<string, unknown> {
   if (isRecord(value)) return value;
   if (typeof value === "string") return parseJsonObject(value) ?? {};
@@ -707,21 +682,6 @@ function jsonPayloadVisibleText(payload: Record<string, unknown>): string {
   return "";
 }
 
-function parseNativeToolCalls(toolCalls: LLMToolCall[] | undefined): WorkspaceCommandCall[] {
-  if (!toolCalls?.length) return [];
-  return toolCalls
-    .map((call, index): WorkspaceCommandCall | null => {
-      const name = call.function.name;
-      if (!isWorkspaceToolName(name)) return null;
-      return {
-        id: call.id || newToolCallId(name, index),
-        name,
-        arguments: parseToolArgumentsValue(call.function.arguments),
-      };
-    })
-    .filter((call): call is WorkspaceCommandCall => call !== null);
-}
-
 const COMMAND_BLOCK_RE = /<(read|grep|find|ls|edit|write|bash)>\s*([\s\S]*?)\s*<\/\1>/gi;
 
 function parseXmlCommandCalls(content: string): WorkspaceCommandCall[] {
@@ -795,14 +755,13 @@ function stripWorkspaceCommands(content: string): string {
     .trim();
 }
 
-function parseAssistantWorkspaceAction(content: string, toolCalls?: LLMToolCall[]): AssistantWorkspaceAction {
+function parseAssistantWorkspaceAction(content: string): AssistantWorkspaceAction {
   const { content: contentWithoutJson, match } = removeJsonActionFrame(content);
   const jsonCommands = match ? parseJsonCommandCallsFromPayload(match.payload) : [];
   const inlineVisibleText = stripWorkspaceCommands(contentWithoutJson);
   const frameVisibleText = match ? jsonPayloadVisibleText(match.payload) : "";
   const visibleText = [inlineVisibleText, frameVisibleText].filter(Boolean).join("\n\n").trim();
   const commands = dedupeWorkspaceCommandCalls([
-    ...parseNativeToolCalls(toolCalls),
     ...parseXmlCommandCalls(contentWithoutJson),
     ...jsonCommands,
     ...parseBracketCommandCalls(contentWithoutJson),
@@ -815,18 +774,25 @@ function parseAssistantWorkspaceAction(content: string, toolCalls?: LLMToolCall[
 }
 
 function roleForMessage(row: { role: string }): "system" | "user" | "assistant" {
-  return row.role === "assistant" ? "assistant" : row.role === "system" ? "system" : "user";
+  if (row.role === "assistant") return "assistant";
+  if (row.role === "system" || row.role === "narrator") return "system";
+  return "user";
+}
+
+function escapeWorkspaceXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function formatCommandResultForPrompt(results: WorkspaceCommandResult[]): string {
   const blocks = results.map((result) => {
-    const input = JSON.stringify(result.input, null, 2);
+    const input = escapeWorkspaceXml(JSON.stringify(result.input, null, 2));
+    const output = escapeWorkspaceXml(result.output);
     return `<workspace_command_result name="${result.name}" success="${result.success ? "true" : "false"}">
 <input>
 ${input}
 </input>
 <output>
-${result.output}
+${output}
 </output>
 </workspace_command_result>`;
   });
@@ -998,6 +964,36 @@ function isMutatingWorkspaceCommand(command: WorkspaceCommandCall): boolean {
   return typeof rawCommand === "string" && bashLooksMutating(rawCommand);
 }
 
+function workspaceCommandValidationIssue(command: WorkspaceCommandCall): string | null {
+  const args = command.arguments;
+  const requireString = (key: string) => {
+    const value = args[key];
+    return typeof value === "string" && value.trim() ? null : `${command.name} requires a non-empty ${key} string`;
+  };
+
+  switch (command.name) {
+    case "read":
+      return requireString("path");
+    case "grep":
+      return requireString("pattern");
+    case "find":
+      return requireString("pattern");
+    case "edit": {
+      const pathIssue = requireString("path");
+      if (pathIssue) return pathIssue;
+      return Array.isArray(args.edits) && args.edits.length > 0 ? null : "edit requires a non-empty edits array";
+    }
+    case "write":
+      return requireString("path") ?? (typeof args.content === "string" ? null : "write requires a content string");
+    case "bash":
+      return requireString("command");
+    case "ls":
+      return null;
+    default:
+      return `Unsupported workspace command: ${(command as WorkspaceCommandCall).name}`;
+  }
+}
+
 const DIRECT_MARI_PATH_FLAGS = new Set([
   "--json-file",
   "--file",
@@ -1145,9 +1141,10 @@ export class ProfessorMariWorkspaceService {
     this.active = false;
   }
 
-  async reset() {
+  async reset(options?: { clearHistory?: boolean }) {
     await this.abort();
     this.lastError = null;
+    if (options?.clearHistory === true) await getMariDbService(this.app.db).clearHistory();
   }
 
   async prompt(args: { chatId: string; text: string; connectionId?: string | null; onEvent: PromptEventSink }) {
@@ -1177,14 +1174,11 @@ export class ProfessorMariWorkspaceService {
         appendTraceThinking(workspaceTrace, delta);
         args.onEvent({ type: "thinking", data: delta });
       });
-      let nativeToolsEnabled = shouldOfferNativeToolCalls(connection);
       const commandResultsForContinuity: WorkspaceCommandResult[] = [];
 
       for (let round = 0; round < MAX_COMMAND_ROUNDS; round += 1) {
         if (controller.signal.aborted) throw new Error("aborted");
-        const completion = await this.chatCompleteWorkspace(provider, messages, baseOptions, nativeToolsEnabled);
-        if (completion.nativeToolsDisabled) nativeToolsEnabled = false;
-        const result = completion.result;
+        const result = await this.chatCompleteWorkspace(provider, messages, baseOptions);
         const usage = mapUsage(result.usage);
         totalUsage = {
           promptTokens: totalUsage.promptTokens + usage.promptTokens,
@@ -1193,7 +1187,7 @@ export class ProfessorMariWorkspaceService {
         };
 
         const rawContent = result.content ?? "";
-        const parsedAction = parseAssistantWorkspaceAction(rawContent, result.toolCalls);
+        const parsedAction = parseAssistantWorkspaceAction(rawContent);
         const shouldDeferMutations =
           parsedAction.visibleText &&
           visibleTextRequestsUserApproval(parsedAction.visibleText) &&
@@ -1240,19 +1234,25 @@ export class ProfessorMariWorkspaceService {
             content:
               "You reached the workspace command round limit. Do not issue more commands. Summarize what you learned or what remains blocked.",
           });
-          const finalCompletion = await this.chatCompleteWorkspace(provider, messages, baseOptions, false);
-          const finalResult = finalCompletion.result;
+          const finalResult = await this.chatCompleteWorkspace(provider, messages, baseOptions);
           const finalUsage = mapUsage(finalResult.usage);
           totalUsage = {
             promptTokens: totalUsage.promptTokens + finalUsage.promptTokens,
             completionTokens: totalUsage.completionTokens + finalUsage.completionTokens,
             totalTokens: totalUsage.totalTokens + finalUsage.totalTokens,
           };
-          const finalAction = parseAssistantWorkspaceAction(finalResult.content ?? "", finalResult.toolCalls);
+          const finalAction = parseAssistantWorkspaceAction(finalResult.content ?? "");
           if (finalAction.visibleText) {
             assistantText = appendVisibleText(assistantText, finalAction.visibleText);
             appendTraceText(workspaceTrace, finalAction.visibleText);
             for (const chunk of chunkText(finalAction.visibleText)) args.onEvent({ type: "token", data: chunk });
+          } else if (finalAction.commands.length > 0) {
+            const content =
+              "Professor Mari tried to run more workspace commands after the command limit, so I stopped the loop. Ask her to continue if you want her to keep working from the saved trace.";
+            assistantText = appendVisibleText(assistantText, content);
+            appendTraceStatus(workspaceTrace, content);
+            args.onEvent({ type: "status", data: { content, kind: "info", level: "warning" } });
+            for (const chunk of chunkText(content)) args.onEvent({ type: "token", data: chunk });
           }
         }
       }
@@ -1377,25 +1377,8 @@ ${sections.join("\n\n")}
     provider: BaseLLMProvider,
     messages: ChatMessage[],
     baseOptions: ChatOptions,
-    nativeToolsEnabled: boolean,
-  ): Promise<{ result: ChatCompletionResult; nativeToolsDisabled: boolean }> {
-    if (!nativeToolsEnabled) {
-      return { result: await provider.chatComplete(messages, { ...baseOptions, stream: false }), nativeToolsDisabled: false };
-    }
-    try {
-      return {
-        result: await provider.chatComplete(messages, {
-          ...baseOptions,
-          stream: false,
-          tools: workspaceNativeToolDefinitions(),
-        }),
-        nativeToolsDisabled: false,
-      };
-    } catch (err) {
-      if (!isNativeToolUnsupportedError(err)) throw err;
-      logger.warn(err, "[Professor Mari] native workspace tool calls failed; retrying with text command protocol");
-      return { result: await provider.chatComplete(messages, { ...baseOptions, stream: false }), nativeToolsDisabled: true };
-    }
+  ): Promise<ChatCompletionResult> {
+    return provider.chatComplete(messages, { ...baseOptions, stream: false });
   }
 
   private async executeWorkspaceCommandBatch(
@@ -1436,6 +1419,8 @@ ${sections.join("\n\n")}
     upsertTraceTool(trace, { id: command.id, name: command.name, status: "running", input, output: null, updatedAt: Date.now() });
     onEvent({ type: "tool_start", data: { id: command.id, name: command.name, input } });
     try {
+      const validationIssue = workspaceCommandValidationIssue(command);
+      if (validationIssue) throw new Error(validationIssue);
       const output = await this.runWorkspaceCommand(command, signal);
       const compacted = compactOutput(output);
       upsertTraceTool(trace, { id: command.id, name: command.name, status: "done", output: compacted, updatedAt: Date.now() });
@@ -1678,7 +1663,14 @@ ${sections.join("\n\n")}
 
   private storageMutationIssue(command: string): string | null {
     const storageRoot = resolve(getFileStorageDir());
-    if (!command.includes(storageRoot)) return null;
+    const normalizedCommand = normalizeSlashPath(command);
+    const storageMarkers = [
+      normalizeSlashPath(storageRoot),
+      normalizeSlashPath(relative(this.workspaceRoot, storageRoot)),
+      "data/storage",
+      "./data/storage",
+    ].filter(Boolean);
+    if (!storageMarkers.some((marker) => normalizedCommand.includes(marker))) return null;
     if (command.includes("mari db") || command.includes("mari storage tx")) return null;
     const looksMutating = /\b(rm|mv|cp|truncate|tee|sed\s+-i|perl\s+-i|python|node|bash|sh)\b/.test(command);
     return looksMutating

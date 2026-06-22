@@ -9,6 +9,7 @@ import {
   useState,
   lazy,
   Suspense,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -2080,6 +2081,9 @@ export function GameSurface({
       right: Math.max(12, Math.round(rightBoundary - rect.right)),
       top: Math.max(56, Math.round(rect.bottom + 8)),
     };
+  }, []);
+  const handleToolbarKeyboardAction = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" || event.key === " ") announceChatToolbarAction();
   }, []);
   const handleOpenGalleryPanel = useCallback(
     (event?: ReactMouseEvent<HTMLElement>) => {
@@ -8407,6 +8411,7 @@ export function GameSurface({
                 <div
                   className={cn("pointer-events-auto hidden items-center md:flex", CHAT_TOOLBAR_ICON_GAP_CLASS)}
                   onPointerDownCapture={announceChatToolbarAction}
+                  onKeyDownCapture={handleToolbarKeyboardAction}
                 >
                   <ChatBranchSelector
                     activeChatId={activeChatId}
@@ -8553,7 +8558,11 @@ export function GameSurface({
                 </div>
 
                 {/* Mobile controls */}
-                <div className="pointer-events-auto md:hidden" onPointerDownCapture={announceChatToolbarAction}>
+                <div
+                  className="pointer-events-auto md:hidden"
+                  onPointerDownCapture={announceChatToolbarAction}
+                  onKeyDownCapture={handleToolbarKeyboardAction}
+                >
                   <div className="relative">
                     <button
                       onClick={() => {

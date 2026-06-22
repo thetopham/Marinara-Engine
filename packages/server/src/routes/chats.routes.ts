@@ -953,11 +953,18 @@ export async function chatsRoutes(app: FastifyInstance) {
   });
 
   // Delete chat
-  app.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
+  app.delete<{ Params: { id: string }; Querystring: { force?: string } }>("/:id", async (req, reply) => {
+    const force = req.query.force === "true" || req.query.force === "1";
     // If this is a scene chat, clean up the origin chat's scene pointer
     const chat = await storage.getById(req.params.id);
     if (chat) {
       const meta = parseExtra(chat.metadata) as Record<string, unknown>;
+      const hasGameId = typeof meta.gameId === "string" && meta.gameId.trim().length > 0;
+      if (chat.mode === "game" && !force && (hasGameId || (await storage.hasGameDeletePayload(req.params.id)))) {
+        return reply.status(409).send({
+          error: "Refusing to hard-delete a game campaign without explicit confirmation.",
+        });
+      }
       const originId = meta.sceneOriginChatId;
       if (typeof originId === "string" && originId) {
         const origin = await storage.getById(originId);

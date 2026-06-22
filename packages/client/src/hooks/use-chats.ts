@@ -329,7 +329,7 @@ export function useChatGroup(groupId: string | null) {
   });
 }
 
-type DeleteChatInput = string | { id: string; groupId?: string | null };
+type DeleteChatInput = string | { id: string; groupId?: string | null; force?: boolean };
 
 function getDeleteChatId(input: DeleteChatInput) {
   return typeof input === "string" ? input : input.id;
@@ -337,6 +337,10 @@ function getDeleteChatId(input: DeleteChatInput) {
 
 function getDeleteChatGroupId(input: DeleteChatInput) {
   return typeof input === "string" ? null : (input.groupId ?? null);
+}
+
+function getDeleteChatForce(input: DeleteChatInput) {
+  return typeof input === "string" ? false : input.force === true;
 }
 
 function chatMutationErrorMessage(error: unknown, fallback: string) {
@@ -463,7 +467,10 @@ export function useCreateChat() {
 export function useDeleteChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: DeleteChatInput) => api.delete(`/chats/${getDeleteChatId(input)}`),
+    mutationFn: (input: DeleteChatInput) => {
+      const force = getDeleteChatForce(input) ? "?force=true" : "";
+      return api.delete(`/chats/${getDeleteChatId(input)}${force}`);
+    },
     onMutate: async (input) => {
       const id = getDeleteChatId(input);
       const providedGroupId = getDeleteChatGroupId(input);

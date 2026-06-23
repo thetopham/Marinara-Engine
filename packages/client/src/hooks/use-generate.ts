@@ -1691,6 +1691,12 @@ export function useGenerate() {
             case "chat_summary": {
               // Refresh the chat detail so the summary popover picks up the new value
               qc.invalidateQueries({ queryKey: chatKeys.detail(params.chatId) });
+              // When the server auto-hid summarized messages (opt-in token compression),
+              // refresh the message list so their hidden state shows in the UI.
+              const summaryData = event.data as { hiddenMessageIds?: unknown };
+              if (Array.isArray(summaryData.hiddenMessageIds) && summaryData.hiddenMessageIds.length > 0) {
+                qc.invalidateQueries({ queryKey: chatKeys.messages(params.chatId) });
+              }
               break;
             }
 

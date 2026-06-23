@@ -690,6 +690,8 @@ function SummaryButton({
   automaticSummaryEnabled,
   activeAgentIds,
   summaryRunInterval,
+  hideSummarisedMessages,
+  summaryTailMessages,
   automaticSummariesAvailable,
   totalMessageCount,
   promptPresetId,
@@ -704,6 +706,8 @@ function SummaryButton({
   automaticSummaryEnabled: boolean;
   activeAgentIds: string[];
   summaryRunInterval?: number;
+  hideSummarisedMessages?: boolean;
+  summaryTailMessages?: number;
   automaticSummariesAvailable: boolean;
   totalMessageCount: number;
   promptPresetId?: string | null;
@@ -788,6 +792,8 @@ function SummaryButton({
             automaticSummaryEnabled={automaticSummaryEnabled}
             activeAgentIds={activeAgentIds}
             summaryRunInterval={summaryRunInterval}
+            hideSummarisedMessages={hideSummarisedMessages}
+            summaryTailMessages={summaryTailMessages}
             automaticSummariesAvailable={automaticSummariesAvailable}
             totalMessageCount={totalMessageCount}
             summaryInjectionHint={summaryInjectionHint}
@@ -1326,6 +1332,12 @@ export function ChatRoleplaySurface({
     typeof chatMeta.summaryRunInterval === "number" && Number.isFinite(chatMeta.summaryRunInterval)
       ? chatMeta.summaryRunInterval
       : undefined;
+  const hideSummarisedMessages =
+    typeof chatMeta.hideSummarisedMessages === "boolean" ? chatMeta.hideSummarisedMessages : undefined;
+  const summaryTailMessages =
+    typeof chatMeta.summaryTailMessages === "number" && Number.isFinite(chatMeta.summaryTailMessages)
+      ? chatMeta.summaryTailMessages
+      : undefined;
 
   return (
     <div data-component="ChatArea.Roleplay" className="flex flex-1 overflow-hidden">
@@ -1424,6 +1436,8 @@ export function ChatRoleplaySurface({
                       automaticSummaryEnabled={automaticSummaryEnabled}
                       activeAgentIds={summaryActiveAgentIds}
                       summaryRunInterval={summaryRunInterval}
+                      hideSummarisedMessages={hideSummarisedMessages}
+                      summaryTailMessages={summaryTailMessages}
                       automaticSummariesAvailable={chatMode === "roleplay"}
                       totalMessageCount={totalMessageCount}
                       promptPresetId={typeof chat?.promptPresetId === "string" ? chat.promptPresetId : null}
@@ -1527,6 +1541,8 @@ export function ChatRoleplaySurface({
                           automaticSummaryEnabled={automaticSummaryEnabled}
                           activeAgentIds={summaryActiveAgentIds}
                           summaryRunInterval={summaryRunInterval}
+                          hideSummarisedMessages={hideSummarisedMessages}
+                          summaryTailMessages={summaryTailMessages}
                           automaticSummariesAvailable={chatMode === "roleplay"}
                           totalMessageCount={totalMessageCount}
                           promptPresetId={typeof chat?.promptPresetId === "string" ? chat.promptPresetId : null}
@@ -1595,6 +1611,8 @@ export function ChatRoleplaySurface({
                         automaticSummaryEnabled={automaticSummaryEnabled}
                         activeAgentIds={summaryActiveAgentIds}
                         summaryRunInterval={summaryRunInterval}
+                        hideSummarisedMessages={hideSummarisedMessages}
+                        summaryTailMessages={summaryTailMessages}
                         automaticSummariesAvailable={chatMode === "roleplay"}
                         totalMessageCount={totalMessageCount}
                         promptPresetId={typeof chat?.promptPresetId === "string" ? chat.promptPresetId : null}

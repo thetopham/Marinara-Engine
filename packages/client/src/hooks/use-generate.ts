@@ -1881,6 +1881,9 @@ export function useGenerate() {
               ) {
                 const heldExtra = { ...savedExtra };
                 delete heldExtra.postProcessingPending;
+                flushThinkingStreamFilter();
+                flushLeadingSpeakerPrefix();
+                thinkingStreamFilter.reset();
                 const generatedText = normalizeLineBreakSpacing(fullBuffer + pendingText);
                 const heldMessage = {
                   ...savedMessage,
@@ -1890,7 +1893,6 @@ export function useGenerate() {
                 holdingTextRewrite = true;
                 heldTextRewriteMessage = heldMessage;
                 receivedContent = true;
-                thinkingStreamFilter.reset();
                 persistedMessages.set(heldMessage.id, heldMessage);
                 if (!streamingEnabled || !shouldDisplayRawStream) {
                   upsertPersistedMessages(qc, params.chatId, [heldMessage]);

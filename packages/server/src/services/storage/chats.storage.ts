@@ -876,33 +876,55 @@ export function createChatsStorage(db: DB) {
      * Bulk-set hiddenFromAI on many messages at once.
      * Reuses updateMessageExtra() for each message (read-parse-merge-write) and
      * syncs the flag to every swipe row so it survives setActiveSwipe() overwrites.
-     * Returns the number of messages updated (the request scoped to this chat).
+     *
+     * Returns the ids this call actually flipped INTO the target state — the
+     * messages whose hidden flag, read immediately before the write (no provider
+     * or network call in between), differed from `hidden`. Callers that record
+     * ownership of a hide (e.g. a summary entry's `hiddenMessageIds`) use this
+     * return so ownership is sourced from the mutation itself, never from a stale
+     * pre-mutation snapshot. The request is scoped to this chat; use `.length` for
+     * a count of changed messages.
      */
-    async bulkSetHiddenFromAI(chatId: string, messageIds: string[], hidden: boolean): Promise<number> {
-      if (messageIds.length === 0) return 0;
+    async bulkSetHiddenFromAI(chatId: string, messageIds: string[], hidden: boolean): Promise<string[]> {
+      if (messageIds.length === 0) return [];
       const uniqueIds = Array.from(new Set(messageIds));
-      const scopedRows: { id: string }[] = [];
+      const scopedRows: { id: string; extra: string | null }[] = [];
       const CHUNK = 500;
       for (let i = 0; i < uniqueIds.length; i += CHUNK) {
         const batch = uniqueIds.slice(i, i + CHUNK);
         const batchRows = await db
-          .select({ id: messages.id })
+          .select({ id: messages.id, extra: messages.extra })
           .from(messages)
           .where(and(eq(messages.chatId, chatId), inArray(messages.id, batch)));
         scopedRows.push(...batchRows);
       }
-      const scopedIds = Array.from(new Set(scopedRows.map((row) => row.id)));
 
-      for (const id of scopedIds) {
-        await this.updateMessageExtra(id, { hiddenFromAI: hidden });
-        // Mirror what the single-message /extra route does: propagate the flag
-        // to all swipe rows so setActiveSwipe() cannot clobber it.
-        const swipes = await this.getSwipes(id);
-        for (const swipe of swipes) {
-          await this.updateSwipeExtra(id, swipe.index, { hiddenFromAI: hidden });
+      const seen = new Set<string>();
+      const flipped: string[] = [];
+      for (const row of scopedRows) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        // State read immediately before the write — the moment-of-mutation truth
+        // that decides whether THIS call flips the message into the target state.
+        let wasHidden = false;
+        try {
+          const parsed = typeof row.extra === "string" ? JSON.parse(row.extra) : (row.extra ?? {});
+          wasHidden = (parsed as { hiddenFromAI?: unknown } | null)?.hiddenFromAI === true;
+        } catch {
+          wasHidden = false;
         }
+        await this.updateMessageExtra(row.id, { hiddenFromAI: hidden });
+        // Mirror what the single-message /extra route does: propagate the flag to
+        // all swipe rows so setActiveSwipe() cannot clobber it. Done for every
+        // scoped row (idempotent when already in the target state) so swipe
+        // consistency never depends on whether the main row happened to flip.
+        const swipes = await this.getSwipes(row.id);
+        for (const swipe of swipes) {
+          await this.updateSwipeExtra(row.id, swipe.index, { hiddenFromAI: hidden });
+        }
+        if (wasHidden !== hidden) flipped.push(row.id);
       }
-      return scopedIds.length;
+      return flipped;
     },
 
     /** Atomically append an attachment to a message's extra JSON field. */

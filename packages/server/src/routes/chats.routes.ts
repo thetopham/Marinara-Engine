@@ -1383,7 +1383,7 @@ export async function chatsRoutes(app: FastifyInstance) {
       if (typeof hidden !== "boolean") {
         return reply.status(400).send({ error: "hidden must be a boolean" });
       }
-      const updated = await storage.bulkSetHiddenFromAI(req.params.chatId, messageIds, hidden);
+      const updated = (await storage.bulkSetHiddenFromAI(req.params.chatId, messageIds, hidden)).length;
       return { updated };
     },
   );
@@ -2861,24 +2861,19 @@ export async function chatsRoutes(app: FastifyInstance) {
           tail: resolveRoleplaySummaryTail(chatMeta.summaryTailMessages),
         })
       : [];
-    // Only the messages this attempt actually flips from visible to hidden. (The
-    // summary's source already excludes hidden messages, so this is normally the
-    // whole set, but snapshot the prior state explicitly so a rollback can never
-    // resurrect a message that was already hidden by something else.)
-    const hiddenAtLoad = new Set(
-      allMessages.filter((message) => isMessageHiddenFromAI(message)).map((message) => message.id),
-    );
-    const hideMessageIds = eligibleToHide.filter((id) => !hiddenAtLoad.has(id));
-    // Perform the hide on the server, BEFORE the entry records hiddenMessageIds,
-    // so the recorded set always reflects messages actually hidden (no phantom
-    // set if a separate client call were to fail). The client no longer hides.
-    if (hideMessageIds.length > 0) {
-      await storage.bulkSetHiddenFromAI(req.params.id, hideMessageIds, true);
-    }
+    // Perform the hide on the server, BEFORE the entry records hiddenMessageIds, so
+    // the recorded set always reflects messages actually hidden (no phantom set if a
+    // separate client call were to fail). The client no longer hides. bulkSetHidden
+    // returns exactly the ids it flipped visible->hidden, read at the moment of
+    // mutation — so ownership can never be a stale pre-provider snapshot that claims
+    // a message another action hid during the (seconds-long) provider call above.
+    const hideMessageIds =
+      eligibleToHide.length > 0 ? await storage.bulkSetHiddenFromAI(req.params.id, eligibleToHide, true) : [];
     // If the entry that owns hiddenMessageIds is not persisted (chat vanished, or
-    // the write throws), roll back only the hides this attempt newly applied so we
-    // never leave messages hidden with no entry. A rollback failure is surfaced
-    // (re-thrown), not swallowed, so the caller learns recovery did not complete.
+    // the write throws), roll back exactly the hides this attempt applied (the set
+    // bulkSetHidden reported flipping) so we never leave messages hidden with no
+    // entry. A rollback failure is surfaced (re-thrown), not swallowed, so the
+    // caller learns recovery did not complete.
     const rollbackHide = async () => {
       if (hideMessageIds.length === 0) return;
       await storage.bulkSetHiddenFromAI(req.params.id, hideMessageIds, false);

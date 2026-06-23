@@ -2,14 +2,33 @@
 // Routes: Browser — JannyAI provider
 // ──────────────────────────────────────────────
 import type { FastifyInstance } from "fastify";
+import { isAllowedImageBuffer, safeFetch } from "../utils/security.js";
 
 const JANNY_SEARCH_URL = "https://search.jannyai.com/multi-search";
 const JANNY_IMAGE_BASE = "https://image.jannyai.com/bot-avatars/";
 const JANNY_SITE_BASE = "https://jannyai.com";
+const JANNY_API_SITE_BASE = "https://api.jannyai.com";
 const JANNY_FALLBACK_TOKEN = "88a6463b66e04fb07ba87ee3db06af337f492ce511d93df6e2d2968cb2ff2b30";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const AVATAR_PROXY_MAX_BYTES = 10 * 1024 * 1024;
+
+async function fetchAvatarImage(url: string, signal: AbortSignal) {
+  const res = await safeFetch(url, {
+    signal,
+    policy: { allowedProtocols: ["https:"] },
+    maxResponseBytes: AVATAR_PROXY_MAX_BYTES,
+  });
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+  const imageInfo = isAllowedImageBuffer(buf);
+  if (!contentType.startsWith("image/") || !imageInfo) {
+    throw new Error("Unsupported avatar image content");
+  }
+  return { buf, mimeType: imageInfo.mimeType };
+}
 
 function jannySearchHeaders(token: string): Record<string, string> {
   return {
@@ -302,38 +321,43 @@ export async function botBrowserJannyRoutes(app: FastifyInstance) {
 
     const slug = (req.query as Record<string, string>)?.slug || "character";
     const pageUrl = `${JANNY_SITE_BASE}/characters/${charId}_${slug}`;
+    const apiPageUrl = `${JANNY_API_SITE_BASE}/characters/${charId}_${slug}`;
+
+    const isUsableCharacterHtml = (value: string) =>
+      value.length >= 1000 &&
+      !value.includes("Just a moment") &&
+      !value.includes("cf-challenge") &&
+      !value.includes("challenge-platform") &&
+      value.includes("astro-island");
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
       let html = "";
 
-      // Strategy 1: Direct fetch
-      try {
-        const directRes = await fetch(pageUrl, {
-          headers: {
-            Accept: "text/html,application/xhtml+xml,*/*",
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            Referer: "https://jannyai.com/",
-          },
-          signal: controller.signal,
-          redirect: "follow",
-        });
-        if (directRes.ok) {
-          html = await directRes.text();
-          if (
-            html.length < 1000 ||
-            html.includes("Just a moment") ||
-            html.includes("cf-challenge") ||
-            html.includes("challenge-platform") ||
-            !html.includes("astro-island")
-          ) {
-            html = "";
+      // Strategy 1: Direct fetch. Try JannyAI's public API mirror first because
+      // it serves the same Astro payload with fewer bot gates than the main site.
+      for (const url of [apiPageUrl, pageUrl]) {
+        try {
+          const directRes = await fetch(url, {
+            headers: {
+              Accept: "text/html,application/xhtml+xml,*/*",
+              "User-Agent": BROWSER_UA,
+              Referer: "https://jannyai.com/",
+            },
+            signal: controller.signal,
+            redirect: "follow",
+          });
+          if (directRes.ok) {
+            const directHtml = await directRes.text();
+            if (isUsableCharacterHtml(directHtml)) {
+              html = directHtml;
+              break;
+            }
           }
+        } catch {
+          /* fall through */
         }
-      } catch {
-        /* fall through */
       }
 
       // Strategy 2: corsproxy.io
@@ -348,13 +372,7 @@ export async function botBrowserJannyRoutes(app: FastifyInstance) {
           });
           if (proxyRes.ok) {
             html = await proxyRes.text();
-            if (
-              html.length < 1000 ||
-              html.includes("Just a moment") ||
-              html.includes("cf-challenge") ||
-              html.includes("challenge-platform") ||
-              !html.includes("astro-island")
-            ) {
+            if (!isUsableCharacterHtml(html)) {
               html = "";
             }
           }
@@ -445,13 +463,14 @@ export async function botBrowserJannyRoutes(app: FastifyInstance) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res = await fetch(`${JANNY_IMAGE_BASE}${avatarPath}`, {
-        signal: controller.signal,
-      });
-      if (!res.ok) return reply.status(404).send({ error: "Avatar not found" });
-      const buf = Buffer.from(await res.arrayBuffer());
-      const ct = res.headers.get("content-type") || "image/jpeg";
-      return reply.header("Content-Type", ct).header("Cache-Control", "public, max-age=86400").send(buf);
+      const image = await fetchAvatarImage(`${JANNY_IMAGE_BASE}${avatarPath}`, controller.signal);
+      if (!image) return reply.status(404).send({ error: "Avatar not found" });
+      return reply.header("Content-Type", image.mimeType).header("Cache-Control", "public, max-age=86400").send(image.buf);
+    } catch (err) {
+      if ((err as Error).message.includes("Unsupported avatar image content")) {
+        return reply.status(415).send({ error: "Unsupported avatar content type" });
+      }
+      throw err;
     } finally {
       clearTimeout(timeout);
     }

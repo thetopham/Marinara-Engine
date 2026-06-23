@@ -4,10 +4,12 @@
 import { api } from "./api-client";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
+import { useUnoGameStore } from "../stores/uno-game.store";
 import { toast } from "sonner";
 import {
   SUPPORTED_MACROS,
   buildNarratorInstructionMessage,
+  normalizeTextForMatch,
   type SceneCreateResponse,
   type ScenePlanResponse,
 } from "@marinara-engine/shared";
@@ -50,6 +52,32 @@ export interface SlashCommandContext {
   characters?: Array<{ id: string; name: string }>;
   /** Apply a manual sprite expression override */
   setSpriteExpression?: (characterId: string, expression: string) => void | Promise<void>;
+}
+
+function quoteCommandArgument(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (!/[\s"\\]/u.test(trimmed)) return trimmed;
+  return `"${trimmed.replace(/["\\]/g, "\\$&")}"`;
+}
+
+function formatAvailableCharacterList(characters: Array<{ id: string; name: string }>): string {
+  return characters.map((character) => character.name).join(", ");
+}
+
+function buildStatusCommandHelp(characters: Array<{ id: string; name: string }>): string {
+  const available = formatAvailableCharacterList(characters);
+  const exampleTarget = characters[0]?.name ?? "Character Name";
+  const exampleArg = quoteCommandArgument(exampleTarget) || '"Character Name"';
+  return [
+    "Usage: /status <online|idle|dnd|offline|clear> [character name]",
+    "Examples:",
+    `/status online ${exampleArg}`,
+    `/status clear ${exampleArg}`,
+    available ? `Available: ${available}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export interface SlashCommandResult {
@@ -118,6 +146,8 @@ function buildMacroHelpText(): string {
   return [
     "Supported Macros:",
     "Tip: In group chats, a bracketed block containing character macros like {{char}} and {{description}} repeats once per character.",
+    'Conditional blocks: {{#if character == "Dottore"}}Dottore prompt{{else}}Fallback prompt{{/if}}',
+    "Conditionals support char, character, speaker, user, preset variables, ==, !=, contains, and straight or typographic quotes.",
     ...Array.from(sections.entries()).flatMap(([category, lines], index) =>
       index === 0 ? ["", `${category}:`, ...lines] : ["", `${category}:`, ...lines],
     ),
@@ -140,9 +170,10 @@ function parseImpersonatePromptArg(args: string): string {
   if (!prompt) return "";
 
   const quote = prompt[0];
-  if (quote === '"' || quote === "'") {
+  const closeQuote = quote === "\u201c" ? "\u201d" : quote === "\u2018" ? "\u2019" : quote;
+  if (quote === '"' || quote === "'" || quote === "\u201c" || quote === "\u2018") {
     prompt = prompt.slice(1);
-    if (prompt.endsWith(quote)) {
+    if (prompt.endsWith(closeQuote)) {
       prompt = prompt.slice(0, -1);
     }
   }
@@ -152,29 +183,31 @@ function parseImpersonatePromptArg(args: string): string {
 
 function parseNamedArgs(input: string): Record<string, string> {
   const values: Record<string, string> = {};
-  const argPattern = /([A-Za-z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  const argPattern =
+    /([A-Za-z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|\u201c([^\u201d]*)\u201d|\u2018([^\u2019]*)\u2019|([^\s]+))/g;
   let match: RegExpExecArray | null;
   while ((match = argPattern.exec(input))) {
-    values[match[1]!.toLowerCase()] = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+    values[match[1]!.toLowerCase()] = (match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? "").trim();
   }
   return values;
 }
 
 function parseCommandTokens(input: string): Array<{ value: string; quoted: boolean }> {
   const tokens: Array<{ value: string; quoted: boolean }> = [];
-  const tokenPattern = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g;
+  const tokenPattern =
+    /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|\u201c([^\u201d\\]*(?:\\.[^\u201d\\]*)*)\u201d|\u2018([^\u2019\\]*(?:\\.[^\u2019\\]*)*)\u2019|(\S+)/g;
   let match: RegExpExecArray | null;
   while ((match = tokenPattern.exec(input))) {
-    const quoted = match[1] !== undefined || match[2] !== undefined;
-    const raw = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    const quoted = match[1] !== undefined || match[2] !== undefined || match[3] !== undefined || match[4] !== undefined;
+    const raw = (match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? "").trim();
     if (!raw) continue;
-    tokens.push({ value: raw.replace(/\\(["'\\])/g, "$1"), quoted });
+    tokens.push({ value: raw.replace(/\\(["'\u201c\u201d\u2018\u2019\\])/g, "$1"), quoted });
   }
   return tokens;
 }
 
 function normalizeLookup(value: string): string {
-  return value.trim().toLowerCase();
+  return normalizeTextForMatch(value);
 }
 
 function isAllEmoteTarget(value: string): boolean {
@@ -232,6 +265,14 @@ function matchSpriteExpression(expressions: string[], requested: string): string
     expressions.find((expression) => normalizeLookup(expression).includes(normalized)) ??
     null
   );
+}
+
+const CONVERSATION_STATUS_VALUES = ["online", "idle", "dnd", "offline"] as const;
+
+type ConversationStatusValue = (typeof CONVERSATION_STATUS_VALUES)[number];
+
+function isConversationStatusValue(value: string): value is ConversationStatusValue {
+  return CONVERSATION_STATUS_VALUES.includes(value as ConversationStatusValue);
 }
 
 // ── Message index parser (for /hide and /unhide) ────────────────
@@ -306,6 +347,19 @@ const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: "uno",
+    description: "Start a game of UNO with the characters in this chat",
+    usage: "/uno",
+    local: true,
+    async execute(_args, ctx) {
+      if (ctx.mode === "roleplay") {
+        return { handled: true, feedback: "UNO can only be played in conversation chats." };
+      }
+      useUnoGameStore.getState().openSetup(ctx.chatId);
+      return { handled: true };
+    },
+  },
+  {
     name: "sys",
     aliases: ["system"],
     description: "Insert a system message",
@@ -351,7 +405,7 @@ const COMMANDS: SlashCommand[] = [
     async execute(args, ctx) {
       const name = args.trim();
       if (!name) return { handled: true, feedback: "Usage: /as <character name>" };
-      const match = ctx.characterNames.find((n) => n.toLowerCase() === name.toLowerCase());
+      const match = ctx.characterNames.find((n) => normalizeLookup(n) === normalizeLookup(name));
       if (!match) {
         return {
           handled: true,
@@ -516,6 +570,102 @@ const COMMANDS: SlashCommand[] = [
       await ctx.setSpriteExpression(target.id, expression);
       ctx.invalidate();
       return { handled: true, feedback: `Emote updated: ${target.name} -> ${expression}` };
+    },
+  },
+  {
+    name: "status",
+    description: "Set or clear a conversation status override",
+    usage: "/status <status|clear> [character name]",
+    local: true,
+    async execute(args, ctx) {
+      if (ctx.mode !== "conversation") {
+        return { handled: true, feedback: "/status is only available in conversation mode." };
+      }
+
+      const characters = ctx.characters ?? [];
+      if (characters.length === 0) {
+        return { handled: true, feedback: "No character metadata found for this chat." };
+      }
+
+      const tokens = parseCommandTokens(args);
+      const action = normalizeLookup(tokens[0]?.value ?? "");
+      if (!action) {
+        return { handled: true, feedback: buildStatusCommandHelp(characters) };
+      }
+
+      const requestedName = tokens
+        .slice(1)
+        .map((token) => token.value)
+        .join(" ")
+        .trim();
+
+      const resolveTargetCharacter = () => {
+        if (requestedName) {
+          return findSceneCharacter(characters, requestedName);
+        }
+        if (characters.length === 1) {
+          return characters[0]!;
+        }
+        return null;
+      };
+
+      if (action === "clear") {
+        const target = resolveTargetCharacter();
+        if (!target) {
+          return {
+            handled: true,
+            feedback: requestedName
+              ? `Character "${requestedName}" not found. Available: ${formatAvailableCharacterList(characters)}`
+              : buildStatusCommandHelp(characters),
+          };
+        }
+
+        try {
+          await api.patch(`/chats/${ctx.chatId}/metadata`, {
+            conversationStatusOverrides: { [target.id]: null },
+          });
+          ctx.invalidate();
+          return { handled: true, feedback: `Cleared ${target.name}'s status override.` };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown error";
+          return { handled: true, feedback: `Failed to update status: ${message}` };
+        }
+      }
+
+      if (!isConversationStatusValue(action)) {
+        return {
+          handled: true,
+          feedback: `Status must be one of: online, idle, dnd, offline, clear.\n\n${buildStatusCommandHelp(characters)}`,
+        };
+      }
+
+      const target = resolveTargetCharacter();
+      if (!target) {
+        return {
+          handled: true,
+          feedback: requestedName
+            ? `Character "${requestedName}" not found. Available: ${formatAvailableCharacterList(characters)}`
+            : buildStatusCommandHelp(characters),
+        };
+      }
+
+      try {
+        await api.patch(`/chats/${ctx.chatId}/metadata`, {
+          conversationStatusOverrides: {
+            [target.id]: {
+              status: action,
+              activity: null,
+              createdAt: new Date().toISOString(),
+              expiresAt: null,
+            },
+          },
+        });
+        ctx.invalidate();
+        return { handled: true, feedback: `Set ${target.name} to ${action}.` };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        return { handled: true, feedback: `Failed to update status: ${message}` };
+      }
     },
   },
   {
@@ -835,7 +985,9 @@ export function matchSlashCommand(input: string): { command: SlashCommand; args:
 /** Get all commands that match a partial prefix (for autocomplete). */
 export function getSlashCompletions(partial: string): SlashCommand[] {
   if (!partial.startsWith("/")) return [];
-  const prefix = partial.slice(1).toLowerCase();
+  const rawPrefix = partial.slice(1);
+  if (rawPrefix.includes(" ")) return [];
+  const prefix = rawPrefix.trim().toLowerCase();
   if (!prefix) return COMMANDS;
   return COMMANDS.filter((c) => c.name.startsWith(prefix) || c.aliases?.some((a) => a.startsWith(prefix)));
 }

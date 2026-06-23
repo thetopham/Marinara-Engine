@@ -10,6 +10,7 @@ import {
   type AvatarCropValue,
 } from "../../lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks, applyInlineMarkdownHTML } from "../../lib/markdown";
+import { normalizeCardAssetImageSyntax, resolveCardAssetUrl } from "../../lib/card-asset-links";
 import {
   User,
   Bot,
@@ -33,31 +34,166 @@ import {
   Play,
   ChevronRight,
   EyeOff,
+  Shield,
 } from "lucide-react";
-import type { Message } from "@marinara-engine/shared";
+import { formatTextQuotes, type Message, type QuoteFormat } from "@marinara-engine/shared";
 import { memo, useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { chatKeys } from "../../hooks/use-chats";
+import { chatKeys, rememberRecentMessageContentEdit } from "../../hooks/use-chats";
 import { useShallow } from "zustand/react/shallow";
 import { createMessageMacroResolver } from "../../lib/chat-macros";
 import { useApplyRegex } from "../../hooks/use-apply-regex";
 import { useUIStore } from "../../stores/ui.store";
 import { useChatStore } from "../../stores/chat.store";
+import { parseChatMetadata } from "../../lib/chat-display";
 import { useTranslate } from "../../hooks/use-translate";
 import { api } from "../../lib/api-client";
+import { applyTextareaQuoteFormat } from "../../lib/textarea-quotes";
 import { ttsService } from "../../lib/tts-service";
 import { useTTSConfig } from "../../hooks/use-tts";
-import { buildTTSMessageText, resolveTTSVoiceForSpeaker } from "../../lib/tts-dialogue";
+import { buildTTSVoiceRequests, normalizeTTSCharacterName, withTTSVoiceRequestCacheKeys } from "../../lib/tts-dialogue";
 import { DIALOGUE_QUOTE_PATTERN_SOURCE, HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE } from "../../lib/dialogue-quotes";
 import DOMPurify from "dompurify";
-import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
+import type { CharacterMap, ExpressionAvatarResolver, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
-import { ImagePromptPanel } from "./ImagePromptPanel";
+import type { ChatImage } from "../../hooks/use-gallery";
+import { ChatImageLightbox } from "./ChatImageLightbox";
 import { SwipeJumpControl } from "./SwipeJumpControl";
+import {
+  NEUTRAL_PANEL_HEADER,
+  NEUTRAL_PANEL_SCROLL_AREA,
+  NEUTRAL_PANEL_SHELL,
+  NEUTRAL_PANEL_TITLE,
+} from "../ui/neutral-surface-styles";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
+const MESSAGE_DOUBLE_TAP_MS = 320;
+const MESSAGE_DOUBLE_TAP_DISTANCE_PX = 26;
+const MESSAGE_CHROME_ACTIVE_ICON_CLASS =
+  "text-[var(--marinara-chat-chrome-button-text-active)] hover:text-[var(--marinara-chat-chrome-button-text-hover)]";
+const MESSAGE_CHROME_MARKER_LINE_CLASS = "bg-[var(--marinara-chat-chrome-button-border-active)]";
+const MESSAGE_CHROME_MARKER_TEXT_CLASS = "text-[var(--marinara-chat-chrome-highlight-text)]";
+const MESSAGE_CHROME_RING_CLASS = "ring-[var(--marinara-chat-chrome-focus-ring)]";
+const ROLEPLAY_USER_BUBBLE_PANEL_STRENGTH = 100;
+const ROLEPLAY_ASSISTANT_BUBBLE_PANEL_STRENGTH = 96;
+
+type MessageImageAttachmentLike = {
+  data?: unknown;
+  filename?: unknown;
+  filePath?: unknown;
+  galleryId?: unknown;
+  height?: unknown;
+  model?: unknown;
+  name?: unknown;
+  prompt?: unknown;
+  provider?: unknown;
+  url?: unknown;
+  width?: unknown;
+};
+
+interface ChatMessageImageLightboxState {
+  image: ChatImage;
+  alt: string;
+  pinEnabled: boolean;
+  downloadEnabled: boolean;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readPositiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function filenameFromUrl(url: string): string | null {
+  if (url.startsWith("data:")) return null;
+  const filename = url.split("?")[0]?.split("/").filter(Boolean).pop();
+  if (!filename) return null;
+  try {
+    return decodeURIComponent(filename);
+  } catch {
+    return filename;
+  }
+}
+
+function buildChatMessageImage({
+  id,
+  chatId,
+  url,
+  prompt,
+  filePath,
+  provider,
+  model,
+  width,
+  height,
+  createdAt,
+}: {
+  id: string;
+  chatId: string;
+  url: string;
+  prompt?: string | null;
+  filePath?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  width?: number | null;
+  height?: number | null;
+  createdAt: string;
+}): ChatImage {
+  return {
+    id,
+    chatId,
+    filePath: filePath || filenameFromUrl(url) || `${id}.png`,
+    prompt: prompt ?? "",
+    provider: provider ?? "",
+    model: model ?? "",
+    width: width ?? null,
+    height: height ?? null,
+    createdAt,
+    url,
+  };
+}
+
+function buildAttachmentChatImage(
+  attachment: MessageImageAttachmentLike,
+  index: number,
+  message: Pick<Message, "chatId" | "createdAt" | "id">,
+): ChatImage | null {
+  const url = readString(attachment.url) ?? readString(attachment.data);
+  if (!url) return null;
+
+  const id = readString(attachment.galleryId) ?? `${message.id}:attachment:${index}`;
+  const filename = readString(attachment.filename) ?? readString(attachment.name);
+  return buildChatMessageImage({
+    id,
+    chatId: message.chatId,
+    url,
+    prompt: readString(attachment.prompt),
+    filePath: readString(attachment.filePath) ?? filename,
+    provider: readString(attachment.provider),
+    model: readString(attachment.model),
+    width: readPositiveNumber(attachment.width),
+    height: readPositiveNumber(attachment.height),
+    createdAt: message.createdAt,
+  });
+}
+
+function getRoleplayPanelBubbleBackground(opacity: number, maxPanelStrength: number) {
+  const panelStrength = Math.max(0, Math.min(100, opacity * maxPanelStrength));
+  if (panelStrength <= 0) return "transparent";
+  return `color-mix(in srgb, var(--marinara-chat-chrome-panel-bg) ${panelStrength.toFixed(2)}%, transparent)`;
+}
+
+function isMessageQuickEditIgnoredTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, option, [contenteditable="true"], [role="button"], [data-no-message-quick-edit]',
+    ),
+  );
+}
 
 function HiddenFromAIMessageButton({
   roleplay,
@@ -71,8 +207,8 @@ function HiddenFromAIMessageButton({
   isHiddenExpanded: boolean;
 }) {
   const statusClassName = cn(
-    "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-amber-500/80",
-    roleplay && "text-amber-200/60",
+    "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-[var(--marinara-chat-chrome-highlight-text)]",
+    roleplay && "opacity-80",
   );
 
   if (!canCollapse) {
@@ -89,9 +225,9 @@ function HiddenFromAIMessageButton({
         type="button"
         onClick={onExpand}
         className={cn(
-          "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-amber-500/80 transition-colors hover:bg-amber-500/10 hover:text-amber-400",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40",
-          roleplay && "text-amber-200/60 hover:bg-white/5 hover:text-amber-100/80",
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[0.625rem] font-medium text-[var(--marinara-chat-chrome-highlight-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-button-text-hover)]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--marinara-chat-chrome-focus-ring)]",
+          roleplay && "opacity-80 hover:opacity-100",
         )}
         aria-label={isHiddenExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
         title={isHiddenExpanded ? "Collapse hidden from AI message" : "Expand hidden from AI message"}
@@ -112,8 +248,8 @@ function HiddenFromAIMessageSummary({ roleplay, onExpand }: { roleplay?: boolean
         onExpand();
       }}
       className={cn(
-        "flex w-full items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-left text-[0.75rem] text-amber-600/90 transition-colors hover:bg-amber-500/15 dark:text-amber-200/75",
-        roleplay && "border-amber-200/15 bg-white/5 text-amber-100/70 hover:bg-white/10",
+        "flex w-full items-center gap-2 rounded-lg border border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-highlight-bg)] px-3 py-2 text-left text-[0.75rem] text-[var(--marinara-chat-chrome-highlight-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)]",
+        roleplay && "opacity-85 hover:opacity-100",
       )}
       title="Expand hidden from AI message"
       aria-label="Expand hidden from AI message"
@@ -129,11 +265,13 @@ function HiddenFromAIMessageSummary({ roleplay, onExpand }: { roleplay?: boolean
 const EditTextarea = memo(function EditTextarea({
   initialContent,
   fontSize,
+  quoteFormat,
   onSave,
   onCancel,
 }: {
   initialContent: string;
   fontSize: string | number | undefined;
+  quoteFormat: QuoteFormat;
   onSave: (content: string) => void;
   onCancel: () => void;
 }) {
@@ -159,16 +297,19 @@ const EditTextarea = memo(function EditTextarea({
   }, [autoResize]);
 
   const handleSave = useCallback(() => {
-    if (ref.current) onSave(ref.current.value);
-  }, [onSave]);
+    if (ref.current) onSave(formatTextQuotes(ref.current.value, quoteFormat));
+  }, [onSave, quoteFormat]);
 
   return (
     <div className="flex flex-col gap-2">
       <textarea
         ref={ref}
-        defaultValue={initialContent.replace(/[\u201C\u201D\u201E\u201F]/g, '"').replace(/[\u2018\u2019]/g, "'")}
+        defaultValue={formatTextQuotes(initialContent, quoteFormat)}
         rows={1}
-        onInput={autoResize}
+        onInput={(event) => {
+          applyTextareaQuoteFormat(event.currentTarget, quoteFormat);
+          autoResize();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSave();
           if (e.key === "Escape") onCancel();
@@ -221,6 +362,8 @@ interface ChatMessageProps {
   personaInfo?: PersonaInfo;
   groupChatMode?: string;
   chatCharacterIds?: string[];
+  expressionAvatarResolver?: ExpressionAvatarResolver;
+  hasDraftInput?: boolean;
   /** Distance from the latest message (0 = newest). Used for depth-range regex filtering. */
   messageDepth?: number;
   /** 1-based ordinal position in the message list. Shown under avatar when actions visible. */
@@ -473,6 +616,15 @@ const CHAT_HTML_ALLOWED_ATTR = [
 
 const CHAT_STYLE_BLOCK_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
 const CSS_SELECTOR_RE = /(^|[{}])\s*([^@{}][^{]*)\{/g;
+const MD_IMAGE_HTML_RE = /!\[([^\]]*)\]\(((?:https?:\/\/[^)\s]+|card:\/\/[^)\s]+|\/api\/[^)\s]+))\)/g;
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 function sanitizeChatHtml(html: string, options: { allowStyle?: boolean } = {}) {
   const allowedAttr = options.allowStyle
@@ -497,8 +649,40 @@ function extractChatStyleBlocks(html: string): { html: string; css: string } {
   return { html: withoutStyles, css: cssBlocks.join("\n") };
 }
 
+/** Decode CSS escape sequences (`\XX` hex, `\c` literal) to the characters a browser parses. */
+function decodeCssEscapes(input: string): string {
+  return input.replace(
+    /\\(?:([0-9a-fA-F]{1,6})\s?|([\s\S]))/g,
+    (_m, hex: string | undefined, ch: string | undefined) => {
+      if (hex) {
+        const cp = parseInt(hex, 16);
+        return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : "";
+      }
+      return ch ?? "";
+    },
+  );
+}
+
+// Match a quoted string (group 1) OR a single CSS escape sequence. Strings come first so the
+// scanner steps over them, leaving their contents untouched.
+const STRING_OR_ESCAPE = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\\(?:[0-9a-fA-F]{1,6}\s?|[\s\S])/g;
+
+// Canonicalize CSS escapes that spell a token character (ASCII letter, `@`, or `-`) so the
+// literal-text guards in sanitizeChatCss can't be bypassed by escaping (e.g. `\75rl(` → `url(`,
+// `po\73ition` → `position`, `\40 import` → `@import`). Escapes resolving to digits/punctuation
+// and all string contents are preserved so benign selectors like `.\32 xl` and `.w-1\/2` stay exact.
+function canonicalizeKeywordEscapes(css: string): string {
+  return css.replace(STRING_OR_ESCAPE, (match: string, stringLiteral: string | undefined) => {
+    if (stringLiteral !== undefined) return stringLiteral;
+    const decoded = decodeCssEscapes(match);
+    return /^[-A-Za-z@]$/.test(decoded) ? decoded : match;
+  });
+}
+
 function sanitizeChatCss(css: string): string {
-  return css
+  // Normalize escaped keyword characters first so every literal-text guard below sees the tokens a
+  // browser would actually parse. Without this, CSS escapes (`\75rl(`, `po\73ition`) slip past.
+  return canonicalizeKeywordEscapes(css)
     .replace(/<\/?style\b[^>]*>/gi, "")
     .replace(/@import\s+[^;]+;?/gi, "")
     .replace(/@namespace\s+[^;]+;?/gi, "")
@@ -542,9 +726,9 @@ function renderContent(
   speakerColorMap?: Map<string, string>,
   boldDialogue = true,
   htmlScopeClass = "mari-html-message-content",
+  quoteFormat: QuoteFormat = "straight",
 ): ReactNode {
-  // Normalise curly quotes to straight so they display consistently
-  const normalized = text.replace(/[“”„‟]/g, '"').replace(/[‘’]/g, "'");
+  const normalized = formatTextQuotes(text, quoteFormat);
 
   // Strip speaker tags before HTML detection (they aren't real HTML)
   const withoutSpeakerTags = normalized.replace(/<\/?speaker(?:="[^"]*")?>/g, "");
@@ -587,10 +771,11 @@ function renderContent(
   // Convert markdown images to <img> before sanitization so DOMPurify validates them.
   // Keep tags minimal (no class/loading) — styling is via .mari-message-content img in CSS
   // to avoid the dialogue-bolding regex mangling attribute quotes.
-  const withImages = withBreaks.replace(
-    /!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
-    (_m, alt: string, url: string) => `<img src="${url}" alt="${alt || "image"}" loading="lazy" decoding="async">`,
-  );
+  const withImages = normalizeCardAssetImageSyntax(withBreaks).replace(MD_IMAGE_HTML_RE, (_m, alt: string, url: string) => {
+    const src = escapeHtmlAttr(resolveCardAssetUrl(url));
+    const safeAlt = escapeHtmlAttr(alt || "image");
+    return `<img src="${src}" alt="${safeAlt}" loading="lazy" decoding="async">`;
+  });
 
   const clean = sanitizeChatHtml(withImages, { allowStyle: true });
 
@@ -649,22 +834,31 @@ function renderContent(
   return <div className={cn("overflow-hidden", htmlScopeClass)} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-/** Build style object for name color (supports gradients). */
-function nameColorStyle(color?: string): React.CSSProperties | undefined {
-  if (!color) return undefined;
-  if (color.startsWith("linear-gradient")) {
-    return {
-      background: color,
-      backgroundRepeat: "no-repeat",
-      backgroundSize: "100% 100%",
-      WebkitBackgroundClip: "text",
-      WebkitTextFillColor: "transparent",
-      backgroundClip: "text",
-      color: "transparent",
-      display: "inline-block",
-    };
-  }
-  return { color };
+function isGradientNameColor(color?: string): color is string {
+  return typeof color === "string" && /gradient\(/i.test(color.trim());
+}
+
+function solidNameColorStyle(color?: string): React.CSSProperties | undefined {
+  const value = color?.trim();
+  if (!value || isGradientNameColor(value)) return undefined;
+  return { color: value, WebkitTextFillColor: value };
+}
+
+function gradientNameColorStyle(color: string): React.CSSProperties {
+  return {
+    backgroundImage: color.trim(),
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "100% 100%",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    backgroundClip: "text",
+    color: "transparent",
+    display: "inline-block",
+  };
+}
+
+function NameColorText({ color, children }: { color?: string; children: ReactNode }) {
+  return isGradientNameColor(color) ? <span style={gradientNameColorStyle(color)}>{children}</span> : <>{children}</>;
 }
 
 export const ChatMessage = memo(function ChatMessage({
@@ -687,6 +881,8 @@ export const ChatMessage = memo(function ChatMessage({
   personaInfo,
   groupChatMode,
   chatCharacterIds,
+  expressionAvatarResolver,
+  hasDraftInput = false,
   messageDepth,
   messageIndex,
   messageOrderIndex,
@@ -704,6 +900,7 @@ export const ChatMessage = memo(function ChatMessage({
     chatFontOpacity,
     roleplayAvatarStyle,
     roleplayAvatarScale,
+    roleplayAvatarsScrollable,
     textStrokeWidth,
     textStrokeColor,
     showModelName,
@@ -711,7 +908,7 @@ export const ChatMessage = memo(function ChatMessage({
     showMessageNumbers,
     guideGenerations,
     boldDialogue,
-    theme,
+    editMessageOnDoubleClick,
   } = useUIStore(
     useShallow((s) => ({
       chatFontSize: s.chatFontSize,
@@ -719,6 +916,7 @@ export const ChatMessage = memo(function ChatMessage({
       chatFontOpacity: s.chatFontOpacity,
       roleplayAvatarStyle: s.roleplayAvatarStyle,
       roleplayAvatarScale: s.roleplayAvatarScale,
+      roleplayAvatarsScrollable: s.roleplayAvatarsScrollable,
       textStrokeWidth: s.textStrokeWidth,
       textStrokeColor: s.textStrokeColor,
       showModelName: s.showModelName,
@@ -726,11 +924,10 @@ export const ChatMessage = memo(function ChatMessage({
       showMessageNumbers: s.showMessageNumbers,
       guideGenerations: s.guideGenerations,
       boldDialogue: s.boldDialogue ?? true,
-      theme: s.theme,
+      editMessageOnDoubleClick: s.editMessageOnDoubleClick,
     })),
   );
-  const hasInput = useChatStore((s) => s.currentInput.trim().length > 0);
-  const isGuided = guideGenerations && hasInput;
+  const isGuided = guideGenerations && hasDraftInput;
   const regenerateButtonTitle = isGuided ? "Regenerate (guided)" : "Regenerate";
   const regenerateGuidedClass = isGuided
     ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:text-[var(--primary)]"
@@ -758,23 +955,15 @@ export const ChatMessage = memo(function ChatMessage({
     [roleplayAvatarScale],
   );
 
-  // Compute message bubble background with user-controlled opacity.
-  // Dark theme: neutral-900 (23,23,23) on dark bg → translucent dark bubble.
-  // Light theme: slightly grayer than --background (#faf8ff) so bubbles stay visible on light bg.
+  // Keep the top of the slider near the Chat Settings popover surface:
+  // solid enough to read, but still faintly translucent through the panel token.
   const { userBubbleBg, assistantBubbleBg } = useMemo(() => {
     const o = chatFontOpacity / 100;
-    if (theme === "light") {
-      // Higher base opacity in light mode so the bubble actually contrasts the page
-      return {
-        userBubbleBg: `rgba(225,220,235,${Math.min(1, 0.85 * o).toFixed(3)})`,
-        assistantBubbleBg: `rgba(238,234,245,${Math.min(1, 0.9 * o).toFixed(3)})`,
-      };
-    }
     return {
-      userBubbleBg: `rgba(23,23,23,${(0.7 * o).toFixed(3)})`,
-      assistantBubbleBg: `rgba(23,23,23,${(0.6 * o).toFixed(3)})`,
+      userBubbleBg: getRoleplayPanelBubbleBackground(o, ROLEPLAY_USER_BUBBLE_PANEL_STRENGTH),
+      assistantBubbleBg: getRoleplayPanelBubbleBackground(o, ROLEPLAY_ASSISTANT_BUBBLE_PANEL_STRENGTH),
     };
-  }, [chatFontOpacity, theme]);
+  }, [chatFontOpacity]);
 
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -782,18 +971,47 @@ export const ChatMessage = memo(function ChatMessage({
   const [showGenerationReplay, setShowGenerationReplay] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
+  const [restoringProseGuardianOriginal, setRestoringProseGuardianOriginal] = useState(false);
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
-  const [avatarLightbox, setAvatarLightbox] = useState<string | null>(null);
-  const [avatarLightboxPrompt, setAvatarLightboxPrompt] = useState<string | null>(null);
+  const [imageLightbox, setImageLightbox] = useState<ChatMessageImageLightboxState | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
   const msgRef = useRef<HTMLDivElement>(null);
-  const openImageLightbox = useCallback((url: string, prompt?: unknown) => {
-    setAvatarLightbox(url);
-    setAvatarLightboxPrompt(typeof prompt === "string" ? prompt.trim() : null);
-  }, []);
+  const editSwipeIndexRef = useRef<number | null>(null);
+  const lastQuickTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  const openImageLightbox = useCallback(
+    (url: string, prompt?: unknown) => {
+      if (!url) return;
+      setImageLightbox({
+        image: buildChatMessageImage({
+          id: `${message.id}:image:${url}`,
+          chatId: message.chatId,
+          url,
+          prompt: readString(prompt),
+          createdAt: message.createdAt,
+        }),
+        alt: "Image",
+        pinEnabled: false,
+        downloadEnabled: false,
+      });
+    },
+    [message.chatId, message.createdAt, message.id],
+  );
+  const openAttachmentImageLightbox = useCallback(
+    (attachment: MessageImageAttachmentLike, index: number) => {
+      const image = buildAttachmentChatImage(attachment, index, message);
+      if (!image) return;
+      const alt = (readString(attachment.filename) ?? readString(attachment.name) ?? image.prompt) || "Gallery image";
+      setImageLightbox({
+        image,
+        alt,
+        pinEnabled: true,
+        downloadEnabled: true,
+      });
+    },
+    [message],
+  );
   const closeImageLightbox = useCallback(() => {
-    setAvatarLightbox(null);
-    setAvatarLightboxPrompt(null);
+    setImageLightbox(null);
   }, []);
 
   // Translation
@@ -804,12 +1022,41 @@ export const ChatMessage = memo(function ChatMessage({
   // TTS
   const { data: ttsConfig } = useTTSConfig();
   const ttsEnabled = ttsConfig?.enabled ?? false;
-  const ttsSpeakerName = message.characterId ? characterMap?.get(message.characterId)?.name : undefined;
-  const ttsVoice = ttsConfig ? resolveTTSVoiceForSpeaker(ttsConfig, ttsSpeakerName, message.characterId) : "";
-  const ttsSpeakText =
-    ttsConfig && (ttsConfig.source !== "elevenlabs" || ttsVoice)
-      ? buildTTSMessageText(message.content, ttsConfig, ttsSpeakerName)
-      : "";
+  const ttsSpeakerName =
+    message.role === "narrator"
+      ? "Narrator"
+      : message.characterId
+        ? characterMap?.get(message.characterId)?.name
+        : undefined;
+  const resolveTTSCharacterId = useCallback(
+    (speaker?: string | null) => {
+      const normalizedSpeaker = normalizeTTSCharacterName(speaker);
+      if (!normalizedSpeaker || !characterMap) return null;
+      for (const [characterId, character] of characterMap) {
+        if (normalizeTTSCharacterName(character.name) === normalizedSpeaker) return characterId;
+      }
+      return null;
+    },
+    [characterMap],
+  );
+  const ttsVoiceRequests = useMemo(
+    () =>
+      ttsConfig
+        ? withTTSVoiceRequestCacheKeys(
+            buildTTSVoiceRequests(
+              message.content,
+              ttsConfig,
+              ttsSpeakerName,
+              message.characterId,
+              resolveTTSCharacterId,
+            ),
+            ttsConfig,
+            message.id,
+          )
+        : [],
+    [message.characterId, message.content, message.id, resolveTTSCharacterId, ttsConfig, ttsSpeakerName],
+  );
+  const hasTTSContent = ttsVoiceRequests.length > 0;
   const [ttsState, setTTSState] = useState(ttsService.getState());
   const [ttsActiveId, setTTSActiveId] = useState<string | null>(ttsService.getActiveId());
   useEffect(
@@ -835,10 +1082,10 @@ export const ChatMessage = memo(function ChatMessage({
     if (liveIsThis) {
       ttsService.stop();
     } else {
-      if (!ttsSpeakText) return;
-      void ttsService.speak(ttsSpeakText, message.id, { speaker: ttsSpeakerName, voice: ttsVoice });
+      if (!hasTTSContent) return;
+      void ttsService.speakSequence(ttsVoiceRequests, message.id);
     }
-  }, [message.id, ttsSpeakText, ttsSpeakerName, ttsVoice]);
+  }, [hasTTSContent, message.id, ttsVoiceRequests]);
 
   const handlePauseResumeTTS = useCallback(() => {
     if (ttsService.getActiveId() !== message.id) return;
@@ -854,6 +1101,37 @@ export const ChatMessage = memo(function ChatMessage({
       ttsService.restart();
     }
   }, [message.id]);
+
+  const startEditing = useCallback(() => {
+    if (!onEdit || isStreaming) return;
+    const sp = msgRef.current?.closest("[class*='overflow-y']") as HTMLElement | null;
+    if (sp) scrollRestoreRef.current = { el: sp, top: sp.scrollTop };
+    editSwipeIndexRef.current = message.activeSwipeIndex ?? null;
+    setEditing(true);
+  }, [isStreaming, message.activeSwipeIndex, onEdit]);
+
+  const startQuickEdit = useCallback(
+    (target: EventTarget | null) => {
+      if (!editMessageOnDoubleClick || !isRoleplay || !onEdit || editing || isStreaming || multiSelectMode) {
+        return false;
+      }
+      if (isMessageQuickEditIgnoredTarget(target)) return false;
+      window.getSelection()?.removeAllRanges();
+      setShowActions(false);
+      startEditing();
+      return true;
+    },
+    [editMessageOnDoubleClick, editing, isRoleplay, isStreaming, multiSelectMode, onEdit, startEditing],
+  );
+
+  const handleRoleplayDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!startQuickEdit(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    [startQuickEdit],
+  );
 
   // Dismiss actions when tapping outside on mobile
   useEffect(() => {
@@ -884,9 +1162,26 @@ export const ChatMessage = memo(function ChatMessage({
       // Don't toggle when tapping buttons, links, or the edit textarea
       const target = e.target as HTMLElement;
       if (target.closest("button, a, textarea")) return;
+      if (isRoleplay) {
+        const now = Date.now();
+        const lastTap = lastQuickTapRef.current;
+        const dx = lastTap ? Math.abs(e.clientX - lastTap.x) : Number.POSITIVE_INFINITY;
+        const dy = lastTap ? Math.abs(e.clientY - lastTap.y) : Number.POSITIVE_INFINITY;
+        const isDoubleTap =
+          !!lastTap &&
+          now - lastTap.time <= MESSAGE_DOUBLE_TAP_MS &&
+          dx <= MESSAGE_DOUBLE_TAP_DISTANCE_PX &&
+          dy <= MESSAGE_DOUBLE_TAP_DISTANCE_PX;
+        lastQuickTapRef.current = isDoubleTap ? null : { time: now, x: e.clientX, y: e.clientY };
+        if (isDoubleTap && startQuickEdit(e.target)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       setShowActions((v) => !v);
     },
-    [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect],
+    [isRoleplay, isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect, startQuickEdit],
   );
 
   // Parse message extra for conversation start flag
@@ -898,6 +1193,13 @@ export const ChatMessage = memo(function ChatMessage({
   const isHiddenFromAI = extra.hiddenFromAI === true;
   const thinking = extra.thinking as string | undefined;
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
+  const proseGuardianOriginalText =
+    !isUser &&
+    typeof extra.proseGuardianOriginalText === "string" &&
+    extra.proseGuardianOriginalText.length > 0 &&
+    extra.proseGuardianOriginalText !== message.content
+      ? extra.proseGuardianOriginalText
+      : null;
 
   useEffect(() => {
     setManuallyExpandedHidden(false);
@@ -913,6 +1215,58 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Remove an attachment from this message (keeps it in gallery)
   const qc = useQueryClient();
+  const handleRestoreProseGuardianOriginal = useCallback(async () => {
+    if (!proseGuardianOriginalText || restoringProseGuardianOriginal) return;
+    setRestoringProseGuardianOriginal(true);
+
+    const msgKey = chatKeys.messages(message.chatId);
+    const clearedProseGuardianExtra = {
+      proseGuardianOriginalText: null,
+      proseGuardianRewrittenAt: null,
+    };
+
+    qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page) =>
+          page.map((m) => {
+            if (m.id !== message.id) return m;
+            const ex = typeof m.extra === "string" ? JSON.parse(m.extra) : (m.extra ?? {});
+            return {
+              ...m,
+              content: proseGuardianOriginalText,
+              extra: { ...ex, ...clearedProseGuardianExtra },
+            } as Message;
+          }),
+        ),
+      };
+    });
+
+    try {
+      const updated = await api.patch<Message>(`/chats/${message.chatId}/messages/${message.id}`, {
+        content: proseGuardianOriginalText,
+      });
+      rememberRecentMessageContentEdit(
+        message.chatId,
+        message.id,
+        updated?.content ?? proseGuardianOriginalText,
+        updated?.activeSwipeIndex ?? message.activeSwipeIndex ?? null,
+      );
+      await api.patch(`/chats/${message.chatId}/messages/${message.id}/extra`, clearedProseGuardianExtra);
+    } finally {
+      setRestoringProseGuardianOriginal(false);
+      qc.invalidateQueries({ queryKey: msgKey });
+    }
+  }, [
+    message.activeSwipeIndex,
+    message.chatId,
+    message.id,
+    proseGuardianOriginalText,
+    qc,
+    restoringProseGuardianOriginal,
+  ]);
+
   const handleRemoveAttachment = useCallback(
     async (index: number) => {
       const current = (extra.attachments as any[]) ?? [];
@@ -970,12 +1324,6 @@ export const ChatMessage = memo(function ChatMessage({
     }
   }, [editing]);
 
-  const startEditing = useCallback(() => {
-    const sp = msgRef.current?.closest("[class*='overflow-y']") as HTMLElement | null;
-    if (sp) scrollRestoreRef.current = { el: sp, top: sp.scrollTop };
-    setEditing(true);
-  }, []);
-
   useEffect(() => {
     if (!onEdit) return;
     const handler = (event: Event) => {
@@ -988,20 +1336,51 @@ export const ChatMessage = memo(function ChatMessage({
 
   const handleSaveEdit = useCallback(
     (content: string) => {
+      if (editSwipeIndexRef.current !== null && editSwipeIndexRef.current !== (message.activeSwipeIndex ?? null)) {
+        editSwipeIndexRef.current = null;
+        setEditing(false);
+        return;
+      }
       if (content.trim() !== message.content) {
         onEdit?.(message.id, content.trim());
       }
+      editSwipeIndexRef.current = null;
       setEditing(false);
     },
-    [message.content, message.id, onEdit],
+    [message.activeSwipeIndex, message.content, message.id, onEdit],
   );
 
   const handleCancelEdit = useCallback(() => {
+    editSwipeIndexRef.current = null;
     setEditing(false);
   }, []);
 
+  const handleSetActiveSwipe = useCallback(
+    (index: number) => {
+      if (index === message.activeSwipeIndex) return;
+      editSwipeIndexRef.current = null;
+      setEditing(false);
+      onSetActiveSwipe?.(message.id, index);
+    },
+    [message.activeSwipeIndex, message.id, onSetActiveSwipe],
+  );
+
+  useEffect(() => {
+    if (!editing) return;
+    if (editSwipeIndexRef.current === null) return;
+    if (editSwipeIndexRef.current !== (message.activeSwipeIndex ?? null)) {
+      editSwipeIndexRef.current = null;
+      setEditing(false);
+    }
+  }, [editing, message.activeSwipeIndex]);
+
   // Apply regex scripts to AI output (assistant/narrator roles)
   const { applyToAIOutput } = useApplyRegex();
+  // Per-chat scoped-regex mode — gates character-scoped scripts at display time.
+  // Select the raw metadata (stable while tokens stream) and parse it in a memo so
+  // we don't JSON-parse the whole chat metadata on every store tick during streaming.
+  const activeChatMetadata = useChatStore((s) => s.activeChat?.metadata);
+  const scopedRegexMode = useMemo(() => parseChatMetadata(activeChatMetadata).scopedRegexMode, [activeChatMetadata]);
 
   const scopedCharacterMap = useMemo(() => {
     if (!characterMap) return null;
@@ -1012,8 +1391,19 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Resolve character info from characters that actually belong to this chat.
   const charInfo = message.characterId && scopedCharacterMap ? scopedCharacterMap.get(message.characterId) : null;
+  const fallbackChatCharacterEntry = useMemo(() => {
+    if (!scopedCharacterMap) return null;
+    const orderedIds = chatCharacterIds?.length ? chatCharacterIds : Array.from(scopedCharacterMap.keys());
+    for (const id of orderedIds) {
+      const info = scopedCharacterMap.get(id);
+      if (info) return { id, info };
+    }
+    return null;
+  }, [chatCharacterIds, scopedCharacterMap]);
+  const resolvedCharacterInfo = charInfo ?? fallbackChatCharacterEntry?.info ?? null;
+  const resolvedCharacterId = charInfo ? message.characterId : (fallbackChatCharacterEntry?.id ?? message.characterId);
   const primaryCharInfo =
-    charInfo ??
+    resolvedCharacterInfo ??
     (scopedCharacterMap
       ? (Array.from(scopedCharacterMap.values()).find(
           (candidate): candidate is NonNullable<typeof candidate> => !!candidate,
@@ -1059,10 +1449,17 @@ export const ChatMessage = memo(function ChatMessage({
     const text =
       isUser || isSystem
         ? message.content
-        : applyToAIOutput(message.content, { depth: messageDepth, resolveMacros: resolveDisplayMacros });
+        : applyToAIOutput(message.content, {
+            depth: messageDepth,
+            resolveMacros: resolveDisplayMacros,
+            scopedMode: scopedRegexMode,
+            characterId: message.characterId,
+          });
     return resolveDisplayMacros(text);
   }, [
     applyToAIOutput,
+    scopedRegexMode,
+    message.characterId,
     charName,
     isSystem,
     isUser,
@@ -1079,11 +1476,26 @@ export const ChatMessage = memo(function ChatMessage({
   ]);
 
   const displayName = isUser ? userName : charName;
-  const avatarUrl = isUser ? (msgPersona?.avatarUrl ?? personaInfo?.avatarUrl ?? null) : (charInfo?.avatarUrl ?? null);
+  const avatarUrl = isUser
+    ? (msgPersona?.avatarUrl ?? personaInfo?.avatarUrl ?? null)
+    : (resolvedCharacterInfo?.avatarUrl ?? null);
+  const personaExpressionId =
+    isUser && typeof msgPersona?.personaId === "string" ? msgPersona.personaId : personaInfo?.id;
+  const expressionAvatarUrl =
+    isUser && personaExpressionId
+      ? (expressionAvatarResolver?.(message, personaExpressionId) ?? null)
+      : !isUser && resolvedCharacterId
+        ? (expressionAvatarResolver?.(message, resolvedCharacterId) ?? null)
+        : null;
+  const displayAvatarUrl = expressionAvatarUrl ?? avatarUrl;
   const personaAvatarCrop = isUser
     ? (parseAvatarCropJson(msgPersona?.avatarCrop) ?? personaInfo?.avatarCrop ?? null)
     : null;
-  const avatarCropStyle = isUser ? getAvatarCropStyle(personaAvatarCrop) : getAvatarCropStyle(charInfo?.avatarCrop);
+  const avatarCropStyle = expressionAvatarUrl
+    ? {}
+    : isUser
+      ? getAvatarCropStyle(personaAvatarCrop)
+      : getAvatarCropStyle(resolvedCharacterInfo?.avatarCrop);
 
   // Resolve colors: character colors for assistant, persona colors for user
   // Prefer per-message persona snapshot colors over current persona
@@ -1095,7 +1507,7 @@ export const ChatMessage = memo(function ChatMessage({
           boxColor: msgPersona.boxColor,
         }
       : personaInfo
-    : charInfo;
+    : resolvedCharacterInfo;
   const dialogueColor = msgColors?.dialogueColor;
   const boxBgColor = msgColors?.boxColor;
   const msgNameColor = msgColors?.nameColor;
@@ -1123,14 +1535,23 @@ export const ChatMessage = memo(function ChatMessage({
     return chatCharacterIds
       .map((id) => {
         const info = characterMap.get(id);
-        if (!info?.avatarUrl) return null;
-        return { url: info.avatarUrl, crop: info.avatarCrop };
+        const expressionUrl = expressionAvatarResolver?.(message, id) ?? null;
+        const url = expressionUrl ?? info?.avatarUrl;
+        if (!url) return null;
+        return { id, url, crop: expressionUrl ? null : info?.avatarCrop };
       })
-      .filter(Boolean) as { url: string; crop?: AvatarCropValue | null }[];
-  }, [isMergedGroup, characterMap, chatCharacterIds]);
+      .filter(Boolean) as { id: string; url: string; crop?: AvatarCropValue | null }[];
+  }, [isMergedGroup, characterMap, chatCharacterIds, expressionAvatarResolver, message]);
   const mergedNameColors = useMemo(() => {
     if (!isMergedGroup || !characterMap || !chatCharacterIds) return [];
-    const fallbackPalette = ["#c084fc", "#f472b6", "#fb923c", "#4ade80", "#60a5fa", "#facc15"];
+    const fallbackPalette = [
+      "var(--marinara-chat-chrome-text)",
+      "var(--marinara-chat-chrome-accent)",
+      "#fb923c",
+      "#4ade80",
+      "#60a5fa",
+      "#facc15",
+    ];
     return chatCharacterIds.map((id, i) => {
       const raw = characterMap.get(id)?.nameColor;
       return raw || fallbackPalette[i % fallbackPalette.length]!;
@@ -1171,23 +1592,6 @@ export const ChatMessage = memo(function ChatMessage({
     };
   }, [isMergedGroup, mergedAvatars.length, mergedNameColors.length]);
 
-  /** Build a stable style object for a given name color (gradient or plain). */
-  function nameColorToStyle(c: string): React.CSSProperties {
-    if (c.startsWith("linear-gradient")) {
-      return {
-        background: c,
-        backgroundRepeat: "no-repeat",
-        backgroundSize: "100% 100%",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        backgroundClip: "text",
-        color: "transparent",
-        display: "inline-block",
-      };
-    }
-    return { color: c, WebkitTextFillColor: c };
-  }
-
   /** Render a stack of absolutely-positioned "Narrator" labels that crossfade via opacity. */
   const mergedNameElement =
     isMergedGroup && mergedNameColors.length > 0 ? (
@@ -1200,12 +1604,12 @@ export const ChatMessage = memo(function ChatMessage({
             data-cycle-name
             className="absolute inset-0"
             style={{
-              ...nameColorToStyle(c),
+              ...solidNameColorStyle(c),
               opacity: i === 0 ? 1 : 0,
               transition: "opacity 1s ease",
             }}
           >
-            Narrator
+            <NameColorText color={c}>Narrator</NameColorText>
           </span>
         ))}
       </span>
@@ -1213,6 +1617,7 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Render content with dialogue highlighting (or HTML rendering)
   const text = typeof displayContent === "string" ? displayContent : message.content;
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const isHtmlContent = HTML_TAG_RE.test(text);
   const htmlScopeClass = useMemo(() => {
     const suffix = message.id.replace(/[^a-zA-Z0-9_-]/g, "");
@@ -1220,8 +1625,8 @@ export const ChatMessage = memo(function ChatMessage({
   }, [message.id]);
 
   const renderedContent = useMemo(() => {
-    return renderContent(text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass);
-  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass]);
+    return renderContent(text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat);
+  }, [text, dialogueColor, speakerColorMap, boldDialogue, htmlScopeClass, quoteFormat]);
 
   const handleCopy = () => {
     copyToClipboard(message.content);
@@ -1233,6 +1638,7 @@ export const ChatMessage = memo(function ChatMessage({
   const swipeCount = message.swipeCount ?? 0;
   const hasSwipes = swipeCount > 1;
 
+  const hideRoleplayAvatars = isRoleplay && roleplayAvatarStyle === "none";
   const useCompactRectangleAvatar = isRoleplay && roleplayAvatarStyle === "rectangles";
   const compactAvatarFrameClass = useCompactRectangleAvatar
     ? "h-[calc(3.5rem*var(--roleplay-avatar-scale))] w-[calc(2.75rem*var(--roleplay-avatar-scale))] rounded-xl"
@@ -1259,7 +1665,9 @@ export const ChatMessage = memo(function ChatMessage({
   };
   const compactAvatarCrop: AvatarCropValue | null = isUser
     ? (personaAvatarCrop ?? null)
-    : (charInfo?.avatarCrop ?? null);
+    : expressionAvatarUrl
+      ? null
+      : (resolvedCharacterInfo?.avatarCrop ?? null);
   const compactAvatarCropStyle: React.CSSProperties = useCompactRectangleAvatar
     ? rectangleSafeCropStyle(compactAvatarCrop, avatarCropStyle)
     : avatarCropStyle;
@@ -1277,12 +1685,13 @@ export const ChatMessage = memo(function ChatMessage({
     ? `${Math.max(1, Math.min(1.75, 1.125 * roleplayAvatarScale))}rem`
     : `${Math.max(0.875, Math.min(1.5, roleplayAvatarScale))}rem`;
   const showRoleplayAvatarPanel = isRoleplay && roleplayAvatarStyle === "panel" && !isGrouped;
+  const showCompactRoleplayAvatar = isRoleplay && !isGrouped && !hideRoleplayAvatars && !showRoleplayAvatarPanel;
   const roleplayAvatarPanelTail = showRoleplayAvatarPanel ? (
     isMergedGroup && mergedAvatars.length > 0 ? (
       <div className="rpg-avatar-panel-tail absolute inset-0 pointer-events-none overflow-hidden">
         {mergedAvatars.map((avatar, i) => (
           <img
-            key={`tail-${avatar.url}`}
+            key={`tail-${avatar.id}`}
             ref={(el) => {
               mergedAvatarTailRefs.current[i] = el;
             }}
@@ -1296,10 +1705,10 @@ export const ChatMessage = memo(function ChatMessage({
           />
         ))}
       </div>
-    ) : avatarUrl ? (
+    ) : displayAvatarUrl ? (
       <div className="rpg-avatar-panel-tail absolute inset-0 pointer-events-none overflow-hidden">
         <img
-          src={avatarUrl}
+          src={displayAvatarUrl}
           alt=""
           aria-hidden="true"
           loading="lazy"
@@ -1327,12 +1736,16 @@ export const ChatMessage = memo(function ChatMessage({
     <EditTextarea
       initialContent={message.content}
       fontSize={chatFontSize}
+      quoteFormat={quoteFormat}
       onSave={handleSaveEdit}
       onCancel={handleCancelEdit}
     />
   ) : (
     <>
-      <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
+      <div
+        className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}
+        style={messageTextStyle}
+      >
         {isStreaming && !message.content ? (
           <div className="mari-message-typing flex items-center gap-1 py-0.5">
             <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400/60 [animation-delay:0ms]" />
@@ -1383,7 +1796,7 @@ export const ChatMessage = memo(function ChatMessage({
               }}
               aria-label="Delete message"
               className={cn(
-                "absolute -right-1 -top-1 rounded-md p-1 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100",
+                "absolute -right-1 -top-1 rounded-md p-1 text-white/20 opacity-0 transition-all hover:bg-foreground/10 hover:text-foreground/70 group-hover:opacity-100",
                 showActions && "opacity-100",
               )}
               title="Delete"
@@ -1412,7 +1825,9 @@ export const ChatMessage = memo(function ChatMessage({
             "mari-message mari-message-narrator rpg-narrator-msg group mb-4 px-2",
             multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/5 ring-2 ring-[var(--destructive)]/50",
           )}
+          data-card-css={message.characterId ?? undefined}
           onClick={handleMobileTap}
+          onDoubleClick={handleRoleplayDoubleClick}
         >
           <div className="flex gap-3">
             {multiSelectMode && (
@@ -1441,7 +1856,7 @@ export const ChatMessage = memo(function ChatMessage({
                   onClick={() => onDelete(message.id)}
                   aria-label="Delete message"
                   className={cn(
-                    "absolute right-2 top-2 rounded-md p-1 text-white/20 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-400 group-hover:opacity-100",
+                    "absolute right-2 top-2 rounded-md p-1 text-white/20 opacity-0 transition-all hover:bg-foreground/10 hover:text-foreground/70 group-hover:opacity-100",
                     showActions && "opacity-100",
                   )}
                   title="Delete"
@@ -1476,18 +1891,22 @@ export const ChatMessage = memo(function ChatMessage({
         <div
           ref={msgRef}
           className={cn(
-            "mari-message group mb-4 flex gap-3 px-2",
+            "mari-message mari-roleplay-message-row group mb-4 flex justify-center gap-3 px-2",
             isUser ? "mari-message-user flex-row-reverse" : "mari-message-assistant",
+            useCompactRectangleAvatar && "mari-roleplay-message-row--rect-avatar",
+            (hideRoleplayAvatars || showRoleplayAvatarPanel) && "mari-roleplay-message-row--wide",
             multiSelectMode && isSelected && "ring-2 ring-[var(--destructive)]/50 rounded-lg bg-[var(--destructive)]/5",
           )}
           data-message-id={message.id}
           data-message-role={message.role}
+          data-card-css={message.characterId ?? undefined}
           onClick={handleMobileTap}
+          onDoubleClick={handleRoleplayDoubleClick}
           style={roleplayAvatarScaleStyle}
         >
           {/* Multi-select checkbox */}
           {multiSelectMode && (
-            <div className="flex items-start pt-2 flex-shrink-0">
+            <div className="mari-roleplay-selection-toggle flex items-start pt-2 flex-shrink-0">
               <button
                 type="button"
                 role="checkbox"
@@ -1505,8 +1924,13 @@ export const ChatMessage = memo(function ChatMessage({
             </div>
           )}
           {/* Avatar Column */}
-          {!isGrouped && !showRoleplayAvatarPanel && (
-            <div className="mari-message-avatar flex flex-col items-center flex-shrink-0 pt-1">
+          {showCompactRoleplayAvatar && (
+            <div
+              className={cn(
+                "mari-message-avatar flex flex-col items-center flex-shrink-0 pt-1",
+                roleplayAvatarsScrollable && "mari-scrollable-roleplay-avatar",
+              )}
+            >
               {isMergedGroup && mergedAvatars.length > 0 ? (
                 <button
                   type="button"
@@ -1535,7 +1959,7 @@ export const ChatMessage = memo(function ChatMessage({
                     />
                   ))}
                 </button>
-              ) : avatarUrl ? (
+              ) : displayAvatarUrl ? (
                 <div className={cn(!isUser && "rpg-avatar-glow")}>
                   <button
                     type="button"
@@ -1543,11 +1967,11 @@ export const ChatMessage = memo(function ChatMessage({
                       "relative cursor-pointer overflow-hidden ring-2 ring-white/10",
                       compactAvatarFrameClass,
                     )}
-                    onClick={() => openImageLightbox(avatarUrl)}
+                    onClick={() => openImageLightbox(displayAvatarUrl)}
                     aria-label={`Open ${displayName} avatar`}
                   >
                     <img
-                      src={avatarUrl}
+                      src={displayAvatarUrl}
                       alt={displayName}
                       loading="lazy"
                       decoding="async"
@@ -1563,13 +1987,13 @@ export const ChatMessage = memo(function ChatMessage({
                     compactAvatarFrameClass,
                     isUser
                       ? "bg-gradient-to-br from-neutral-500 to-neutral-600 ring-white/15"
-                      : "bg-gradient-to-br from-purple-500 to-pink-600 ring-purple-400/20",
+                      : "mari-chrome-accent-tile mari-accent-animated ring-[var(--marinara-chat-chrome-button-border-active)]",
                   )}
                 >
                   {isUser ? (
                     <User size={compactAvatarIconSize} className="text-white" />
                   ) : (
-                    <Bot size={compactAvatarIconSize} className="text-white" />
+                    <Bot size={compactAvatarIconSize} className="text-current" />
                   )}
                 </div>
               )}
@@ -1582,14 +2006,16 @@ export const ChatMessage = memo(function ChatMessage({
           )}
 
           {/* Spacer if grouped (no avatar) */}
-          {isGrouped && <div className={cn("flex-shrink-0", compactAvatarSpacerClass)} />}
+          {isGrouped && !hideRoleplayAvatars && (
+            <div className={cn("mari-roleplay-avatar-spacer flex-shrink-0", compactAvatarSpacerClass)} />
+          )}
 
           {/* Content */}
           <div
             className={cn(
-              "mari-message-body flex min-w-0 max-w-[82%] flex-col gap-0.5",
+              "mari-message-body mari-roleplay-message-body flex min-w-0 flex-col gap-0.5",
               isUser && "items-end",
-              editing && "w-[82%]",
+              editing && "mari-roleplay-message-body--editing",
             )}
           >
             {/* Name + time (only if not grouped) */}
@@ -1601,9 +2027,13 @@ export const ChatMessage = memo(function ChatMessage({
                     "mari-message-name text-[0.75rem] font-bold tracking-tight",
                     !msgNameColor && !isMergedGroup && (isUser ? "text-neutral-300" : "rpg-char-name"),
                   )}
-                  style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
+                  style={!isMergedGroup ? solidNameColorStyle(msgNameColor) : undefined}
                 >
-                  {isMergedGroup ? mergedNameElement : displayName}
+                  {isMergedGroup ? (
+                    mergedNameElement
+                  ) : (
+                    <NameColorText color={msgNameColor}>{displayName}</NameColorText>
+                  )}
                 </span>
                 <span className="text-[0.625rem] text-white/30">{formatTime(message.createdAt)}</span>
                 {genLabel && (
@@ -1611,50 +2041,66 @@ export const ChatMessage = memo(function ChatMessage({
                     {genLabel}
                   </span>
                 )}
-                {showRoleplayAvatarPanel && (showActions || showMessageNumbers) && messageIndex != null && (
-                  <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
-                )}
+                {(showRoleplayAvatarPanel || hideRoleplayAvatars) &&
+                  (showActions || showMessageNumbers) &&
+                  messageIndex != null && (
+                    <span className="text-[0.5625rem] font-medium text-white/25 select-none">#{messageIndex}</span>
+                  )}
               </div>
             )}
 
             {/* Conversation start marker */}
             {isConversationStart && (
               <div className="flex items-center gap-1.5 px-1 mb-1">
-                <span className="h-px flex-1 bg-amber-400/30" />
-                <span className="text-[0.5625rem] font-semibold uppercase tracking-widest text-amber-400/70">
+                <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
+                <span className={cn("text-[0.5625rem] font-semibold uppercase tracking-widest", MESSAGE_CHROME_MARKER_TEXT_CLASS)}>
                   New Start
                 </span>
-                <span className="h-px flex-1 bg-amber-400/30" />
+                <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
               </div>
             )}
 
             {/* Message bubble */}
             <div
               className={cn(
-                "mari-message-bubble relative overflow-hidden rounded-2xl shadow-lg shadow-black/20",
+                "mari-message-bubble mari-rp-bubble relative overflow-hidden rounded-2xl shadow-lg shadow-black/20",
+                roleplayAvatarsScrollable && showRoleplayAvatarPanel && "mari-rp-bubble--scrollable-avatar-panel",
                 isUser
                   ? "rounded-tr-sm text-neutral-100 ring-1 ring-white/10"
                   : "rounded-tl-sm text-white/90 ring-1 ring-white/8",
                 isGrouped && (isUser ? "rounded-tr-2xl" : "rounded-tl-2xl"),
                 isStreaming && "rpg-streaming",
-                isConversationStart && "ring-amber-400/30",
-                isHiddenFromAI && "ring-amber-300/35 saturate-75",
+                isConversationStart && MESSAGE_CHROME_RING_CLASS,
+                isHiddenFromAI && cn(MESSAGE_CHROME_RING_CLASS, "saturate-75"),
                 editing && "w-full",
               )}
-              style={{
-                ...messageTextStyle,
-                backgroundColor: roleplayBubbleBg,
-              }}
+              style={
+                {
+                  ...messageTextStyle,
+                  // Pass the per-character/default color as a var rather than
+                  // an inline `background` so card CSS can override the bubble
+                  // (inline styles beat every selector). Applied by `.mari-rp-bubble`.
+                  "--mari-rp-bubble-bg": roleplayBubbleBg,
+                } as React.CSSProperties
+              }
             >
               {showRoleplayAvatarPanel ? (
                 <div className={cn("flex min-h-full items-stretch", isUser && "flex-row-reverse")}>
                   <div
                     className={cn(
-                      "relative flex w-[calc(4.75rem*var(--roleplay-avatar-scale))] shrink-0 items-start self-stretch overflow-hidden md:w-[calc(5.25rem*var(--roleplay-avatar-scale))]",
+                      "mari-roleplay-avatar-panel-rail relative flex w-[calc(5.5rem*var(--roleplay-avatar-scale))] shrink-0 items-start self-stretch overflow-hidden md:w-[calc(6rem*var(--roleplay-avatar-scale))]",
                       isUser ? "border-l border-white/8" : "border-r border-white/8",
+                      isUser
+                        ? "bg-gradient-to-b from-neutral-500/18 via-neutral-600/10 to-transparent"
+                        : "mari-chrome-accent-rail mari-accent-animated",
                     )}
                   >
-                    <div className="rpg-avatar-panel-stack relative h-full max-h-[calc(11rem*var(--roleplay-avatar-scale))] w-full overflow-hidden">
+                    <div
+                      className={cn(
+                        "rpg-avatar-panel-stack h-[calc(11rem*var(--roleplay-avatar-scale))] w-full overflow-hidden",
+                        roleplayAvatarsScrollable ? "mari-scrollable-roleplay-avatar" : "absolute left-0 top-0",
+                      )}
+                    >
                       {isMergedGroup && mergedAvatars.length > 0 ? (
                         <button
                           type="button"
@@ -1667,7 +2113,7 @@ export const ChatMessage = memo(function ChatMessage({
                         >
                           {mergedAvatars.map((avatar, i) => (
                             <img
-                              key={avatar.url}
+                              key={avatar.id}
                               ref={(el) => {
                                 mergedAvatarRefs.current[i] = el;
                               }}
@@ -1680,18 +2126,18 @@ export const ChatMessage = memo(function ChatMessage({
                             />
                           ))}
                         </button>
-                      ) : avatarUrl ? (
+                      ) : displayAvatarUrl ? (
                         <button
                           type="button"
                           className={cn(
                             "rpg-avatar-panel-media absolute inset-0 block h-full w-full cursor-zoom-in overflow-hidden",
                             !isUser && "rpg-avatar-panel",
                           )}
-                          onClick={() => openImageLightbox(avatarUrl)}
+                          onClick={() => openImageLightbox(displayAvatarUrl)}
                           aria-label={`Open ${displayName} avatar`}
                         >
                           <img
-                            src={avatarUrl}
+                            src={displayAvatarUrl}
                             alt={displayName}
                             loading="lazy"
                             decoding="async"
@@ -1705,13 +2151,13 @@ export const ChatMessage = memo(function ChatMessage({
                             "flex h-full w-full items-start justify-center pt-4",
                             isUser
                               ? "bg-gradient-to-b from-neutral-500/90 via-neutral-600/65 to-transparent"
-                              : "bg-gradient-to-b from-purple-500/90 via-pink-600/65 to-transparent",
+                              : "mari-chrome-accent-rail-strong mari-accent-animated",
                           )}
                         >
                           {isUser ? (
                             <User size="1.25rem" className="text-white" />
                           ) : (
-                            <Bot size="1.25rem" className="text-white" />
+                            <Bot size="1.25rem" className="text-[var(--primary-foreground)]" />
                           )}
                         </div>
                       )}
@@ -1742,7 +2188,7 @@ export const ChatMessage = memo(function ChatMessage({
               ) : null}
             </div>
 
-            {/* Image attachments (illustrations, selfies) */}
+            {/* Attachments (illustrations, selfies, uploaded files) */}
             {!editing && extra.attachments?.length > 0 && !IMAGE_URL_RE.test(message.content.trim()) && (
               <div className="mt-1.5 flex flex-col items-center gap-2 px-3 pb-2">
                 {extra.attachments.map((att: any, i: number) =>
@@ -1750,7 +2196,7 @@ export const ChatMessage = memo(function ChatMessage({
                     <div key={i} className="group/att relative inline-block">
                       <button
                         type="button"
-                        onClick={() => openImageLightbox(att.url || att.data, att.prompt)}
+                        onClick={() => openAttachmentImageLightbox(att, i)}
                         className="block"
                         title="Open image"
                         aria-label={`Open ${att.filename || att.name || "image"}`}
@@ -1773,7 +2219,24 @@ export const ChatMessage = memo(function ChatMessage({
                         <X size="0.875rem" />
                       </button>
                     </div>
-                  ) : null,
+                  ) : (
+                    <div
+                      key={i}
+                      className="group/att flex max-w-full items-center gap-2 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/70 ring-1 ring-foreground/10"
+                    >
+                      <ScrollText size="0.875rem" className="shrink-0 text-[var(--primary)]" />
+                      <span className="min-w-0 max-w-[16rem] truncate">{att.filename || att.name || "attachment"}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(i)}
+                        aria-label="Remove file from message"
+                        title="Remove from message"
+                        className="rounded-full p-0.5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-[var(--destructive)] sm:opacity-0 sm:group-hover/att:opacity-100"
+                      >
+                        <X size="0.75rem" />
+                      </button>
+                    </div>
+                  ),
                 )}
               </div>
             )}
@@ -1784,7 +2247,7 @@ export const ChatMessage = memo(function ChatMessage({
                 messageId={message.id}
                 activeSwipeIndex={message.activeSwipeIndex}
                 swipeCount={swipeCount}
-                onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+                onSetActiveSwipe={handleSetActiveSwipe}
                 className="px-1 text-[0.75rem] text-white/40"
                 buttonClassName="rounded-md p-[0.25em] transition-colors hover:bg-white/10 disabled:opacity-30"
                 inputClassName="border-white/10 bg-white/5 text-white/70 [color-scheme:dark]"
@@ -1801,7 +2264,7 @@ export const ChatMessage = memo(function ChatMessage({
               )}
             >
               <ActionBtn
-                icon={copied ? "\u2713" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
+                icon={copied ? <Check size={MESSAGE_ACTION_ICON_SIZE} /> : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={handleCopy}
                 title="Copy"
                 dark
@@ -1810,10 +2273,24 @@ export const ChatMessage = memo(function ChatMessage({
                 icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => translate(message.id, message.content, message.chatId)}
                 title={translatedText ? "Hide translation" : "Translate"}
-                className={translatedText ? "text-blue-400/80 hover:text-blue-300" : undefined}
                 dark
               />
               <ActionBtn icon={<Pencil size={MESSAGE_ACTION_ICON_SIZE} />} onClick={startEditing} title="Edit" dark />
+              {proseGuardianOriginalText && (
+                <ActionBtn
+                  icon={
+                    restoringProseGuardianOriginal ? (
+                      <Loader2 size={MESSAGE_ACTION_ICON_SIZE} className="animate-spin" />
+                    ) : (
+                      <Shield size={MESSAGE_ACTION_ICON_SIZE} />
+                    )
+                  }
+                  onClick={handleRestoreProseGuardianOriginal}
+                  title="Restore original before rewrite"
+                  disabled={restoringProseGuardianOriginal}
+                  dark
+                />
+              )}
               <ActionBtn
                 icon={<RefreshCw size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => onRegenerate?.(message.id)}
@@ -1825,7 +2302,7 @@ export const ChatMessage = memo(function ChatMessage({
                 icon={<Flag size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => onToggleConversationStart?.(message.id, isConversationStart)}
                 title={isConversationStart ? "Remove conversation start" : "Mark as new start"}
-                className={isConversationStart ? "text-amber-400/80 hover:text-amber-300" : undefined}
+                className={isConversationStart ? MESSAGE_CHROME_ACTIVE_ICON_CLASS : undefined}
                 dark
               />
               {onToggleHiddenFromAI && (
@@ -1839,7 +2316,7 @@ export const ChatMessage = memo(function ChatMessage({
                   }
                   onClick={() => onToggleHiddenFromAI(message.id, isHiddenFromAI)}
                   title={isHiddenFromAI ? "Unhide from AI" : "Hide from AI"}
-                  className={isHiddenFromAI ? "text-amber-400/90 hover:text-amber-300" : undefined}
+                  className={isHiddenFromAI ? MESSAGE_CHROME_ACTIVE_ICON_CLASS : undefined}
                   dark
                 />
               )}
@@ -1888,7 +2365,6 @@ export const ChatMessage = memo(function ChatMessage({
                 icon={<Trash2 size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => onDelete?.(message.id)}
                 title="Delete"
-                className="hover:text-red-400"
                 dark
               />
               {ttsEnabled && (
@@ -1905,14 +2381,12 @@ export const ChatMessage = memo(function ChatMessage({
                         }
                         onClick={handlePauseResumeTTS}
                         title={isPausedThis ? "Resume speaking" : "Pause speaking"}
-                        className="text-sky-400 hover:text-sky-300"
                         dark
                       />
                       <ActionBtn
                         icon={<RefreshCw size={MESSAGE_ACTION_ICON_SIZE} />}
                         onClick={handleRestartTTS}
                         title="Restart speaking"
-                        className="text-sky-400 hover:text-sky-300"
                         dark
                       />
                     </>
@@ -1929,7 +2403,7 @@ export const ChatMessage = memo(function ChatMessage({
                     }
                     onClick={handleSpeak}
                     title={
-                      !ttsSpeakText
+                      !hasTTSContent
                         ? "No dialogue to speak"
                         : isLoadingThis
                           ? "Loading…"
@@ -1937,8 +2411,7 @@ export const ChatMessage = memo(function ChatMessage({
                             ? "Stop speaking"
                             : "Speak"
                     }
-                    className={isSpeakingThis ? "text-sky-400 hover:text-sky-300" : undefined}
-                    disabled={!ttsSpeakText || (ttsBusy && !isSpeakingThis)}
+                    disabled={!hasTTSContent || (ttsBusy && !isSpeakingThis)}
                     dark
                   />
                 </>
@@ -1957,37 +2430,14 @@ export const ChatMessage = memo(function ChatMessage({
           />
         )}
 
-        {/* Avatar lightbox */}
-        {avatarLightbox && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
-            onClick={closeImageLightbox}
-          >
-            <div
-              className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={avatarLightbox}
-                alt={displayName}
-                decoding="async"
-                className={
-                  avatarLightboxPrompt?.trim()
-                    ? "max-h-[calc(90vh-9rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                    : "max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
-                }
-              />
-              <ImagePromptPanel prompt={avatarLightboxPrompt} className="w-full max-w-3xl" />
-            </div>
-            <button
-              type="button"
-              onClick={closeImageLightbox}
-              aria-label="Close image"
-              className="absolute right-3 top-3 rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-            >
-              <X size="1rem" />
-            </button>
-          </div>
+        {imageLightbox && (
+          <ChatImageLightbox
+            image={imageLightbox.image}
+            alt={imageLightbox.alt}
+            pinEnabled={imageLightbox.pinEnabled}
+            downloadEnabled={imageLightbox.downloadEnabled}
+            onClose={closeImageLightbox}
+          />
         )}
       </>
     );
@@ -2013,7 +2463,7 @@ export const ChatMessage = memo(function ChatMessage({
         className={cn("flex min-w-0 max-w-[72%] gap-2", isUser && "flex-row-reverse", editing && "w-[85%] max-w-[85%]")}
       >
         {/* Avatar — only show for first in group */}
-        {(!isUser || avatarUrl) && (
+        {(!isUser || displayAvatarUrl) && (
           <div
             className={cn(
               "mari-message-avatar flex flex-col items-center flex-shrink-0 self-end",
@@ -2032,7 +2482,7 @@ export const ChatMessage = memo(function ChatMessage({
               >
                 {mergedAvatars.map((avatar, i) => (
                   <img
-                    key={avatar.url}
+                    key={avatar.id}
                     ref={(el) => {
                       mergedAvatarRefs.current[i] = el;
                     }}
@@ -2045,15 +2495,15 @@ export const ChatMessage = memo(function ChatMessage({
                   />
                 ))}
               </button>
-            ) : avatarUrl ? (
+            ) : displayAvatarUrl ? (
               <button
                 type="button"
                 className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full"
-                onClick={() => openImageLightbox(avatarUrl)}
+                onClick={() => openImageLightbox(displayAvatarUrl)}
                 aria-label={`Open ${displayName} avatar`}
               >
                 <img
-                  src={avatarUrl}
+                  src={displayAvatarUrl}
                   alt={displayName}
                   loading="lazy"
                   decoding="async"
@@ -2090,9 +2540,9 @@ export const ChatMessage = memo(function ChatMessage({
                   "mari-message-name text-[0.6875rem] font-semibold",
                   !msgNameColor && !isMergedGroup && "text-[var(--muted-foreground)]",
                 )}
-                style={!isMergedGroup ? nameColorStyle(msgNameColor) : undefined}
+                style={!isMergedGroup ? solidNameColorStyle(msgNameColor) : undefined}
               >
-                {isMergedGroup ? mergedNameElement : displayName}
+                {isMergedGroup ? mergedNameElement : <NameColorText color={msgNameColor}>{displayName}</NameColorText>}
               </span>
             </div>
           )}
@@ -2100,11 +2550,11 @@ export const ChatMessage = memo(function ChatMessage({
           {/* Conversation start marker */}
           {isConversationStart && (
             <div className="flex items-center gap-1.5 px-2 mb-0.5">
-              <span className="h-px flex-1 bg-amber-500/30" />
-              <span className="text-[0.5625rem] font-semibold uppercase tracking-widest text-amber-500/70">
+              <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
+              <span className={cn("text-[0.5625rem] font-semibold uppercase tracking-widest", MESSAGE_CHROME_MARKER_TEXT_CLASS)}>
                 New Start
               </span>
-              <span className="h-px flex-1 bg-amber-500/30" />
+              <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
             </div>
           )}
 
@@ -2118,7 +2568,8 @@ export const ChatMessage = memo(function ChatMessage({
               isGrouped && isUser && "rounded-br-2xl rounded-tr-md",
               isGrouped && !isUser && "rounded-bl-2xl rounded-tl-md",
               isStreaming && "ring-2 ring-[var(--primary)]/20",
-              isConversationStart && "ring-1 ring-amber-500/30",
+              isConversationStart && cn("ring-1", MESSAGE_CHROME_RING_CLASS),
+              isHiddenFromAI && cn("ring-1 saturate-75", MESSAGE_CHROME_RING_CLASS),
               editing && "w-full",
             )}
             style={{ ...messageTextStyle, ...(boxBgColor ? { backgroundColor: boxBgColor } : {}) }}
@@ -2129,12 +2580,16 @@ export const ChatMessage = memo(function ChatMessage({
               <EditTextarea
                 initialContent={message.content}
                 fontSize={chatFontSize}
+                quoteFormat={quoteFormat}
                 onSave={handleSaveEdit}
                 onCancel={handleCancelEdit}
               />
             ) : (
               <>
-                <div className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}>
+                <div
+                  className={cn("mari-message-content break-words", !isHtmlContent && "whitespace-pre-wrap")}
+                  style={messageTextStyle}
+                >
                   {isStreaming && !message.content ? (
                     <div className="mari-message-typing flex items-center gap-1 py-0.5">
                       <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
@@ -2166,7 +2621,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           </div>
 
-          {/* Image attachments (illustrations, selfies) */}
+          {/* Attachments (illustrations, selfies, uploaded files) */}
           {!editing && extra.attachments?.length > 0 && !IMAGE_URL_RE.test(message.content.trim()) && (
             <div className="mt-1.5 flex flex-col items-center gap-2 px-3 pb-2">
               {extra.attachments.map((att: any, i: number) =>
@@ -2174,7 +2629,7 @@ export const ChatMessage = memo(function ChatMessage({
                   <div key={i} className="group/att relative inline-block">
                     <button
                       type="button"
-                      onClick={() => openImageLightbox(att.url || att.data, att.prompt)}
+                      onClick={() => openAttachmentImageLightbox(att, i)}
                       className="block"
                       title="Open image"
                       aria-label={`Open ${att.filename || att.name || "image"}`}
@@ -2197,7 +2652,24 @@ export const ChatMessage = memo(function ChatMessage({
                       <X size="0.875rem" />
                     </button>
                   </div>
-                ) : null,
+                ) : (
+                  <div
+                    key={i}
+                    className="group/att flex max-w-full items-center gap-2 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/70 ring-1 ring-foreground/10"
+                  >
+                    <ScrollText size="0.875rem" className="shrink-0 text-[var(--primary)]" />
+                    <span className="min-w-0 max-w-[16rem] truncate">{att.filename || att.name || "attachment"}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(i)}
+                      aria-label="Remove file from message"
+                      title="Remove from message"
+                      className="rounded-full p-0.5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-[var(--destructive)] sm:opacity-0 sm:group-hover/att:opacity-100"
+                    >
+                      <X size="0.75rem" />
+                    </button>
+                  </div>
+                ),
               )}
             </div>
           )}
@@ -2225,7 +2697,7 @@ export const ChatMessage = memo(function ChatMessage({
               messageId={message.id}
               activeSwipeIndex={message.activeSwipeIndex}
               swipeCount={swipeCount}
-              onSetActiveSwipe={(index) => onSetActiveSwipe?.(message.id, index)}
+              onSetActiveSwipe={handleSetActiveSwipe}
               className="px-2 text-[0.75rem] text-[var(--muted-foreground)]"
               buttonClassName="rounded p-[0.25em] transition-colors hover:bg-[var(--accent)] disabled:opacity-30"
               iconSize={MESSAGE_SWIPE_ICON_SIZE}
@@ -2241,7 +2713,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             <ActionBtn
-              icon={copied ? "✓" : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
+              icon={copied ? <Check size={MESSAGE_ACTION_ICON_SIZE} /> : <Copy size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={handleCopy}
               title="Copy"
             />
@@ -2249,9 +2721,22 @@ export const ChatMessage = memo(function ChatMessage({
               icon={<Languages size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => translate(message.id, message.content, message.chatId)}
               title={translatedText ? "Hide translation" : "Translate"}
-              className={translatedText ? "text-blue-500" : undefined}
             />
             <ActionBtn icon={<Pencil size={MESSAGE_ACTION_ICON_SIZE} />} onClick={startEditing} title="Edit" />
+            {proseGuardianOriginalText && (
+              <ActionBtn
+                icon={
+                  restoringProseGuardianOriginal ? (
+                    <Loader2 size={MESSAGE_ACTION_ICON_SIZE} className="animate-spin" />
+                  ) : (
+                    <Shield size={MESSAGE_ACTION_ICON_SIZE} />
+                  )
+                }
+                onClick={handleRestoreProseGuardianOriginal}
+                title="Restore original before rewrite"
+                disabled={restoringProseGuardianOriginal}
+              />
+            )}
             <ActionBtn
               icon={<RefreshCw size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => onRegenerate?.(message.id)}
@@ -2262,7 +2747,7 @@ export const ChatMessage = memo(function ChatMessage({
               icon={<Flag size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => onToggleConversationStart?.(message.id, isConversationStart)}
               title={isConversationStart ? "Remove conversation start" : "Mark as new start"}
-              className={isConversationStart ? "text-amber-500" : undefined}
+              className={isConversationStart ? MESSAGE_CHROME_ACTIVE_ICON_CLASS : undefined}
             />
             {isLastAssistantMessage && !isUser && (
               <ActionBtn
@@ -2307,7 +2792,7 @@ export const ChatMessage = memo(function ChatMessage({
                 }
                 onClick={() => onToggleHiddenFromAI(message.id, isHiddenFromAI)}
                 title={isHiddenFromAI ? "Unhide from AI" : "Hide from AI"}
-                className={isHiddenFromAI ? "text-amber-400/90 hover:text-amber-300" : undefined}
+                className={isHiddenFromAI ? MESSAGE_CHROME_ACTIVE_ICON_CLASS : undefined}
                 dark
               />
             )}
@@ -2315,7 +2800,6 @@ export const ChatMessage = memo(function ChatMessage({
               icon={<Trash2 size={MESSAGE_ACTION_ICON_SIZE} />}
               onClick={() => onDelete?.(message.id)}
               title="Delete"
-              className="hover:text-[var(--destructive)]"
             />
             {ttsEnabled && (
               <>
@@ -2331,13 +2815,11 @@ export const ChatMessage = memo(function ChatMessage({
                       }
                       onClick={handlePauseResumeTTS}
                       title={isPausedThis ? "Resume speaking" : "Pause speaking"}
-                      className="text-sky-500"
                     />
                     <ActionBtn
                       icon={<RefreshCw size={MESSAGE_ACTION_ICON_SIZE} />}
                       onClick={handleRestartTTS}
                       title="Restart speaking"
-                      className="text-sky-500"
                     />
                   </>
                 )}
@@ -2353,7 +2835,7 @@ export const ChatMessage = memo(function ChatMessage({
                   }
                   onClick={handleSpeak}
                   title={
-                    !ttsSpeakText
+                    !hasTTSContent
                       ? "No dialogue to speak"
                       : isLoadingThis
                         ? "Loading…"
@@ -2361,8 +2843,7 @@ export const ChatMessage = memo(function ChatMessage({
                           ? "Stop speaking"
                           : "Speak"
                   }
-                  className={isSpeakingThis ? "text-sky-500" : undefined}
-                  disabled={!ttsSpeakText || (ttsBusy && !isSpeakingThis)}
+                  disabled={!hasTTSContent || (ttsBusy && !isSpeakingThis)}
                 />
               </>
             )}
@@ -2380,37 +2861,14 @@ export const ChatMessage = memo(function ChatMessage({
         />
       )}
 
-      {/* Avatar lightbox */}
-      {avatarLightbox && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
-          onClick={closeImageLightbox}
-        >
-          <div
-            className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={avatarLightbox}
-              alt={displayName}
-              decoding="async"
-              className={
-                avatarLightboxPrompt?.trim()
-                  ? "max-h-[calc(90vh-9rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                  : "max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
-              }
-            />
-            <ImagePromptPanel prompt={avatarLightboxPrompt} className="w-full max-w-3xl" />
-          </div>
-          <button
-            type="button"
-            onClick={closeImageLightbox}
-            aria-label="Close image"
-            className="absolute right-3 top-3 rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-          >
-            <X size="1rem" />
-          </button>
-        </div>
+      {imageLightbox && (
+        <ChatImageLightbox
+          image={imageLightbox.image}
+          alt={imageLightbox.alt}
+          pinEnabled={imageLightbox.pinEnabled}
+          downloadEnabled={imageLightbox.downloadEnabled}
+          onClose={closeImageLightbox}
+        />
       )}
     </div>
   );
@@ -2424,25 +2882,25 @@ function ThinkingModal({ thinking, onClose }: { thinking: string; onClose: () =>
       onClick={onClose}
     >
       <div
-        className="relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col rounded-xl bg-[var(--card)] shadow-2xl ring-1 ring-[var(--border)]"
+        className={cn(NEUTRAL_PANEL_SHELL, "relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden")}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Brain size="0.875rem" className="text-[var(--muted-foreground)]" />
+        <div className={cn(NEUTRAL_PANEL_HEADER, "flex items-center justify-between gap-3 px-4 py-3")}>
+          <div className={cn(NEUTRAL_PANEL_TITLE, "text-sm")}>
+            <Brain size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />
             Model Thoughts
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close thoughts"
-            className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            className="mari-chrome-control mari-chrome-control--small p-1.5"
           >
             <X size="0.875rem" />
           </button>
         </div>
-        <div className="overflow-y-auto px-4 py-3">
-          <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
+        <div className={cn(NEUTRAL_PANEL_SCROLL_AREA, "overflow-y-auto px-4 py-3")}>
+          <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-text)]">
             {thinking}
           </pre>
         </div>
@@ -2476,7 +2934,7 @@ function ActionBtn({
       aria-label={title}
       disabled={disabled}
       className={cn(
-        "rounded-md p-[0.35em] text-[0.8125rem] transition-all active:scale-90 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30",
+        "inline-flex h-[1.7em] w-[1.7em] shrink-0 items-center justify-center rounded-md p-0 text-[0.8125rem] leading-none transition-all active:scale-90 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30",
         dark
           ? "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70"
           : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",

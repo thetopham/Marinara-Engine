@@ -7,6 +7,18 @@ export interface TTSUtterance {
   tone?: string;
 }
 
+export interface TTSVoiceRequest {
+  text: string;
+  speaker?: string;
+  tone?: string;
+  voice?: string;
+}
+
+export interface CachedTTSVoiceRequest extends TTSVoiceRequest {
+  cacheKey: string;
+  cacheAliases?: string[];
+}
+
 export function normalizeTTSCharacterName(value?: string | null): string {
   return (value ?? "").toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -29,6 +41,11 @@ export function ttsConfigMatchesSpeaker(
   _speaker?: string | null,
 ) {
   return true;
+}
+
+export function isTTSNarratorSpeaker(value?: string | null): boolean {
+  const normalized = normalizeTTSCharacterName(value);
+  return normalized === "narrator" || normalized === "gm" || normalized === "game master" || normalized === "system";
 }
 
 export type TTSNpcVoiceGender = "male" | "female" | "unknown";
@@ -54,6 +71,63 @@ function stableTTSIndex(seed: string, length: number): number {
     hash |= 0;
   }
   return Math.abs(hash) % length;
+}
+
+function hashTTSCacheKey(value: string): string {
+  let h1 = 0xdeadbeef ^ value.length;
+  let h2 = 0x41c6ce57 ^ value.length;
+  for (let index = 0; index < value.length; index += 1) {
+    const ch = value.charCodeAt(index);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${value.length.toString(36)}-${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
+}
+
+function buildTTSConfigCacheSignature(config: TTSConfig): string {
+  return [
+    config.source,
+    config.baseUrl,
+    config.model,
+    config.audioFormat,
+    config.speed,
+    config.elevenLabsStability,
+    config.elevenLabsLanguageCode,
+    config.voice,
+    config.narratorVoiceEnabled ? "narrator-voice" : "narrator-global",
+    config.narratorVoice,
+    config.voiceMode,
+    JSON.stringify(config.voiceAssignments ?? []),
+    config.npcDefaultVoicesEnabled ? "npc-defaults" : "npc-global",
+    JSON.stringify(config.npcDefaultMaleVoices ?? []),
+    JSON.stringify(config.npcDefaultFemaleVoices ?? []),
+  ].join("\n");
+}
+
+export function withTTSVoiceRequestCacheKeys(
+  requests: TTSVoiceRequest[],
+  config: TTSConfig,
+  messageId: string,
+): CachedTTSVoiceRequest[] {
+  const configSignature = buildTTSConfigCacheSignature(config);
+  return requests.map((request, index) => {
+    const requestSignature = [
+      configSignature,
+      request.voice ?? "",
+      request.speaker ?? "",
+      request.tone ?? "",
+      request.text,
+    ].join("\n");
+    const textHash = hashTTSCacheKey(requestSignature);
+    const messageHash = hashTTSCacheKey(`${messageId}\n${index}\n${requestSignature}`);
+    return {
+      ...request,
+      cacheKey: `chat-voice-line-v1:${messageId}:${index}:${messageHash}`,
+      cacheAliases: [`chat-voice-line-text-v1:${textHash}`],
+    };
+  });
 }
 
 export function inferTTSNpcVoiceGender(hint?: TTSNpcVoiceHint | null): TTSNpcVoiceGender {
@@ -114,6 +188,8 @@ export function resolveTTSVoiceForSpeaker(
         | "source"
         | "voiceMode"
         | "voiceAssignments"
+        | "narratorVoiceEnabled"
+        | "narratorVoice"
         | "npcDefaultVoicesEnabled"
         | "npcDefaultMaleVoices"
         | "npcDefaultFemaleVoices"
@@ -124,6 +200,8 @@ export function resolveTTSVoiceForSpeaker(
   npcHint?: TTSNpcVoiceHint | null,
 ): string {
   const fallbackVoice = config.voice ?? "";
+  if (config.narratorVoiceEnabled && isTTSNarratorSpeaker(speaker)) return config.narratorVoice || fallbackVoice;
+
   if (config.voiceMode === "per-character") {
     const assignments = Array.isArray(config.voiceAssignments) ? config.voiceAssignments : [];
     const normalizedSpeaker = normalizeTTSCharacterName(speaker);
@@ -153,8 +231,29 @@ export function resolveTTSVoiceForSpeaker(
   return fallbackVoice;
 }
 
+export function resolveTTSNarratorVoice(
+  config: Pick<TTSConfig, "voice"> & Partial<Pick<TTSConfig, "narratorVoiceEnabled" | "narratorVoice">>,
+): string {
+  const fallbackVoice = config.voice ?? "";
+  return config.narratorVoiceEnabled ? config.narratorVoice || fallbackVoice : fallbackVoice;
+}
+
 export function cleanTTSInputText(value: string): string {
   return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/`[^`\n]*`/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/~~([\s\S]*?)~~/g, "$1")
+    .replace(/\*\*([\s\S]*?)\*\*/g, "$1")
+    .replace(/__([\s\S]*?)__/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/[*~`]/g, "")
     .replace(/\{(shake|shout|whisper|glow|pulse|wave|flicker|drip|bounce|tremble|glitch|expand):([^}]+)\}/gi, "$2")
     .replace(/\[[a-z_]+:[^\]]*\]/gi, "")
     .replace(/<[^>]+>/g, "")
@@ -249,22 +348,61 @@ export function buildTTSMessageText(text: string, config: TTSConfig, fallbackSpe
     .join("\n");
 }
 
+export function buildTTSVoiceRequests(
+  text: string,
+  config: TTSConfig,
+  fallbackSpeaker?: string | null,
+  fallbackCharacterId?: string | null,
+  resolveCharacterIdForSpeaker?: (speaker?: string | null) => string | null | undefined,
+): TTSVoiceRequest[] {
+  const hasSpeakerTags = /<speaker="[^"]*">/i.test(text);
+  const shouldExtractUtterances = config.dialogueOnly || hasSpeakerTags;
+  const utterances =
+    hasSpeakerTags && !config.dialogueOnly
+      ? extractSpeakerTaggedUtterances(text, config, fallbackSpeaker, true)
+      : shouldExtractUtterances
+        ? extractDialogueUtterances(text, config, fallbackSpeaker)
+        : [{ text: cleanTTSInputText(text), speaker: fallbackSpeaker || undefined } satisfies TTSUtterance];
+
+  const fallbackSpeakerKey = normalizeTTSCharacterName(fallbackSpeaker);
+  return utterances.flatMap((utterance) => {
+    const speaker = utterance.speaker || fallbackSpeaker || undefined;
+    const speakerKey = normalizeTTSCharacterName(speaker);
+    const resolvedCharacterId = speaker
+      ? (resolveCharacterIdForSpeaker?.(speaker) ??
+        (speakerKey && speakerKey === fallbackSpeakerKey ? fallbackCharacterId : undefined))
+      : fallbackCharacterId;
+    const voice = resolveTTSVoiceForSpeaker(config, speaker, resolvedCharacterId);
+    if (config.source === "elevenlabs" && !voice) return [];
+
+    return splitTTSChunks(utterance.text).map((chunk) => ({
+      text: chunk,
+      speaker,
+      tone: utterance.tone,
+      voice,
+    }));
+  });
+}
+
+function isLikelyTTSVNSpeaker(value: string): boolean {
+  const speaker = value.trim();
+  if (!speaker || speaker.length > 48) return false;
+  if (/^(?:ooc|note|notes?|meta|system|debug|info|warning|warn|time|timestamp|link|url|image|img)$/i.test(speaker)) {
+    return false;
+  }
+  if (/^\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?$/i.test(speaker)) return false;
+  if (/^(?:https?:\/\/|www\.)/i.test(speaker)) return false;
+  if (/^\d+$/.test(speaker)) return false;
+  return /^[\p{L}\p{N}][\p{L}\p{N}' ._-]{0,47}$/u.test(speaker);
+}
+
 export function extractDialogueUtterances(
   text: string,
   config: Pick<TTSConfig, "dialogueScope" | "dialogueCharacterName">,
   fallbackSpeaker?: string | null,
 ): TTSUtterance[] {
   const utterances: TTSUtterance[] = [];
-
-  const speakerTagRe = /<speaker="([^"]*)">([\s\S]*?)<\/speaker>/gi;
-  let speakerTagMatch: RegExpExecArray | null;
-  while ((speakerTagMatch = speakerTagRe.exec(text)) !== null) {
-    const speaker = speakerTagMatch[1]?.trim() || fallbackSpeaker || undefined;
-    const spoken = cleanTTSInputText(speakerTagMatch[2] ?? "");
-    if (spoken && ttsConfigMatchesSpeaker(config, speaker)) {
-      utterances.push({ text: spoken, speaker });
-    }
-  }
+  utterances.push(...extractSpeakerTaggedUtterances(text, config, fallbackSpeaker, false));
 
   const vnLineRe = /^\s*(?:Dialogue\s*)?\[([^\]]+)\]\s*(?:\[([^\]]+)\])?\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$/i;
   for (const rawLine of text.split(/\r?\n/)) {
@@ -272,7 +410,9 @@ export function extractDialogueUtterances(
     const match = line.match(vnLineRe);
     if (!match) continue;
 
-    const speaker = match[1]?.trim() || fallbackSpeaker || undefined;
+    const rawSpeaker = match[1]?.trim() ?? "";
+    if (!isLikelyTTSVNSpeaker(rawSpeaker)) continue;
+    const speaker = rawSpeaker || fallbackSpeaker || undefined;
     const firstTag = match[2]?.trim();
     const secondTag = match[3]?.trim();
     const tone =
@@ -282,10 +422,6 @@ export function extractDialogueUtterances(
     if (spoken && ttsConfigMatchesSpeaker(config, speaker)) {
       utterances.push({ text: spoken, speaker, tone });
     }
-  }
-
-  if (utterances.length > 0) {
-    return dedupeUtterances(utterances);
   }
 
   const quoteRe = new RegExp(DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE, "g");
@@ -300,6 +436,38 @@ export function extractDialogueUtterances(
   }
 
   return dedupeUtterances(utterances);
+}
+
+function extractSpeakerTaggedUtterances(
+  text: string,
+  config: Pick<TTSConfig, "dialogueScope" | "dialogueCharacterName">,
+  fallbackSpeaker?: string | null,
+  includeNarration = false,
+): TTSUtterance[] {
+  const utterances: TTSUtterance[] = [];
+  const speakerTagRe = /<speaker="([^"]*)">([\s\S]*?)<\/speaker>/gi;
+  let speakerTagMatch: RegExpExecArray | null;
+  let lastIndex = 0;
+
+  const addNarration = (value: string) => {
+    if (!includeNarration) return;
+    const spoken = cleanTTSInputText(value);
+    if (spoken) utterances.push({ text: spoken, speaker: "Narrator" });
+  };
+
+  while ((speakerTagMatch = speakerTagRe.exec(text)) !== null) {
+    addNarration(text.slice(lastIndex, speakerTagMatch.index));
+
+    const speaker = speakerTagMatch[1]?.trim() || fallbackSpeaker || undefined;
+    const spoken = cleanTTSInputText(stripSurroundingDialogueQuotes((speakerTagMatch[2] ?? "").trim()));
+    if (spoken && ttsConfigMatchesSpeaker(config, speaker)) {
+      utterances.push({ text: spoken, speaker });
+    }
+    lastIndex = speakerTagRe.lastIndex;
+  }
+
+  addNarration(text.slice(lastIndex));
+  return utterances;
 }
 
 function dedupeUtterances(utterances: TTSUtterance[]): TTSUtterance[] {

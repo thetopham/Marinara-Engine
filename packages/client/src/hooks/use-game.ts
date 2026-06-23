@@ -8,10 +8,13 @@ import { api, isJsonRepairApiError } from "../lib/api-client";
 import { chatKeys } from "./use-chats";
 import { lorebookKeys } from "./use-lorebooks";
 import {
+  clearPendingHudWidgetPersist,
   getHudWidgetStateSignature,
   getPendingHudWidgetPersistenceSignature,
+  registerPendingHudWidgetPersistence,
   useGameModeStore,
 } from "../stores/game-mode.store";
+import { useGameAssetStore } from "../stores/game-asset.store";
 import { useGameStateStore } from "../stores/game-state.store";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
@@ -183,6 +186,9 @@ export function useCreateGame() {
     },
     onError: (err) => {
       console.error("[createGame] Error:", err);
+      toast.error(err.message || "Failed to create game. Check the selected connection and try again.", {
+        duration: 10000,
+      });
     },
   });
 }
@@ -192,7 +198,7 @@ export function useGameSetup() {
   const store = useGameModeStore;
 
   return useMutation({
-    mutationFn: (data: { chatId: string; connectionId?: string; preferences: string }) =>
+    mutationFn: (data: { chatId: string; connectionId?: string; promptPresetId?: string | null; preferences: string }) =>
       api.post<SetupResponse>("/game/setup", {
         ...data,
         streaming: useUIStore.getState().enableStreaming,
@@ -256,6 +262,7 @@ export function useStartSession() {
       });
     },
     onSuccess: (res, variables) => {
+      useGameAssetStore.getState().resetPlaybackState();
       store.getState().setActiveGame(variables.gameId, res.sessionChat.id, null);
       store.getState().setSessionNumber(res.sessionNumber);
       qc.setQueryData(chatKeys.detail(res.sessionChat.id), res.sessionChat);
@@ -377,6 +384,12 @@ export function useRegenerateSessionLorebook() {
     },
     onError: (err, variables) => {
       console.error("[game/session/regenerate-lorebook] Error:", err);
+      if (isJsonRepairApiError(err)) {
+        toast.info("Review the generated lorebook JSON before applying it.", {
+          id: `game-session-lorebook:${variables.chatId}:${variables.sessionNumber}`,
+        });
+        return;
+      }
       toast.error(err.message || "Failed to regenerate session lorebook.", {
         id: `game-session-lorebook:${variables.chatId}:${variables.sessionNumber}`,
       });
@@ -579,6 +592,10 @@ export function useUpdateGameWidgets() {
   return useMutation({
     mutationFn: ({ chatId, widgets }: { chatId: string; widgets: HudWidget[] }) =>
       api.put<UpdateGameWidgetsResponse>(`/game/${chatId}/widgets`, { widgets }),
+    onMutate: (variables) => {
+      clearPendingHudWidgetPersist(variables.chatId);
+      registerPendingHudWidgetPersistence(variables.chatId, variables.widgets);
+    },
     onSuccess: (_, variables) => {
       useGameModeStore.getState().setHudWidgets(variables.widgets);
       const queryKey = chatKeys.detail(variables.chatId);
@@ -593,6 +610,9 @@ export function useUpdateGameWidgets() {
     },
     onError: (err) => {
       console.error("[updateGameWidgets] Error:", err);
+    },
+    onSettled: (_, __, variables) => {
+      clearPendingHudWidgetPersist(variables.chatId, getHudWidgetStateSignature(variables.widgets));
     },
   });
 }
@@ -610,8 +630,35 @@ export function useGameSessions(gameId: string | null) {
 
 // ── Sync hook — reads chat metadata and updates game store ──
 
+function isNumericHudWidgetType(type: HudWidget["type"]) {
+  return type === "progress_bar" || type === "gauge" || type === "relationship_meter";
+}
+
+function finiteNumber(value: unknown): number | null {
+  const raw = typeof value === "string" && value.trim() ? Number(value.trim()) : value;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
 function normalizeHudWidgets(widgets: readonly HudWidget[]): HudWidget[] {
   return widgets.map((w) => {
+    if (isNumericHudWidgetType(w.type)) {
+      const max = Math.max(1, finiteNumber(w.config.max) ?? 100);
+      const value = finiteNumber(w.config.value) ?? finiteNumber(w.config.startingValue) ?? 0;
+      const startingValue = finiteNumber(w.config.startingValue) ?? value;
+
+      if (w.config.max !== max || w.config.value !== value || w.config.startingValue !== startingValue) {
+        return {
+          ...w,
+          config: {
+            ...w.config,
+            max,
+            startingValue,
+            value,
+          },
+        };
+      }
+    }
+
     if (w.type === "inventory_grid" && !w.config.contents && Array.isArray((w.config as any).items)) {
       const items = (w.config as any).items as Array<{ name: string; slot?: string | number; quantity?: number }>;
       return {

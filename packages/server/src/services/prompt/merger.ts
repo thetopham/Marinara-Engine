@@ -28,18 +28,21 @@ export function mergeAdjacentMessages(messages: ChatMLMessage[]): ChatMLMessage[
 
   const canMerge = (a: ChatMLMessage, b: ChatMLMessage) => {
     if (a.role !== b.role) return false;
+    if ((a.characterId ?? null) !== (b.characterId ?? null)) return false;
     if (!a.contextKind || !b.contextKind) return true;
     return a.contextKind === b.contextKind;
   };
 
   for (const msg of messages) {
-    // Skip empty messages
-    if (!msg.content.trim()) continue;
+    // Skip empty messages unless they carry provider-native attachments.
+    if (!msg.content.trim() && !msg.images?.length && !msg.files?.length) continue;
 
     if (current && canMerge(current, msg)) {
       // Same role — merge
       const mergedImages: string[] | undefined =
         current.images || msg.images ? [...(current.images ?? []), ...(msg.images ?? [])] : undefined;
+      const mergedFiles: ChatMLMessage["files"] | undefined =
+        current.files || msg.files ? [...(current.files ?? []), ...(msg.files ?? [])] : undefined;
       // Prefer the later message's providerMetadata (most recent thought signature)
       const mergedMeta: Record<string, unknown> | undefined = msg.providerMetadata ?? current.providerMetadata;
       const mergedContextKind = mergeContextKind(current.contextKind, msg.contextKind);
@@ -48,7 +51,9 @@ export function mergeAdjacentMessages(messages: ChatMLMessage[]): ChatMLMessage[
         content: current.content + "\n\n" + msg.content,
         ...(mergedContextKind ? { contextKind: mergedContextKind } : {}),
         name: current.name,
+        ...(current.characterId ? { characterId: current.characterId } : {}),
         ...(mergedImages ? { images: mergedImages } : {}),
+        ...(mergedFiles ? { files: mergedFiles } : {}),
         ...(mergedMeta ? { providerMetadata: mergedMeta } : {}),
       };
     } else {

@@ -1,23 +1,22 @@
 // ──────────────────────────────────────────────
 // Chat: Conversation Input — Discord-style
 // ──────────────────────────────────────────────
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type FormEvent } from "react";
 import {
   Send,
   Smile,
+  Sticker,
   StopCircle,
   X,
   Plus,
   ImagePlay,
+  Keyboard,
   AtSign,
   Users,
-  UserCheck,
   Languages,
   Loader2,
   FileText,
   RefreshCw,
-  Bookmark,
-  Trash2,
   WandSparkles,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -25,10 +24,11 @@ import { toast } from "sonner";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
+import { useUnoGameStore } from "../../stores/uno-game.store";
 import { useGenerate } from "../../hooks/use-generate";
 import { useApplyRegex } from "../../hooks/use-apply-regex";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, useChat, chatKeys } from "../../hooks/use-chats";
-import { characterKeys, usePersonas, useUpdatePersona } from "../../hooks/use-characters";
+import { characterKeys } from "../../hooks/use-characters";
 import {
   matchSlashCommand,
   getSlashCompletions,
@@ -38,19 +38,31 @@ import {
 import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../lib/chat-macros";
 import { parseChatMetadata } from "../../lib/chat-display";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
+import { applyTextareaQuoteFormat } from "../../lib/textarea-quotes";
 import { translateDraftText } from "../../lib/draft-translation";
 import { prepareImageAttachment } from "../../lib/chat-attachment-images";
+import { CARD_ASSET_INSERT_EVENT, type CardAssetInsertDetail } from "../../lib/card-asset-links";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
 import { QuickPersonaSwitcher } from "./QuickPersonaSwitcher";
 import { QuickSwitcherMobile } from "./QuickSwitcherMobile";
 import { EmojiPicker } from "../ui/EmojiPicker";
+import { CustomEmojiTab } from "./CustomEmojiTab";
+import { StickerPicker } from "./StickerPicker";
+import { showChoiceDialog } from "../../lib/app-dialogs";
+import { useConversationCustomEmojis, type ConversationCustomEmoji } from "../../hooks/use-conversation-custom-emojis";
 import { GifPicker } from "../ui/GifPicker";
 import { SpeechToTextButton } from "../ui/SpeechToTextButton";
-import { MariThinkingIndicator } from "./MariThinkingIndicator";
-import { MariCapabilityNotice } from "./MariCapabilityNotice";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
-import { buildGuidedGenerationInstructionMessage, type Message } from "@marinara-engine/shared";
+import { getChatInputShellClass } from "./chat-input-styles";
+import {
+  buildGuidedGenerationInstructionMessage,
+  formatTextQuotes,
+  includesTextForMatch,
+  normalizeTextForMatch,
+  startsWithTextForMatch,
+  type Message,
+} from "@marinara-engine/shared";
 
 interface Attachment {
   type: string;
@@ -70,15 +82,143 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "yaml",
   "yml",
 ]);
+const PDF_ATTACHMENT_MIME_TYPE = "application/pdf";
 
-const SAVED_STATUS_LIMIT = 12;
-const SAVED_STATUS_MAX_LENGTH = 120;
+const CONVERSATION_HIDDEN_SLASH_COMMANDS = new Set(["impersonate", "impersonate_prompt"]);
+const QUOTE_INPUT_TRIGGER_RE = /["'\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f]/;
 
-interface PersonaStatusRow {
-  id: string;
-  name?: string;
-  isActive?: string | boolean;
-  savedStatusOptions?: string | string[] | null;
+type ConversationSlashCompletion = {
+  key: string;
+  label: string;
+  description?: string;
+  insertValue: string;
+  cursor: number;
+  kind: "command" | "status" | "character";
+};
+
+const CONVERSATION_STATUS_COMPLETIONS = [
+  { value: "online", description: "Set a character to online" },
+  { value: "idle", description: "Set a character to away" },
+  { value: "dnd", description: "Set a character to busy" },
+  { value: "offline", description: "Set a character to offline" },
+  { value: "clear", description: "Clear a manual status override" },
+] as const;
+
+function isConversationHiddenSlashCommand(command: SlashCommand): boolean {
+  return CONVERSATION_HIDDEN_SLASH_COMMANDS.has(command.name);
+}
+
+function shouldFormatQuoteInput(event: FormEvent<HTMLTextAreaElement> | undefined, value: string): boolean {
+  const inputEvent = event?.nativeEvent as InputEvent | undefined;
+  const inputType = typeof inputEvent?.inputType === "string" ? inputEvent.inputType : "";
+  if (inputType.startsWith("delete")) return false;
+  return QUOTE_INPUT_TRIGGER_RE.test(value);
+}
+
+function quoteSlashArgument(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (!/[\s"\\]/u.test(trimmed)) return trimmed;
+  return `"${trimmed.replace(/["\\]/g, "\\$&")}"`;
+}
+
+function buildSlashCommandPrefill(
+  command: SlashCommand,
+  characters?: Array<{ id: string; name: string }>,
+): { value: string; cursor: number } {
+  if (command.name === "status") {
+    const firstCharacter = characters?.[0]?.name;
+    const value = firstCharacter ? `/status online ${quoteSlashArgument(firstCharacter)}` : "/status online ";
+    const cursor = value.length;
+    return { value, cursor };
+  }
+
+  const value = `/${command.name} `;
+  return { value, cursor: value.length };
+}
+
+function stripLeadingQuote(value: string): string {
+  if (value.startsWith('"') || value.startsWith("'") || value.startsWith("\u201c") || value.startsWith("\u2018")) {
+    return value.slice(1);
+  }
+  return value;
+}
+
+function buildConversationSlashCompletions(
+  input: string,
+  characters: Array<{ id: string; name: string }> | undefined,
+): ConversationSlashCompletion[] {
+  if (!input.startsWith("/")) return [];
+
+  const lowerInput = normalizeTextForMatch(input);
+  if (lowerInput.startsWith("/status")) {
+    const rest = input.slice("/status".length);
+    if (rest.length === 0 || /^\s+$/.test(rest)) {
+      return CONVERSATION_STATUS_COMPLETIONS.map((status) => ({
+        key: `status:${status.value}`,
+        label: status.value,
+        description: status.description,
+        insertValue: `/status ${status.value} `,
+        cursor: `/status ${status.value} `.length,
+        kind: "status",
+      }));
+    }
+
+    if (!/^\s/.test(rest)) return [];
+
+    const trimmedRest = rest.trimStart();
+    const firstSpace = trimmedRest.indexOf(" ");
+    const action = normalizeTextForMatch(firstSpace === -1 ? trimmedRest : trimmedRest.slice(0, firstSpace));
+
+    if (firstSpace === -1) {
+      return CONVERSATION_STATUS_COMPLETIONS.filter((status) => status.value.startsWith(action)).map((status) => ({
+        key: `status:${status.value}`,
+        label: status.value,
+        description: status.description,
+        insertValue: `/status ${status.value} `,
+        cursor: `/status ${status.value} `.length,
+        kind: "status",
+      }));
+    }
+
+    if (!CONVERSATION_STATUS_COMPLETIONS.some((status) => status.value === action)) return [];
+
+    const rawNameQuery = trimmedRest.slice(firstSpace + 1);
+    const nameQuery = normalizeTextForMatch(stripLeadingQuote(rawNameQuery));
+    return (characters ?? [])
+      .filter((character) => {
+        if (!nameQuery) return true;
+        return startsWithTextForMatch(character.name, nameQuery) || includesTextForMatch(character.name, nameQuery);
+      })
+      .map((character) => {
+        const insertValue = `/status ${action} ${quoteSlashArgument(character.name)}`;
+        return {
+          key: `character:${action}:${character.id}`,
+          label: character.name,
+          description: `Set ${character.name} to ${action}`,
+          insertValue,
+          cursor: insertValue.length,
+          kind: "character" as const,
+        };
+      });
+  }
+
+  return getSlashCompletions(input)
+    .filter((command) => !isConversationHiddenSlashCommand(command))
+    .map((command) => {
+      const { value, cursor } = buildSlashCommandPrefill(command, characters);
+      return {
+        key: `command:${command.name}`,
+        label: `/${command.name}`,
+        description:
+          command.name === "status"
+            ? `${command.description}. Use online, idle, dnd, offline, or clear, then a character name.`
+            : command.description,
+        insertValue: value,
+        cursor,
+        kind: "command" as const,
+      };
+    });
 }
 
 function getFileExtension(fileName: string): string {
@@ -87,8 +227,9 @@ function getFileExtension(fileName: string): string {
 }
 
 function inferAttachmentType(file: File): string {
-  if (file.type) return file.type;
   const extension = getFileExtension(file.name);
+  if (extension === "pdf") return PDF_ATTACHMENT_MIME_TYPE;
+  if (file.type) return file.type;
   if (extension === "json" || extension === "jsonl") return "application/json";
   if (extension === "csv") return "text/csv";
   if (extension === "md" || extension === "markdown") return "text/markdown";
@@ -102,6 +243,7 @@ function isSupportedChatAttachment(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   if (file.type.startsWith("text/")) return true;
   const type = inferAttachmentType(file);
+  if (type === PDF_ATTACHMENT_MIME_TYPE) return true;
   if (
     type === "application/json" ||
     type === "application/xml" ||
@@ -111,43 +253,6 @@ function isSupportedChatAttachment(file: File): boolean {
     return true;
   }
   return TEXT_ATTACHMENT_EXTENSIONS.has(getFileExtension(file.name));
-}
-
-function normalizeSavedStatus(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, SAVED_STATUS_MAX_LENGTH);
-}
-
-function parseSavedStatusOptions(value: PersonaStatusRow["savedStatusOptions"]): string[] {
-  const raw = (() => {
-    if (Array.isArray(value)) return value;
-    if (typeof value !== "string" || !value.trim()) return [];
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  const byKey = new Map<string, string>();
-  for (const item of raw) {
-    if (typeof item !== "string") continue;
-    const normalized = normalizeSavedStatus(item);
-    if (!normalized) continue;
-    byKey.set(normalized.toLowerCase(), normalized);
-  }
-  return [...byKey.values()].slice(0, SAVED_STATUS_LIMIT);
-}
-
-function resolveActivePersona(
-  personas: PersonaStatusRow[] | undefined,
-  chat: { personaId?: string | null; mode?: string } | undefined | null,
-) {
-  if (!personas) return undefined;
-  const chatPersonaId = chat?.personaId ?? null;
-  if (chatPersonaId) return personas.find((p) => p.id === chatPersonaId);
-  if (chat?.mode === "game") return undefined;
-  return personas.find((p) => p.isActive === "true" || p.isActive === true);
 }
 
 function readFileAsDataUrl(file: Blob): Promise<string> {
@@ -180,7 +285,7 @@ export function ConversationInput({
   onPeekPrompt,
 }: ConversationInputProps) {
   const [hasInput, setHasInput] = useState(false);
-  const [completions, setCompletions] = useState<SlashCommand[]>([]);
+  const [completions, setCompletions] = useState<ConversationSlashCompletion[]>([]);
   const [selectedCompletion, setSelectedCompletion] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -188,28 +293,35 @@ export function ConversationInput({
   const [isTranslatingDraft, setIsTranslatingDraft] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const [mobilePickerTab, setMobilePickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
   const [isDragging, setIsDragging] = useState(false);
   // @mention autocomplete
   const [_mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionCompletions, setMentionCompletions] = useState<string[]>([]);
   const [selectedMention, setSelectedMention] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState(0);
+  // :emoji: autocomplete
+  const [emojiCompletions, setEmojiCompletions] = useState<ConversationCustomEmoji[]>([]);
+  const [selectedEmojiCompletion, setSelectedEmojiCompletion] = useState(0);
+  const [emojiStartPos, setEmojiStartPos] = useState(0);
+  const { list: customEmojiList } = useConversationCustomEmojis();
   const [charPickerOpen, setCharPickerOpen] = useState(false);
   const [charPickerPos, setCharPickerPos] = useState<{ left: number; top: number } | null>(null);
-  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [statusMenuPos, setStatusMenuPos] = useState<{ left: number; top: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const gifButtonRef = useRef<HTMLButtonElement>(null);
-  const statusButtonRef = useRef<HTMLButtonElement>(null);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const stickerButtonRef = useRef<HTMLButtonElement>(null);
   const charPickerBtnRef = useRef<HTMLButtonElement>(null);
   const charPickerMenuRef = useRef<HTMLDivElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
   const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
+  const currentInputFrameRef = useRef<number | null>(null);
+  const pendingCurrentInputRef = useRef("");
   const activeChatId = useChatStore((s) => s.activeChatId);
   const { data: activeChat } = useChat(activeChatId);
   const chatName = activeChat?.name;
@@ -222,7 +334,6 @@ export function ConversationInput({
   const setInputDraft = useChatStore((s) => s.setInputDraft);
   const clearInputDraft = useChatStore((s) => s.clearInputDraft);
   const setCurrentInput = useChatStore((s) => s.setCurrentInput);
-  const currentInput = useChatStore((s) => s.currentInput);
   const { generate } = useGenerate();
   const { applyToUserInput } = useApplyRegex();
   const enterToSend = useUIStore((s) => s.enterToSendConvo);
@@ -230,21 +341,35 @@ export function ConversationInput({
   const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
   const showQuickReplyGuide = useUIStore((s) => s.showQuickReplyGuide);
-  const showQuickReplyImpersonate = useUIStore((s) => s.showQuickReplyImpersonate);
   const speechToTextEnabled = useUIStore((s) => s.speechToTextEnabled);
-  const userActivity = useUIStore((s) => s.userActivity);
-  const setUserActivity = useUIStore((s) => s.setUserActivity);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const createMessage = useCreateMessage(activeChatId);
   const deleteMessage = useDeleteMessage(activeChatId);
   const updateMessageExtra = useUpdateMessageExtra(activeChatId);
-  const { data: allPersonas } = usePersonas();
-  const updatePersona = useUpdatePersona();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingAttachmentReads = activeChatId ? (pendingAttachmentReadsByChat[activeChatId] ?? 0) : 0;
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
-  const requiresManualGuideTarget = groupResponseOrder === "manual" && characterNames.length > 1;
+  const chatMetadata = useMemo(() => parseChatMetadata(activeChat?.metadata), [activeChat?.metadata]);
+  const inactiveCharacterIds = useMemo(
+    () =>
+      new Set(
+        Array.isArray(chatMetadata.inactiveCharacterIds)
+          ? chatMetadata.inactiveCharacterIds.filter((id): id is string => typeof id === "string")
+          : [],
+      ),
+    [chatMetadata.inactiveCharacterIds],
+  );
+  const activeChatCharacters = useMemo(
+    () => chatCharacters?.filter((character) => !inactiveCharacterIds.has(character.id)),
+    [chatCharacters, inactiveCharacterIds],
+  );
+  const activeCharacterNames = useMemo(
+    () => (activeChatCharacters ? activeChatCharacters.map((character) => character.name) : characterNames),
+    [activeChatCharacters, characterNames],
+  );
+  const requiresManualGuideTarget = groupResponseOrder === "manual" && activeCharacterNames.length > 1;
 
   // Read from the existing infinite-message cache so an empty Send can retry
   // after a failed generation without adding a second user message.
@@ -270,8 +395,29 @@ export function ConversationInput({
 
   const syncInputState = useCallback(
     (value: string) => {
-      setHasInput(value.trim().length > 0);
-      setCurrentInput(value);
+      const nextHasInput = value.trim().length > 0;
+      setHasInput((current) => (current === nextHasInput ? current : nextHasInput));
+      pendingCurrentInputRef.current = value;
+      if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        setCurrentInput(value);
+        return;
+      }
+      if (currentInputFrameRef.current !== null) return;
+      currentInputFrameRef.current = window.requestAnimationFrame(() => {
+        currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
+      });
+    },
+    [setCurrentInput],
+  );
+
+  useEffect(
+    () => () => {
+      if (currentInputFrameRef.current !== null) {
+        window.cancelAnimationFrame(currentInputFrameRef.current);
+        currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
+      }
     },
     [setCurrentInput],
   );
@@ -280,6 +426,37 @@ export function ConversationInput({
     attachmentsRef.current = next;
     setAttachments(next);
   }, []);
+
+  const insertTextAtCursor = useCallback(
+    (text: string) => {
+      const el = textareaRef.current;
+      if (!el || !activeChatId) return;
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? start;
+      const nextValue = `${el.value.slice(0, start)}${text}${el.value.slice(end)}`;
+      const cursor = start + text.length;
+      el.value = nextValue;
+      el.selectionStart = el.selectionEnd = cursor;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      syncInputState(nextValue);
+      setInputDraft(activeChatId, nextValue);
+      el.focus();
+    },
+    [activeChatId, setInputDraft, syncInputState],
+  );
+
+  useEffect(() => {
+    const handleCardAssetInsert = (event: Event) => {
+      const detail = (event as CustomEvent<CardAssetInsertDetail>).detail;
+      if (!detail?.markdown) return;
+      if (detail.chatId && detail.chatId !== activeChatId) return;
+      insertTextAtCursor(detail.markdown);
+    };
+
+    window.addEventListener(CARD_ASSET_INSERT_EVENT, handleCardAssetInsert);
+    return () => window.removeEventListener(CARD_ASSET_INSERT_EVENT, handleCardAssetInsert);
+  }, [activeChatId, insertTextAtCursor]);
 
   const updateAttachments = useCallback((updater: (current: Attachment[]) => Attachment[]) => {
     setAttachments((current) => {
@@ -403,7 +580,7 @@ export function ConversationInput({
         }
         if (!isSupportedChatAttachment(file)) {
           toast.error(
-            `${file.name || "That file"} is not supported in chat. Attach images or text files like JSON, TXT, Markdown, or CSV.`,
+            `${file.name || "That file"} is not supported in chat. Attach images, PDFs, or text files like JSON, TXT, Markdown, or CSV.`,
           );
           return false;
         }
@@ -484,21 +661,21 @@ export function ConversationInput({
   /** Extract @mentioned character names from a message string. */
   const extractMentions = useCallback(
     (text: string): string[] => {
-      if (!characterNames.length) return [];
+      if (!activeCharacterNames.length) return [];
       const mentioned: string[] = [];
       // Sort names longest-first so "Mary Jane" matches before "Mary"
-      const sorted = [...characterNames].sort((a, b) => b.length - a.length);
+      const sorted = [...activeCharacterNames].sort((a, b) => b.length - a.length);
       for (const name of sorted) {
         // Match @Name (case-insensitive) — name may contain spaces
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(`@${escaped}\\b`, "gi");
-        if (re.test(text) && !mentioned.some((m) => m.toLowerCase() === name.toLowerCase())) {
+        const re = new RegExp(`@${escaped}(?=$|[\\s\\p{P}\\p{S}])`, "giu");
+        if (re.test(text) && !mentioned.some((m) => normalizeTextForMatch(m) === normalizeTextForMatch(name))) {
           mentioned.push(name);
         }
       }
       return mentioned;
     },
-    [characterNames],
+    [activeCharacterNames],
   );
 
   /** Insert a mention completion into the textarea, replacing the @query. */
@@ -518,6 +695,24 @@ export function ConversationInput({
       el.focus();
     },
     [activeChatId, mentionStartPos, setInputDraft, syncInputState],
+  );
+
+  /** Insert an emoji completion into the textarea, replacing the :query. */
+  const insertEmoji = useCallback(
+    (name: string) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const before = el.value.slice(0, emojiStartPos);
+      const after = el.value.slice(el.selectionStart);
+      el.value = `${before}:${name}: ${after}`;
+      const cursorPos = before.length + name.length + 3; // ':' + name + ':' + space
+      el.selectionStart = el.selectionEnd = cursorPos;
+      syncInputState(el.value);
+      if (activeChatId) setInputDraft(activeChatId, el.value);
+      setEmojiCompletions([]);
+      el.focus();
+    },
+    [activeChatId, emojiStartPos, setInputDraft, syncInputState],
   );
 
   const handleSend = useCallback(async () => {
@@ -559,10 +754,13 @@ export function ConversationInput({
       const cachedCharacters = qc.getQueryData<Array<{ id: string; data: unknown }>>(characterKeys.list());
       const cachedPersonas = qc.getQueryData<Array<Record<string, unknown>>>(characterKeys.personas);
       const resolveInputMacros = createInputMacroResolverForChat(activeChatData, cachedCharacters, cachedPersonas, raw);
-      // First pass: resolve macros against raw input, so {{input}} uses the pre-translation text.
-      let message = applyToUserInput(raw, { resolveMacros: resolveInputMacros });
-      // Input translation for streaming path too
       const streamMeta = parseChatMetadata(activeChatData?.metadata);
+      // First pass: resolve macros against raw input, so {{input}} uses the pre-translation text.
+      let message = applyToUserInput(raw, {
+        resolveMacros: resolveInputMacros,
+        scopedMode: streamMeta.scopedRegexMode,
+      });
+      // Input translation for streaming path too
       if (streamMeta.translateInput && message.trim()) {
         try {
           const { translateText } = await import("../../lib/translate-text");
@@ -604,12 +802,18 @@ export function ConversationInput({
     // Slash command check
     const matched = matchSlashCommand(raw);
     if (matched) {
+      if (isConversationHiddenSlashCommand(matched.command)) {
+        setFeedback("Impersonate is not available in Conversation mode.");
+        return;
+      }
       const slashCtx: SlashCommandContext = {
         chatId: activeChatId,
+        mode: "conversation",
         generate,
         createMessage: (data) => createMessage.mutate(data),
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
-        characterNames,
+        characterNames: activeCharacterNames,
+        characters: activeChatCharacters?.map((character) => ({ id: character.id, name: character.name })),
       };
       const submittedDraft = textareaRef.current?.value ?? "";
       const submittedHeight = textareaRef.current?.style.height ?? "auto";
@@ -660,15 +864,28 @@ export function ConversationInput({
       return;
     }
 
+    // Natural-language launcher: "let's play uno" opens the game setup. The message
+    // still sends normally, so the characters can react to the suggestion too.
+    {
+      const activeUno = useUnoGameStore.getState().current;
+      const unoActive = !!activeUno && activeUno.chatId === activeChatId && activeUno.status !== "finished";
+      if (!unoActive && /\b(?:play|start)\b[^.!?\n]{0,16}\buno\b/i.test(raw)) {
+        useUnoGameStore.getState().openSetup(activeChatId);
+      }
+    }
+
     const activeChat = useChatStore.getState().activeChat;
     const cachedCharacters = qc.getQueryData<Array<{ id: string; data: unknown }>>(characterKeys.list());
     const cachedPersonas = qc.getQueryData<Array<Record<string, unknown>>>(characterKeys.personas);
     const resolveInputMacros = createInputMacroResolverForChat(activeChat, cachedCharacters, cachedPersonas, raw);
+    const chatMeta = parseChatMetadata(activeChat?.metadata);
     // First pass: resolve macros against raw input, so {{input}} uses the pre-translation text.
-    let message = applyToUserInput(raw, { resolveMacros: resolveInputMacros });
+    let message = applyToUserInput(raw, {
+      resolveMacros: resolveInputMacros,
+      scopedMode: chatMeta.scopedRegexMode,
+    });
 
     // Input translation: translate user's message before sending
-    const chatMeta = parseChatMetadata(activeChat?.metadata);
     if (chatMeta.translateInput && message.trim()) {
       try {
         const { translateText } = await import("../../lib/translate-text");
@@ -719,6 +936,7 @@ export function ConversationInput({
     });
   }, [
     activeChatId,
+    activeChatCharacters,
     attachments,
     canRetry,
     isReadingAttachments,
@@ -729,7 +947,7 @@ export function ConversationInput({
     clearInputDraft,
     createMessage,
     updateMessageExtra,
-    characterNames,
+    activeCharacterNames,
     completions,
     _mentionQuery,
     mentionCompletions,
@@ -748,9 +966,14 @@ export function ConversationInput({
       const submittingChatId = activeChatId;
       const matched = matchSlashCommand(commandLine);
       if (!matched) return;
+      if (isConversationHiddenSlashCommand(matched.command)) {
+        toast.info("Impersonate is not available in Conversation mode.");
+        return;
+      }
       const generationStatus: { succeeded?: boolean } = {};
       const slashCtx: SlashCommandContext = {
         chatId: submittingChatId,
+        mode: "conversation",
         generate: async (params) => {
           const succeeded = await generate(params);
           if (succeeded !== undefined) generationStatus.succeeded = succeeded;
@@ -758,7 +981,8 @@ export function ConversationInput({
         },
         createMessage: (data) => createMessage.mutate(data),
         invalidate: () => qc.invalidateQueries({ queryKey: chatKeys.all }),
-        characterNames,
+        characterNames: activeCharacterNames,
+        characters: activeChatCharacters?.map((character) => ({ id: character.id, name: character.name })),
       };
 
       const previousDraft = textareaRef.current?.value ?? "";
@@ -812,7 +1036,8 @@ export function ConversationInput({
     },
     [
       activeChatId,
-      characterNames,
+      activeChatCharacters,
+      activeCharacterNames,
       clearInputDraft,
       completions,
       _mentionQuery,
@@ -824,17 +1049,6 @@ export function ConversationInput({
       syncInputState,
     ],
   );
-
-  const handleImpersonateQuickButton = useCallback(async () => {
-    if (!activeChatId || isStreaming) return;
-    if (hasPendingAttachments) {
-      toast.info("Clear or send attachments before using quick impersonate.");
-      return;
-    }
-    const text = textareaRef.current?.value?.trim() ?? "";
-    if (!text) return;
-    await runQuickSlashCommand(`/impersonate ${text}`, "Impersonate failed");
-  }, [activeChatId, isStreaming, hasPendingAttachments, runQuickSlashCommand]);
 
   const handlePostOnlyButton = useCallback(async () => {
     if (!activeChatId || isStreaming) return;
@@ -857,9 +1071,12 @@ export function ConversationInput({
     const cachedCharacters = qc.getQueryData<Array<{ id: string; data: unknown }>>(characterKeys.list());
     const cachedPersonas = qc.getQueryData<Array<Record<string, unknown>>>(characterKeys.personas);
     const resolveInputMacros = createInputMacroResolverForChat(activeChatData, cachedCharacters, cachedPersonas, raw);
-    let message = applyToUserInput(raw, { resolveMacros: resolveInputMacros });
-
     const chatMeta = parseChatMetadata(activeChatData?.metadata);
+    let message = applyToUserInput(raw, {
+      resolveMacros: resolveInputMacros,
+      scopedMode: chatMeta.scopedRegexMode,
+    });
+
     if (chatMeta.translateInput && message.trim()) {
       try {
         const { translateText } = await import("../../lib/translate-text");
@@ -994,13 +1211,6 @@ export function ConversationInput({
       if (!hasInput) return "Type a direction first.";
       return undefined;
     };
-    const getImpersonateDisabledReason = () => {
-      if (!activeChatId) return "Select or create a chat first.";
-      if (isStreaming) return "Wait for the current stream to finish.";
-      if (hasPendingAttachments) return "Clear or post attachments first.";
-      if (!hasInput) return "Type a direction first.";
-      return undefined;
-    };
     if (showQuickReplyPostOnly) {
       actions.push({
         id: "post-only",
@@ -1023,17 +1233,6 @@ export function ConversationInput({
         onSelect: handleGuidedGenerationButton,
       });
     }
-    if (showQuickReplyImpersonate) {
-      actions.push({
-        id: "impersonate",
-        label: "Impersonate",
-        description: "Generate as your persona",
-        icon: <UserCheck size="0.875rem" />,
-        disabled: !activeChatId || isStreaming || !hasInput || hasPendingAttachments,
-        disabledReason: getImpersonateDisabledReason(),
-        onSelect: handleImpersonateQuickButton,
-      });
-    }
     return actions;
   }, [
     activeChatId,
@@ -1045,10 +1244,8 @@ export function ConversationInput({
     requiresManualGuideTarget,
     showQuickReplyPostOnly,
     showQuickReplyGuide,
-    showQuickReplyImpersonate,
     handlePostOnlyButton,
     handleGuidedGenerationButton,
-    handleImpersonateQuickButton,
   ]);
 
   const handleKeyDown = useCallback(
@@ -1078,6 +1275,30 @@ export function ConversationInput({
         }
       }
 
+      // :emoji: completions navigation
+      if (emojiCompletions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedEmojiCompletion((p) => (p + 1) % emojiCompletions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedEmojiCompletion((p) => (p - 1 + emojiCompletions.length) % emojiCompletions.length);
+          return;
+        }
+        if (e.key === "Tab" || e.key === "Enter") {
+          e.preventDefault();
+          const em = emojiCompletions[selectedEmojiCompletion];
+          if (em) insertEmoji(em.name);
+          return;
+        }
+        if (e.key === "Escape") {
+          setEmojiCompletions([]);
+          return;
+        }
+      }
+
       // Slash completions navigation
       if (completions.length > 0) {
         if (e.key === "ArrowDown") {
@@ -1092,11 +1313,12 @@ export function ConversationInput({
         }
         if (e.key === "Tab" || e.key === "Enter") {
           e.preventDefault();
-          const cmd = completions[selectedCompletion];
-          if (cmd && textareaRef.current) {
-            textareaRef.current.value = `/${cmd.name} `;
-            syncInputState(textareaRef.current.value);
-            if (activeChatId) setInputDraft(activeChatId, textareaRef.current.value);
+          const completion = completions[selectedCompletion];
+          if (completion && textareaRef.current) {
+            textareaRef.current.value = completion.insertValue;
+            textareaRef.current.setSelectionRange(completion.cursor, completion.cursor);
+            syncInputState(completion.insertValue);
+            if (activeChatId) setInputDraft(activeChatId, completion.insertValue);
             setCompletions([]);
           }
           return;
@@ -1120,6 +1342,9 @@ export function ConversationInput({
       mentionCompletions,
       selectedMention,
       insertMention,
+      emojiCompletions,
+      selectedEmojiCompletion,
+      insertEmoji,
       enterToSend,
       handleSend,
       setInputDraft,
@@ -1127,9 +1352,10 @@ export function ConversationInput({
     ],
   );
 
-  const handleInput = useCallback(() => {
+  const handleInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
     const el = textareaRef.current;
     if (!el) return;
+    const formatted = shouldFormatQuoteInput(event, el.value) ? applyTextareaQuoteFormat(el, quoteFormat) : el.value;
     // Debounced resize to reduce layout reflows during fast typing
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
@@ -1137,12 +1363,12 @@ export function ConversationInput({
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
     }, 150);
-    syncInputState(el.value);
+    syncInputState(formatted);
 
     if (activeChatId) {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       const chatId = activeChatId;
-      const draft = el.value;
+      const draft = formatted;
       draftTimerRef.current = setTimeout(() => {
         if (draft.trim()) {
           setInputDraft(chatId, draft);
@@ -1153,37 +1379,66 @@ export function ConversationInput({
     }
 
     // Slash completions
-    if (el.value.startsWith("/")) {
-      const results = getSlashCompletions(el.value);
+    if (formatted.startsWith("/")) {
+      const results = buildConversationSlashCompletions(formatted, activeChatCharacters);
       setCompletions(results);
       setSelectedCompletion(0);
     } else {
-      setCompletions([]);
+      setCompletions((current) => (current.length > 0 ? [] : current));
     }
 
     // @mention detection — look backwards from cursor for an @ trigger
     const cursor = el.selectionStart;
-    const textBefore = el.value.slice(0, cursor);
+    const textBefore = formatted.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
-    const atMatch = textBefore.match(/(?:^|[^a-zA-Z0-9])@([a-zA-Z0-9 ]*)$/);
-    if (atMatch && characterNames.length > 0) {
-      const query = atMatch[1]!.toLowerCase();
-      const startPos = cursor - atMatch[1]!.length - 1; // position of the @
-      const matches = characterNames.filter((n) => n.toLowerCase().startsWith(query));
+    const atMatch = textBefore.match(/(^|[^\p{L}\p{N}_])@([^\n@]*)$/u);
+    if (atMatch && activeCharacterNames.length > 0) {
+      const queryText = atMatch[2] ?? "";
+      const query = normalizeTextForMatch(queryText);
+      const startPos = (atMatch.index ?? textBefore.length - atMatch[0].length) + (atMatch[1]?.length ?? 0);
+      const matches = activeCharacterNames.filter((name) => startsWithTextForMatch(name, query));
       if (matches.length > 0) {
         setMentionQuery(query);
         setMentionCompletions(matches);
         setSelectedMention(0);
         setMentionStartPos(startPos);
       } else {
-        setMentionQuery(null);
-        setMentionCompletions([]);
+        setMentionQuery((current) => (current === null ? current : null));
+        setMentionCompletions((current) => (current.length > 0 ? [] : current));
       }
     } else {
-      setMentionQuery(null);
-      setMentionCompletions([]);
+      setMentionQuery((current) => (current === null ? current : null));
+      setMentionCompletions((current) => (current.length > 0 ? [] : current));
     }
-  }, [activeChatId, characterNames, clearInputDraft, setInputDraft, syncInputState]);
+
+    // :emoji: detection — a `:partial` at a word boundary, just before the cursor
+    const emojiMatch = textBefore.match(/(?:^|\s):([a-z0-9_]+)$/);
+    if (emojiMatch && customEmojiList && customEmojiList.length > 0) {
+      const eq = emojiMatch[1]!.toLowerCase();
+      const matches = customEmojiList
+        .filter((em) => em.name.includes(eq))
+        .sort((a, b) => Number(b.name.startsWith(eq)) - Number(a.name.startsWith(eq)))
+        .slice(0, 10);
+      if (matches.length > 0) {
+        setEmojiCompletions(matches);
+        setSelectedEmojiCompletion(0);
+        setEmojiStartPos(cursor - eq.length - 1);
+      } else {
+        setEmojiCompletions((current) => (current.length > 0 ? [] : current));
+      }
+    } else {
+      setEmojiCompletions((current) => (current.length > 0 ? [] : current));
+    }
+  }, [
+    activeChatId,
+    activeCharacterNames,
+    activeChatCharacters,
+    customEmojiList,
+    clearInputDraft,
+    quoteFormat,
+    setInputDraft,
+    syncInputState,
+  ]);
 
   useEffect(() => {
     if (hasInput && feedback) setFeedback(null);
@@ -1198,6 +1453,35 @@ export function ConversationInput({
       const value = el.value;
       el.value = value.slice(0, start) + emoji + value.slice(end);
       el.selectionStart = el.selectionEnd = start + emoji.length;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      syncInputState(el.value);
+      if (activeChatId) setInputDraft(activeChatId, el.value);
+      el.focus();
+    },
+    [activeChatId, setInputDraft, syncInputState],
+  );
+
+  const insertStickerToken = useCallback(
+    (name: string) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const value = el.value;
+      const before = value.slice(0, start);
+      const after = value.slice(end);
+      // Put the sticker on its own line: a leading newline unless we're already at a line start,
+      // and a trailing newline so the user types their message on the line below it.
+      const lead = before.length === 0 || before.endsWith("\n") ? "" : "\n";
+      const insertText = `${lead}sticker:${name}:\n`;
+      el.value = before + insertText + after;
+      const cursor = before.length + insertText.length;
+      el.selectionStart = el.selectionEnd = cursor;
+      // Grow the textarea now — programmatic value changes don't fire the input-event auto-resize,
+      // so without this the newline'd sticker line stays hidden until the user types.
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
       syncInputState(el.value);
       if (activeChatId) setInputDraft(activeChatId, el.value);
       el.focus();
@@ -1226,7 +1510,7 @@ export function ConversationInput({
         return;
       }
 
-      if (groupResponseOrder === "manual" && characterNames.length > 1) {
+      if (groupResponseOrder === "manual" && activeCharacterNames.length > 1) {
         createMessage.mutate({ role: "user", content: gifUrl, characterId: null });
         return;
       }
@@ -1238,7 +1522,48 @@ export function ConversationInput({
         ...(gifAttachments ? { attachments: gifAttachments } : {}),
       });
     },
-    [activeChatId, isStreaming, groupResponseOrder, characterNames.length, generate, createMessage],
+    [activeChatId, isStreaming, groupResponseOrder, activeCharacterNames.length, generate, createMessage],
+  );
+
+  const handleStickerSelect = useCallback(
+    async (name: string) => {
+      if (!activeChatId) return;
+      const token = `sticker:${name}:`;
+      // Let the user choose: send it now (triggering a reply) or drop it into the composer to keep typing.
+      const choice = await showChoiceDialog({
+        title: "Send sticker",
+        message: "Send the sticker now and let the character reply, or add it to your message so you can keep typing?",
+        choices: [
+          { key: "send", label: "Send & reply" },
+          { key: "insert", label: "Add to message" },
+        ],
+      });
+      if (choice === "insert") {
+        insertStickerToken(name); // drops the sticker on its own line so the user types below it
+        return;
+      }
+      if (choice !== "send") return; // dismissed
+
+      // "Send & reply" — post the sticker as its own message (mirror the GIF send guards).
+      if (isStreaming) {
+        createMessage.mutate({ role: "user", content: token, characterId: null });
+        return;
+      }
+      if (groupResponseOrder === "manual" && activeCharacterNames.length > 1) {
+        createMessage.mutate({ role: "user", content: token, characterId: null });
+        return;
+      }
+      await generate({ chatId: activeChatId, connectionId: null, userMessage: token });
+    },
+    [
+      activeChatId,
+      isStreaming,
+      groupResponseOrder,
+      activeCharacterNames.length,
+      generate,
+      createMessage,
+      insertStickerToken,
+    ],
   );
 
   const handleCharacterResponse = useCallback(
@@ -1246,6 +1571,7 @@ export function ConversationInput({
       if (!activeChatId || isStreaming) return;
       setCharPickerOpen(false);
       setCharPickerPos(null);
+      const guideText = textareaRef.current?.value ?? "";
       try {
         await generate(
           guideGenerations && hasInput
@@ -1253,7 +1579,7 @@ export function ConversationInput({
                 chatId: activeChatId,
                 connectionId: null,
                 forCharacterId: characterId,
-                generationGuide: buildGuidedGenerationInstructionMessage(currentInput),
+                generationGuide: buildGuidedGenerationInstructionMessage(guideText),
                 generationGuideSource: "guide",
               }
             : { chatId: activeChatId, connectionId: null, forCharacterId: characterId },
@@ -1263,7 +1589,7 @@ export function ConversationInput({
         toast.error(msg);
       }
     },
-    [activeChatId, isStreaming, generate, guideGenerations, hasInput, currentInput],
+    [activeChatId, isStreaming, generate, guideGenerations, hasInput],
   );
 
   useEffect(() => {
@@ -1284,23 +1610,6 @@ export function ConversationInput({
   }, [charPickerOpen]);
 
   useEffect(() => {
-    if (!statusMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        statusMenuRef.current &&
-        !statusMenuRef.current.contains(target) &&
-        statusButtonRef.current &&
-        !statusButtonRef.current.contains(target)
-      ) {
-        setStatusMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [statusMenuOpen]);
-
-  useEffect(() => {
     if (!charPickerOpen || !charPickerBtnRef.current) return;
     const rect = charPickerBtnRef.current.getBoundingClientRect();
     const inputBox = charPickerBtnRef.current.closest(".rounded-2xl") as HTMLElement | null;
@@ -1315,44 +1624,8 @@ export function ConversationInput({
     });
   }, [charPickerOpen]);
 
-  const showCharPicker = groupResponseOrder === "manual" && !!chatCharacters && chatCharacters.length > 1;
-  const activePersona = resolveActivePersona(
-    allPersonas as PersonaStatusRow[] | undefined,
-    activeChat as { personaId?: string | null; mode?: string } | undefined,
-  );
-  const savedStatusOptions = parseSavedStatusOptions(activePersona?.savedStatusOptions);
-  const normalizedUserActivity = normalizeSavedStatus(userActivity);
-  const canSaveCurrentStatus =
-    !!activePersona &&
-    !!normalizedUserActivity &&
-    !savedStatusOptions.some((option) => option.toLowerCase() === normalizedUserActivity.toLowerCase());
-  const chatMetadata = activeChat?.metadata
-    ? typeof activeChat.metadata === "string"
-      ? (() => {
-          try {
-            return JSON.parse(activeChat.metadata) as Record<string, unknown>;
-          } catch {
-            return {};
-          }
-        })()
-      : (activeChat.metadata as Record<string, unknown>)
-    : {};
+  const showCharPicker = groupResponseOrder === "manual" && !!activeChatCharacters && activeChatCharacters.length > 1;
   const showDraftTranslateButton = chatMetadata.showInputTranslateButton === true;
-
-  useEffect(() => {
-    if (!statusMenuOpen || !statusButtonRef.current) return;
-    const rect = statusButtonRef.current.getBoundingClientRect();
-    const inputBox = statusButtonRef.current.closest(".rounded-2xl") as HTMLElement | null;
-    const anchorTop = inputBox ? inputBox.getBoundingClientRect().top : rect.top;
-    requestAnimationFrame(() => {
-      const menuEl = statusMenuRef.current;
-      const menuHeight = menuEl?.offsetHeight || 260;
-      const menuWidth = menuEl?.offsetWidth || 260;
-      let left = rect.right - menuWidth;
-      if (left < 8) left = 8;
-      setStatusMenuPos({ left, top: Math.max(8, anchorTop - menuHeight - 4) });
-    });
-  }, [statusMenuOpen, savedStatusOptions.length, canSaveCurrentStatus]);
 
   const handleTranslateDraft = useCallback(async () => {
     if (!activeChatId || isTranslatingDraft) return;
@@ -1363,57 +1636,17 @@ export function ConversationInput({
     try {
       const translated = await translateDraftText(raw);
       if (!translated || !textareaRef.current) return;
-      textareaRef.current.value = translated;
+      const formatted = formatTextQuotes(translated, quoteFormat);
+      textareaRef.current.value = formatted;
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
-      syncInputState(translated);
-      setInputDraft(activeChatId, translated);
+      syncInputState(formatted);
+      setInputDraft(activeChatId, formatted);
       textareaRef.current.focus();
     } finally {
       setIsTranslatingDraft(false);
     }
-  }, [activeChatId, isTranslatingDraft, setInputDraft, syncInputState]);
-
-  const persistSavedStatusOptions = useCallback(
-    async (nextOptions: string[]) => {
-      if (!activePersona) {
-        toast.info("Choose a persona before saving status options.");
-        return;
-      }
-      await updatePersona.mutateAsync({
-        id: activePersona.id,
-        savedStatusOptions: JSON.stringify(nextOptions.slice(0, SAVED_STATUS_LIMIT)),
-      });
-    },
-    [activePersona, updatePersona],
-  );
-
-  const handleSaveCurrentStatus = useCallback(async () => {
-    if (!normalizedUserActivity || !activePersona) return;
-    const nextOptions = [
-      normalizedUserActivity,
-      ...savedStatusOptions.filter((option) => option.toLowerCase() !== normalizedUserActivity.toLowerCase()),
-    ];
-    await persistSavedStatusOptions(nextOptions);
-    toast.success("Saved status for this persona");
-  }, [activePersona, normalizedUserActivity, persistSavedStatusOptions, savedStatusOptions]);
-
-  const handleApplySavedStatus = useCallback(
-    (status: string) => {
-      setUserActivity(status);
-      setStatusMenuOpen(false);
-    },
-    [setUserActivity],
-  );
-
-  const handleDeleteSavedStatus = useCallback(
-    async (status: string) => {
-      const nextOptions = savedStatusOptions.filter((option) => option.toLowerCase() !== status.toLowerCase());
-      await persistSavedStatusOptions(nextOptions);
-      toast.success("Removed saved status");
-    },
-    [persistSavedStatusOptions, savedStatusOptions],
-  );
+  }, [activeChatId, isTranslatingDraft, quoteFormat, setInputDraft, syncInputState]);
 
   const handleSpeechTranscript = useCallback(
     (transcript: string) => {
@@ -1425,7 +1658,7 @@ export function ConversationInput({
       const after = el.value.slice(end);
       const prefix = before && !/\s$/.test(before) ? " " : "";
       const suffix = after && !/^\s/.test(after) ? " " : "";
-      const nextValue = `${before}${prefix}${transcript}${suffix}${after}`;
+      const nextValue = formatTextQuotes(`${before}${prefix}${transcript}${suffix}${after}`, quoteFormat);
       const nextCursor = before.length + prefix.length + transcript.length;
 
       el.value = nextValue;
@@ -1436,7 +1669,7 @@ export function ConversationInput({
       if (activeChatId) setInputDraft(activeChatId, nextValue);
       el.focus();
     },
-    [activeChatId, setInputDraft, syncInputState],
+    [activeChatId, quoteFormat, setInputDraft, syncInputState],
   );
 
   const statusDotClass = (status?: string) =>
@@ -1451,31 +1684,39 @@ export function ConversationInput({
     status === "offline" ? "Offline" : status === "dnd" ? "Busy" : status === "idle" ? "Away" : null;
 
   return (
-    <div className="relative px-3 pb-3">
+    <div className="relative px-2 pb-3 sm:px-3">
       {/* Slash command autocomplete */}
       {completions.length > 0 && (
-        <div className="absolute bottom-full left-3 right-3 z-40 mb-1 max-h-[min(18rem,45dvh)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-lg [-webkit-overflow-scrolling:touch]">
+        <div className="absolute bottom-full left-3 right-3 z-40 mb-1 max-h-[min(18rem,45dvh)] overflow-y-auto rounded-lg border border-foreground/10 bg-[var(--card)] shadow-lg [-webkit-overflow-scrolling:touch]">
           {completions.map((cmd, i) => (
             <button
-              key={cmd.name}
+              key={cmd.key}
               onMouseDown={(e) => {
                 e.preventDefault();
                 if (textareaRef.current) {
-                  textareaRef.current.value = `/${cmd.name} `;
-                  syncInputState(textareaRef.current.value);
-                  if (activeChatId) setInputDraft(activeChatId, textareaRef.current.value);
+                  textareaRef.current.value = cmd.insertValue;
+                  textareaRef.current.setSelectionRange(cmd.cursor, cmd.cursor);
+                  syncInputState(cmd.insertValue);
+                  if (activeChatId) setInputDraft(activeChatId, cmd.insertValue);
                   setCompletions([]);
                   textareaRef.current.focus();
                 }
               }}
               className={cn(
                 "flex w-full min-w-0 items-start gap-2 px-3 py-2.5 text-left text-sm transition-colors",
-                i === selectedCompletion ? "bg-foreground/10 text-foreground" : "hover:bg-[var(--accent)]",
+                i === selectedCompletion ? "bg-foreground/10 text-foreground" : "hover:bg-foreground/10",
               )}
             >
-              <span className="shrink-0 whitespace-nowrap font-mono text-xs">/{cmd.name}</span>
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap text-xs",
+                  cmd.kind === "character" ? "font-medium" : "font-mono",
+                )}
+              >
+                {cmd.label}
+              </span>
               {cmd.description && (
-                <span className="min-w-0 flex-1 text-[0.6875rem] leading-snug text-[var(--muted-foreground)] [overflow-wrap:anywhere]">
+                <span className="min-w-0 flex-1 text-[0.6875rem] leading-snug text-foreground/45 [overflow-wrap:anywhere]">
                   {cmd.description}
                 </span>
               )}
@@ -1486,7 +1727,7 @@ export function ConversationInput({
 
       {/* @mention autocomplete */}
       {mentionCompletions.length > 0 && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-lg">
+        <div className="absolute bottom-full left-0 right-0 mb-1 overflow-hidden rounded-lg border border-foreground/10 bg-[var(--card)] shadow-lg">
           {mentionCompletions.map((name, i) => (
             <button
               key={name}
@@ -1496,13 +1737,80 @@ export function ConversationInput({
               }}
               className={cn(
                 "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
-                i === selectedMention ? "bg-foreground/10 text-foreground" : "hover:bg-[var(--accent)]",
+                i === selectedMention ? "bg-foreground/10 text-foreground" : "hover:bg-foreground/10",
               )}
             >
-              <AtSign size="0.75rem" className="shrink-0 text-cyan-400" />
+              <AtSign size="0.75rem" className="shrink-0 text-foreground/45" />
               <span className="font-medium">{name}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* :emoji: autocomplete */}
+      {emojiCompletions.length > 0 && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 max-h-56 overflow-y-auto rounded-lg border border-foreground/10 bg-[var(--card)] shadow-lg sm:left-[2%] sm:right-[2%]">
+          {emojiCompletions.map((em, i) => (
+            <button
+              key={em.name}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertEmoji(em.name);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                i === selectedEmojiCompletion ? "bg-foreground/10 text-foreground" : "hover:bg-foreground/10",
+              )}
+            >
+              <img src={em.url} alt={`:${em.name}:`} className="h-5 w-5 shrink-0 object-contain" />
+              <span className="min-w-0 flex-1 truncate font-medium">:{em.name}:</span>
+              <span className="hidden shrink-0 text-xs text-foreground/40 sm:inline">{em.source}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Mobile multipurpose picker sheet — Emoji / GIFs / Stickers (desktop uses the popovers) */}
+      {mobilePickerOpen && (
+        <div className="absolute bottom-full left-0 right-0 z-20 mb-1 flex h-[22rem] max-h-[60vh] flex-col overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] shadow-xl sm:hidden">
+          <div className="flex shrink-0 items-center gap-1 border-b border-foreground/10 px-2 py-1.5">
+            {(["emoji", "gifs", "stickers"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setMobilePickerTab(tab)}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                  mobilePickerTab === tab
+                    ? "bg-foreground/10 text-foreground/80 ring-1 ring-foreground/15"
+                    : "text-foreground/45 hover:bg-foreground/10 hover:text-foreground/70",
+                )}
+              >
+                {tab === "gifs" ? "GIFs" : tab === "stickers" ? "Stickers" : "Emoji"}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1">
+            {mobilePickerTab === "emoji" && (
+              <EmojiPicker
+                embedded
+                open
+                onClose={() => setMobilePickerOpen(false)}
+                onSelect={handleEmojiSelect}
+                customTab={{
+                  icon: "⭐",
+                  label: "Custom emojis",
+                  render: (query) => <CustomEmojiTab onInsert={handleEmojiSelect} query={query} />,
+                }}
+              />
+            )}
+            {mobilePickerTab === "gifs" && (
+              <GifPicker embedded open onClose={() => setMobilePickerOpen(false)} onSelect={handleGifSelect} />
+            )}
+            {mobilePickerTab === "stickers" && (
+              <StickerPicker embedded open onClose={() => setMobilePickerOpen(false)} onSelect={handleStickerSelect} />
+            )}
+          </div>
         </div>
       )}
 
@@ -1519,22 +1827,28 @@ export function ConversationInput({
           {attachments.map((att, i) => (
             <div
               key={i}
-              className="flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-xs ring-1 ring-[var(--border)]"
+              className="flex items-center gap-1.5 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs ring-1 ring-foreground/10"
             >
               {att.type.startsWith("image/") ? null : (
-                <FileText size="0.875rem" className="shrink-0 text-[var(--muted-foreground)]" />
+                <FileText
+                  size="0.875rem"
+                  className={cn(
+                    "shrink-0",
+                    att.type === PDF_ATTACHMENT_MIME_TYPE ? "text-[var(--primary)]" : "text-foreground/45",
+                  )}
+                />
               )}
               <span className="max-w-[120px] truncate">{att.name}</span>
               <button
                 onClick={() => updateAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                className="rounded p-0.5 text-foreground/45 hover:text-[var(--destructive)]"
               >
                 <X size="0.625rem" />
               </button>
             </div>
           ))}
           {isReadingAttachments && (
-            <div className="flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+            <div className="flex items-center gap-1.5 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/60 ring-1 ring-foreground/10">
               <Loader2 size="0.875rem" className="animate-spin" />
               Reading file...
             </div>
@@ -1542,26 +1856,23 @@ export function ConversationInput({
         </div>
       )}
 
-      {/* Mari capability + thinking indicators */}
-      <MariCapabilityNotice />
-      <MariThinkingIndicator />
-
       {/* Input bar */}
       <div
         ref={inputBarRef}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={cn(
-          "relative flex items-center gap-1.5 rounded-2xl border-2 px-2.5 py-2.5 transition-all duration-200 sm:gap-2 sm:px-4 bg-[var(--card)] dark:bg-black/40",
-          isDragging ? "border-blue-400/50 bg-blue-500/10 shadow-lg shadow-blue-500/10" : "border-[var(--border)]",
-        )}
+        className={getChatInputShellClass({
+          dragging: isDragging,
+          hasContent: hasInput || attachments.length > 0,
+          layout: "conversation",
+        })}
       >
         {/* Attach button */}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
+          accept="image/*,application/pdf,.pdf,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -1571,16 +1882,23 @@ export function ConversationInput({
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-lg p-1.5 text-foreground/40 transition-all hover:bg-foreground/10 hover:text-foreground/70 active:scale-90"
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all active:scale-90 sm:h-8 sm:w-8",
+            attachments.length
+              ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+              : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+          )}
           title="Attach file"
         >
           <Plus size="1rem" />
         </button>
 
         {/* Quick Switchers — desktop: inline, mobile: chevron */}
-        <QuickConnectionSwitcher className="hidden sm:flex" />
-        <QuickPersonaSwitcher className="hidden sm:flex" />
-        <div className="sm:hidden">
+        <div className="hidden shrink-0 items-center gap-1 sm:flex">
+          <QuickConnectionSwitcher />
+          <QuickPersonaSwitcher />
+        </div>
+        <div className="flex shrink-0 sm:hidden">
           <QuickSwitcherMobile />
         </div>
 
@@ -1590,36 +1908,63 @@ export function ConversationInput({
           ref={textareaRef}
           placeholder={
             groupResponseOrder === "manual"
-              ? characterNames.length > 0
-                ? `Message freely; @${characterNames[0]} to get a reply`
+              ? activeCharacterNames.length > 0
+                ? `Message freely; @${activeCharacterNames[0]} to get a reply`
                 : "Message freely..."
-              : characterNames.length > 1 && chatName
+              : activeCharacterNames.length > 1 && chatName
                 ? `Message ${chatName}, / for commands`
-                : characterNames.length > 0
-                  ? `Message @${characterNames[0]}, / for commands`
+                : activeCharacterNames.length > 0
+                  ? `Message @${activeCharacterNames[0]}, / for commands`
                   : "Message..."
           }
           rows={1}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          className="max-h-[12.5rem] min-w-0 flex-1 resize-none bg-transparent py-0 text-[1rem] leading-normal text-[var(--foreground)] outline-none placeholder:text-foreground/30"
+          onFocus={() => {
+            if (mobilePickerOpen) setMobilePickerOpen(false);
+          }}
+          className="max-h-[12.5rem] min-h-9 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[1rem] leading-tight text-foreground outline-none placeholder:text-foreground/30 sm:min-h-0 sm:px-0 sm:py-0 sm:leading-normal"
         />
 
         {/* Right actions */}
-        <div className="flex shrink-0 items-center gap-0.5">
-          <div className="relative">
+        <div className="ml-0 flex shrink-0 flex-nowrap items-center justify-end gap-0 sm:ml-auto sm:gap-0.5">
+          {/* Mobile: one multipurpose button → Emoji/GIFs/Stickers sheet (desktop uses the separate buttons) */}
+          <button
+            type="button"
+            onClick={() => {
+              setEmojiOpen(false);
+              setGifOpen(false);
+              const next = !mobilePickerOpen;
+              setMobilePickerOpen(next);
+              if (next) textareaRef.current?.blur();
+              else textareaRef.current?.focus();
+            }}
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-xl transition-colors sm:hidden",
+              mobilePickerOpen
+                ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+                : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+            )}
+            title={mobilePickerOpen ? "Show keyboard" : "Emoji, GIFs & stickers"}
+            aria-label={mobilePickerOpen ? "Show keyboard" : "Emoji, GIFs and stickers"}
+          >
+            {mobilePickerOpen ? <Keyboard size="1.25rem" /> : <Smile size="1.25rem" />}
+          </button>
+
+          <div className="relative hidden sm:block">
             <button
               ref={gifButtonRef}
               onClick={() => {
                 setGifOpen((v) => !v);
                 setEmojiOpen(false);
+                setStickerOpen(false);
               }}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                "flex h-9 w-9 items-center justify-center rounded-xl transition-colors sm:h-8 sm:w-8 sm:rounded-full",
                 gifOpen
-                  ? "text-foreground bg-foreground/10"
-                  : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                  ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+                  : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
               )}
               title="GIF"
             >
@@ -1640,12 +1985,13 @@ export function ConversationInput({
               onClick={() => {
                 setEmojiOpen((v) => !v);
                 setGifOpen(false);
+                setStickerOpen(false);
               }}
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
                 emojiOpen
-                  ? "text-foreground bg-foreground/10"
-                  : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                  ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+                  : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
               )}
               title="Emoji"
             >
@@ -1657,6 +2003,38 @@ export function ConversationInput({
               onSelect={handleEmojiSelect}
               anchorRef={emojiButtonRef}
               containerRef={inputBarRef}
+              customTab={{
+                icon: "⭐",
+                label: "Custom emojis",
+                render: (query) => <CustomEmojiTab onInsert={handleEmojiSelect} query={query} />,
+              }}
+            />
+          </div>
+
+          <div className="relative hidden sm:block">
+            <button
+              ref={stickerButtonRef}
+              onClick={() => {
+                setStickerOpen((v) => !v);
+                setEmojiOpen(false);
+                setGifOpen(false);
+              }}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                stickerOpen
+                  ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+                  : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
+              )}
+              title="Stickers"
+            >
+              <Sticker size="1.25rem" />
+            </button>
+            <StickerPicker
+              open={stickerOpen}
+              onClose={() => setStickerOpen(false)}
+              onSelect={handleStickerSelect}
+              anchorRef={stickerButtonRef}
+              containerRef={inputBarRef}
             />
           </div>
 
@@ -1665,12 +2043,12 @@ export function ConversationInput({
               ref={charPickerBtnRef}
               onClick={() => setCharPickerOpen((v) => !v)}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                "hidden h-11 w-11 items-center justify-center rounded-full transition-colors sm:flex sm:h-8 sm:w-8",
                 guideGenerations && hasInput
-                  ? "text-[var(--primary)] bg-[var(--primary)]/15 ring-1 ring-[var(--primary)]/30 hover:bg-[var(--primary)]/20"
+                  ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20 hover:bg-foreground/15"
                   : charPickerOpen
-                    ? "text-foreground bg-foreground/10"
-                    : "text-foreground/70 hover:bg-foreground/10 hover:text-foreground",
+                    ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
+                    : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
               )}
               title={
                 guideGenerations && hasInput ? "Trigger character response (guided)" : "Trigger character response"
@@ -1686,9 +2064,9 @@ export function ConversationInput({
               onClick={() => void handleTranslateDraft()}
               disabled={!activeChatId || !hasInput || isTranslatingDraft}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+                "hidden h-11 w-11 items-center justify-center rounded-full transition-colors sm:flex sm:h-8 sm:w-8",
                 hasInput && !isTranslatingDraft
-                  ? "text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
+                  ? "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70"
                   : "text-foreground/25",
               )}
               title="Translate draft"
@@ -1701,46 +2079,34 @@ export function ConversationInput({
             <SpeechToTextButton
               disabled={!activeChatId}
               onTranscript={handleSpeechTranscript}
-              className="rounded-full"
+              className="hidden rounded-full sm:flex"
               iconSize={16}
             />
           )}
 
-          <button
-            ref={statusButtonRef}
-            type="button"
-            onClick={() => setStatusMenuOpen((v) => !v)}
-            disabled={!activePersona}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-              statusMenuOpen
-                ? "text-foreground bg-foreground/10"
-                : activePersona
-                  ? "text-foreground/70 hover:bg-foreground/10 hover:text-foreground"
-                  : "text-foreground/25",
-            )}
-            title={activePersona ? "Saved persona statuses" : "Choose a persona to save statuses"}
-          >
-            <Bookmark size="1rem" />
-          </button>
-
           {showQuickRepliesMenu && quickReplyActions.length > 0 && (
-            <QuickReplyMenu
-              actions={quickReplyActions}
-              disabled={!activeChatId || isReadingAttachments || (!hasInput && attachments.length === 0)}
-            />
+            <div className="hidden sm:block">
+              <QuickReplyMenu
+                actions={quickReplyActions}
+                disabled={!activeChatId || isReadingAttachments || (!hasInput && attachments.length === 0)}
+              />
+            </div>
           )}
 
           <button
-            onClick={isActuallyGenerating ? () => useChatStore.getState().stopGeneration() : handleSend}
+            onClick={
+              isActuallyGenerating
+                ? () => useChatStore.getState().stopGeneration(activeChatId ?? undefined)
+                : handleSend
+            }
             disabled={!isActuallyGenerating && (isReadingAttachments || !activeChatId || !canSubmit)}
             aria-label={sendButtonTitle}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
+              "flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 sm:h-8 sm:w-8",
               isActuallyGenerating
-                ? "text-foreground hover:opacity-80"
+                ? "text-foreground/75 hover:bg-foreground/10 hover:text-foreground/90"
                 : canSubmit && !isReadingAttachments
-                  ? "text-foreground hover:text-foreground/80 active:scale-90"
+                  ? "text-foreground/75 hover:bg-foreground/10 hover:text-foreground/90 active:scale-90"
                   : "text-foreground/20",
             )}
             title={sendButtonTitle}
@@ -1755,83 +2121,26 @@ export function ConversationInput({
           </button>
         </div>
       </div>
-      {statusMenuOpen &&
-        createPortal(
-          <div
-            ref={statusMenuRef}
-            className="fixed z-[9999] flex max-h-[320px] min-w-[240px] max-w-[300px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
-            style={
-              statusMenuPos ? { left: statusMenuPos.left, top: statusMenuPos.top } : { visibility: "hidden" as const }
-            }
-          >
-            <div className="border-b border-[var(--border)] px-3 py-2">
-              <div className="truncate text-xs font-semibold">Saved Statuses</div>
-              <div className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                {activePersona?.name ?? "No persona selected"}
-              </div>
-            </div>
-            <div className="min-h-0 overflow-y-auto p-1">
-              {canSaveCurrentStatus && (
-                <button
-                  type="button"
-                  onClick={() => void handleSaveCurrentStatus()}
-                  disabled={updatePersona.isPending}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--primary)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
-                >
-                  <Plus size="0.875rem" className="shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">Save &quot;{normalizedUserActivity}&quot;</span>
-                </button>
-              )}
-              {savedStatusOptions.length > 0 ? (
-                savedStatusOptions.map((status) => (
-                  <div key={status} className="group flex items-center gap-1 rounded-lg hover:bg-[var(--accent)]">
-                    <button
-                      type="button"
-                      onClick={() => handleApplySavedStatus(status)}
-                      className="min-w-0 flex-1 px-3 py-2 text-left text-xs"
-                    >
-                      <span className="block truncate">{status}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteSavedStatus(status)}
-                      disabled={updatePersona.isPending}
-                      className="mr-1 rounded-md p-1.5 text-[var(--muted-foreground)] opacity-70 transition-colors hover:text-[var(--destructive)] disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
-                      title="Remove saved status"
-                    >
-                      <Trash2 size="0.75rem" />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3 py-4 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
-                  No saved statuses yet
-                </div>
-              )}
-            </div>
-          </div>,
-          document.body,
-        )}
       {showCharPicker &&
         charPickerOpen &&
         createPortal(
           <div
             ref={charPickerMenuRef}
-            className="fixed z-[9999] flex max-h-[320px] min-w-[220px] max-w-[280px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
+            className="fixed z-[9999] flex max-h-[320px] min-w-[220px] max-w-[280px] flex-col overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] shadow-2xl"
             style={
               charPickerPos ? { left: charPickerPos.left, top: charPickerPos.top } : { visibility: "hidden" as const }
             }
           >
-            <div className="flex items-center justify-center border-b border-[var(--border)] px-3 py-2 text-[0.6875rem] font-semibold">
+            <div className="flex items-center justify-center border-b border-foreground/10 px-3 py-2 text-[0.6875rem] font-semibold">
               Trigger Response
             </div>
             <div className="overflow-y-auto p-1">
-              {chatCharacters!.map((char) => (
+              {activeChatCharacters!.map((char) => (
                 <button
                   key={char.id}
                   onClick={() => handleCharacterResponse(char.id)}
                   className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-foreground/10",
                     (char.conversationStatus === "dnd" || char.conversationStatus === "offline") && "opacity-60",
                   )}
                 >
@@ -1846,7 +2155,7 @@ export function ConversationInput({
                         />
                       </span>
                     ) : (
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--secondary)] text-[0.6875rem] font-semibold text-[var(--muted-foreground)]">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/10 text-[0.6875rem] font-semibold text-foreground/45">
                         {(char.name || "?")[0].toUpperCase()}
                       </div>
                     )}
@@ -1860,7 +2169,7 @@ export function ConversationInput({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs">{char.name}</span>
                     {(char.conversationActivity || statusLabel(char.conversationStatus)) && (
-                      <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                      <span className="block truncate text-[0.625rem] text-foreground/45">
                         {char.conversationActivity || statusLabel(char.conversationStatus)}
                       </span>
                     )}

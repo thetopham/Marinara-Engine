@@ -69,6 +69,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const disabledRef = useRef(Boolean(disabled));
 
   useEffect(() => {
     setSupported(Boolean(getSpeechRecognitionCtor()));
@@ -78,16 +79,25 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
     };
   }, []);
 
+  useEffect(() => {
+    disabledRef.current = Boolean(disabled);
+    if (disabled && recognitionRef.current) {
+      recognitionRef.current.abort();
+      recognitionRef.current = null;
+      setListening(false);
+    }
+  }, [disabled]);
+
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
   }, []);
 
   const startListening = useCallback(() => {
-    if (disabled) return;
-    if (listening) {
+    if (listening || recognitionRef.current) {
       stopListening();
       return;
     }
+    if (disabledRef.current) return;
 
     const Recognition = getSpeechRecognitionCtor();
     if (!Recognition) {
@@ -119,7 +129,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
     recognition.onend = () => {
       recognitionRef.current = null;
       setListening(false);
-      if (finalTranscript.trim()) {
+      if (!disabledRef.current && finalTranscript.trim()) {
         onTranscript(finalTranscript.trim());
       }
     };
@@ -133,7 +143,7 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
       setListening(false);
       toast.error("Could not start speech recognition.");
     }
-  }, [disabled, listening, onTranscript, stopListening]);
+  }, [listening, onTranscript, stopListening]);
 
   return (
     <button
@@ -141,11 +151,11 @@ export function SpeechToTextButton({ disabled, onTranscript, className, iconSize
       onClick={startListening}
       disabled={disabled}
       className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200 active:scale-90",
+        "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all duration-200 active:scale-90 sm:h-8 sm:w-8",
         listening
-          ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+          ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
           : supported
-            ? "text-foreground/50 hover:bg-foreground/10 hover:text-foreground/75"
+            ? "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70"
             : "text-foreground/25",
         disabled && "cursor-not-allowed opacity-50",
         className,

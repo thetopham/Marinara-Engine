@@ -28,15 +28,17 @@ function showChibiProfessorMariToast() {
   rememberChibiProfessorMari();
   toast.custom(
     () => (
-      <div className="flex max-w-[360px] gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-[var(--foreground)] shadow-lg">
-        <img
-          src={CHIBI_PROFESSOR_MARI_IMAGE}
-          alt="Chibi Professor Mari"
-          className="h-24 w-20 shrink-0 object-contain"
-          onError={(event) => {
-            event.currentTarget.hidden = true;
-          }}
-        />
+      <div className="flex max-w-[360px] gap-3 pr-3 text-[var(--foreground)]">
+        <div className="flex h-24 w-20 shrink-0 items-end justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--accent)]/45">
+          <img
+            src={CHIBI_PROFESSOR_MARI_IMAGE}
+            alt="Chibi Professor Mari"
+            className="h-full w-full object-contain p-1"
+            onError={(event) => {
+              event.currentTarget.hidden = true;
+            }}
+          />
+        </div>
         <div className="space-y-2 text-sm leading-relaxed">
           <p>
             If you see this image while scrolling through Marinara Engine, you've been visited by the rare Chibi

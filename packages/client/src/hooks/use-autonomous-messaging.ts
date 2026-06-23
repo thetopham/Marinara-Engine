@@ -8,8 +8,10 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api-client";
+import { recordUserMessageActivity } from "../lib/user-presence-activity";
+import { toAutonomousPresenceStatus } from "../lib/user-status";
 import { useChatStore } from "../stores/chat.store";
-import { useUIStore } from "../stores/ui.store";
+import { useUIStore, type UserStatus } from "../stores/ui.store";
 import { useGenerate } from "./use-generate";
 import { chatKeys } from "./use-chats";
 import { characterKeys } from "./use-characters";
@@ -19,6 +21,9 @@ interface AutonomousCheckResult {
   characterIds: string[];
   reason: string;
   inactivityMs: number;
+  generationStartedAt?: number;
+  autonomousIntent?: string;
+  autonomousIntentKey?: string;
 }
 
 interface BusyDelayResult {
@@ -43,6 +48,7 @@ export function useAutonomousMessaging(
   const qc = useQueryClient();
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busyGenerationStartedAtRef = useRef<number | undefined>(undefined);
   const generatingRef = useRef(false);
   const onAutonomousMessageRef = useRef(onAutonomousMessage);
   onAutonomousMessageRef.current = onAutonomousMessage;
@@ -50,14 +56,9 @@ export function useAutonomousMessaging(
   // Record that the user sent a message
   const recordUserActivity = useCallback(async () => {
     if (!chatId) return;
-    try {
-      await api.post("/conversation/activity/user", {
-        chatId,
-        preserveGenerationInProgress: useChatStore.getState().abortControllers.has(chatId),
-      });
-    } catch {
-      // non-critical
-    }
+    await recordUserMessageActivity(chatId, {
+      preserveGenerationInProgress: useChatStore.getState().abortControllers.has(chatId),
+    });
   }, [chatId]);
 
   // Record that an assistant message was received
@@ -84,18 +85,20 @@ export function useAutonomousMessaging(
           characterIds,
           scheduleGenerationPreferences,
         });
+        await qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+        await qc.invalidateQueries({ queryKey: ["conversation-status", chatId] });
       } catch {
         // non-critical — schedule generation may fail if no connection
       }
     },
-    [chatId],
+    [chatId, qc],
   );
 
   const recordClientPresence = useCallback(
-    async (userStatus: "active" | "idle" | "dnd") => {
+    async (userStatus: UserStatus) => {
       if (!chatId) return;
       try {
-        await api.post("/conversation/activity/presence", { chatId, userStatus });
+        await api.post("/conversation/activity/presence", { chatId, userStatus: toAutonomousPresenceStatus(userStatus) });
       } catch {
         // non-critical
       }
@@ -133,7 +136,7 @@ export function useAutonomousMessaging(
       try {
         const result = await api.post<AutonomousCheckResult>("/conversation/autonomous/check", {
           chatId,
-          userStatus,
+          userStatus: toAutonomousPresenceStatus(userStatus),
         });
 
         // Refresh character data so sidebar status dots update
@@ -146,19 +149,28 @@ export function useAutonomousMessaging(
           const delay = await api.post<BusyDelayResult>("/conversation/busy-delay", { chatId, characterId });
 
           if (delay.delayMs > 0) {
+            busyGenerationStartedAtRef.current = result.generationStartedAt;
             // Wait for the busy delay, then generate
             busyTimerRef.current = setTimeout(() => {
+              const generationStartedAt = busyGenerationStartedAtRef.current;
+              busyTimerRef.current = null;
+              busyGenerationStartedAtRef.current = undefined;
               // Re-check guards after delay — user may have started a manual generation
               if (generatingRef.current || useChatStore.getState().abortControllers.has(chatId)) {
+                if (typeof generationStartedAt === "number") {
+                  void api
+                    .post("/conversation/autonomous/clear-in-progress", { chatId, startedAt: generationStartedAt })
+                    .catch(() => {});
+                }
                 schedulePoll();
                 return;
               }
-              triggerAutonomousGeneration(characterId);
+              triggerAutonomousGeneration(characterId, result.autonomousIntentKey, true);
             }, delay.delayMs);
             return; // Don't schedule next poll until generation completes
           }
 
-          await triggerAutonomousGeneration(characterId);
+          await triggerAutonomousGeneration(characterId, result.autonomousIntentKey);
           return; // Generation will schedule next poll when done
         }
       } catch {
@@ -168,7 +180,11 @@ export function useAutonomousMessaging(
       schedulePoll();
     };
 
-    const triggerAutonomousGeneration = async (characterId: string) => {
+    const triggerAutonomousGeneration = async (
+      characterId: string,
+      autonomousIntentKey?: string,
+      skipPresenceDelay = false,
+    ) => {
       generatingRef.current = true;
       let produced: boolean | undefined = false;
       let shouldSchedulePoll = true;
@@ -176,6 +192,10 @@ export function useAutonomousMessaging(
         produced = await generate({
           chatId,
           connectionId: null,
+          forCharacterId: characterId,
+          autonomous: true,
+          autonomousIntentKey,
+          skipPresenceDelay,
         });
         if (produced) {
           // Re-sort sidebar so this chat floats to the top
@@ -236,7 +256,19 @@ export function useAutonomousMessaging(
 
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-      if (busyTimerRef.current) clearTimeout(busyTimerRef.current);
+      if (busyTimerRef.current) {
+        clearTimeout(busyTimerRef.current);
+        if (typeof busyGenerationStartedAtRef.current === "number") {
+          void api
+            .post("/conversation/autonomous/clear-in-progress", {
+              chatId,
+              startedAt: busyGenerationStartedAtRef.current,
+            })
+            .catch(() => {});
+        }
+        busyTimerRef.current = null;
+        busyGenerationStartedAtRef.current = undefined;
+      }
     };
   }, [chatId, enabled, exchangesEnabled, generate, recordAssistantActivity, recordClientPresence, qc]);
 

@@ -27,6 +27,9 @@ import { safeFetch } from "../../utils/security.js";
 const DEFAULT_RUNPOD_POLL_INTERVAL_MS = 2_000;
 const RUNPOD_MAX_POLLS = 90; // 90 × 2s = 3 minutes max by default.
 const RUNPOD_MAX_RESPONSE_BYTES = 30 * 1024 * 1024;
+const RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES = 4;
+const RUNPOD_COMFYUI_PLACEHOLDER_REFERENCE_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 interface RunPodRunResponse {
   id: string;
@@ -100,9 +103,15 @@ export async function generateRunPodComfyUI(
   if (request.model) {
     wfStr = wfStr.replace(/%model%/g, escapeJsonStr(request.model));
   }
-  const referenceImage = request.referenceImage || request.referenceImages?.[0];
-  if (referenceImage) {
-    wfStr = wfStr.replace(/%reference_image%/g, escapeJsonStr(referenceImage));
+  const referenceImages = collectRunPodReferenceImages(request, defaults);
+  for (let i = 0; i < referenceImages.length; i++) {
+    const referenceImage = referenceImages[i]!;
+    const referenceImageBase64 = normalizeRunPodReferenceImageBase64(referenceImage);
+    const numbered = `%reference_image_${String(i + 1).padStart(2, "0")}%`;
+    wfStr = wfStr.replaceAll(numbered, escapeJsonStr(referenceImageBase64));
+    if (i === 0) {
+      wfStr = wfStr.replace(/%reference_image%/g, escapeJsonStr(referenceImageBase64));
+    }
   }
 
   let workflow: Record<string, unknown>;
@@ -159,6 +168,32 @@ export async function generateRunPodComfyUI(
   }
 
   throw new Error("RunPod generation timed out after 3 minutes");
+}
+
+function collectRunPodReferenceImages(request: ImageGenRequest, defaults: ComfyUiDefaults): string[] {
+  const references = [request.referenceImage, ...(request.referenceImages ?? [])]
+    .filter((reference): reference is string => typeof reference === "string" && reference.trim().length > 0)
+    .filter((reference, index, all) => all.indexOf(reference) === index)
+    .slice(0, RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES);
+  if (references.length > 0) return references;
+  return defaults.uploadPlaceholderOnMissingReference ? [RUNPOD_COMFYUI_PLACEHOLDER_REFERENCE_BASE64] : [];
+}
+
+function normalizeRunPodReferenceImageBase64(reference: string): string {
+  const dataUrlMatch = reference.trim().match(/^data:image\/(?:png|jpe?g|webp|gif|avif|bmp);base64,([\s\S]+)$/i);
+  const rawBase64 = dataUrlMatch ? dataUrlMatch[1]! : reference;
+  const compact = rawBase64.replace(/\s+/g, "");
+  const unpadded = compact.replace(/=+$/, "");
+  if (!unpadded || /[^A-Za-z0-9+/]/.test(unpadded)) {
+    throw new Error("RunPod ComfyUI reference image was not valid base64 image data");
+  }
+
+  const remainder = unpadded.length % 4;
+  if (remainder === 1) {
+    throw new Error("RunPod ComfyUI reference image was not valid base64 image data");
+  }
+
+  return `${unpadded}${"=".repeat(remainder === 0 ? 0 : 4 - remainder)}`;
 }
 
 /**
@@ -292,6 +327,8 @@ function detectImageMimeType(base64: string): string {
   const bytes = Buffer.from(base64.slice(0, 64), "base64");
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) return "image/bmp";
   if (
     bytes[0] === 0x52 &&
     bytes[1] === 0x49 &&
@@ -304,6 +341,16 @@ function detectImageMimeType(base64: string): string {
   ) {
     return "image/webp";
   }
+  const brand = bytes.subarray(8, 12).toString("ascii").toLowerCase();
+  if (
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70 &&
+    (brand.startsWith("avif") || brand.startsWith("avis"))
+  ) {
+    return "image/avif";
+  }
   return "image/png";
 }
 
@@ -311,11 +358,13 @@ function imageExtensionFromMimeType(mimeType: string): string {
   if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
   if (mimeType.includes("webp")) return "webp";
   if (mimeType.includes("gif")) return "gif";
+  if (mimeType.includes("avif")) return "avif";
+  if (mimeType.includes("bmp")) return "bmp";
   return "png";
 }
 
 function decodeDataUrl(dataUrl: string): ImageGenResult {
-  const match = dataUrl.trim().match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,([\s\S]+)$/i);
+  const match = dataUrl.trim().match(/^data:(image\/(?:png|jpe?g|webp|gif|avif|bmp));base64,([\s\S]+)$/i);
   if (!match) throw new Error("Invalid image data URL from RunPod output");
 
   const declaredMimeType = match[1]!.toLowerCase().replace("image/jpg", "image/jpeg");

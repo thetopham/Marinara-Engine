@@ -1,13 +1,15 @@
-import { Suspense, lazy, type ComponentProps } from "react";
+import { Suspense, lazy, useEffect, type ComponentProps } from "react";
 import type { SpriteSide } from "@marinara-engine/shared";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
-import { PinnedImageOverlay } from "./PinnedImageOverlay";
 import type { PeekPromptData } from "./chat-area.types";
+import type { LocalSpriteVisualSettings } from "./local-sprite-visual-settings";
 
-const ChatSettingsDrawer = lazy(async () => {
+const loadChatSettingsDrawer = async () => {
   const module = await import("./ChatSettingsDrawer");
   return { default: module.ChatSettingsDrawer };
-});
+};
+
+const ChatSettingsDrawer = lazy(loadChatSettingsDrawer);
 
 const ChatFilesDrawer = lazy(async () => {
   const module = await import("./ChatFilesDrawer");
@@ -30,12 +32,16 @@ const PeekPromptModal = lazy(async () => {
 });
 
 type ChatData = ComponentProps<typeof ChatSettingsDrawer>["chat"];
+export type ChatFloatingPanelAnchor = { right: number; top: number } | null;
+export type ChatSettingsInitialSection = ComponentProps<typeof ChatSettingsDrawer>["initialSection"];
 
 type SharedSceneSettingsProps = {
   spriteArrangeMode: boolean;
   onToggleSpriteArrange: () => void;
   onResetSpritePlacements: () => void;
   onSpriteSideChange: (side: SpriteSide) => void;
+  spriteVisualSettings?: LocalSpriteVisualSettings;
+  onSpriteVisualSettingsChange?: (patch: Partial<LocalSpriteVisualSettings>) => void;
 };
 
 type DeleteDialogProps = {
@@ -62,7 +68,10 @@ function DeleteConfirmationDialog({
   if (!messageId) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-[max(env(safe-area-inset-top),0.75rem)] sm:p-4"
+      onClick={onClose}
+    >
       <div
         className="mx-4 w-full max-w-xs rounded-xl bg-[var(--card)] p-5 shadow-2xl ring-1 ring-[var(--border)]"
         onClick={(e) => e.stopPropagation()}
@@ -174,10 +183,12 @@ function MultiSelectBar({
 
 type ChatCommonOverlaysProps = {
   chat: ChatData | null | undefined;
-  activeChatId: string;
   settingsOpen: boolean;
+  settingsAnchor: ChatFloatingPanelAnchor;
+  settingsInitialSection?: ChatSettingsInitialSection;
   filesOpen: boolean;
   galleryOpen: boolean;
+  galleryAnchor: ChatFloatingPanelAnchor;
   wizardOpen: boolean;
   peekPromptData: PeekPromptData | null;
   deleteDialogMessageId: string | null;
@@ -207,10 +218,12 @@ type ChatCommonOverlaysProps = {
 
 export function ChatCommonOverlays({
   chat,
-  activeChatId,
   settingsOpen,
+  settingsAnchor,
+  settingsInitialSection,
   filesOpen,
   galleryOpen,
+  galleryAnchor,
   wizardOpen,
   peekPromptData,
   deleteDialogMessageId,
@@ -236,6 +249,21 @@ export function ChatCommonOverlays({
   onSelectAllAboveSelection,
   onSelectAllBelowSelection,
 }: ChatCommonOverlaysProps) {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const warmSettingsDrawer = () => {
+      void loadChatSettingsDrawer();
+    };
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(warmSettingsDrawer, { timeout: 1500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = setTimeout(warmSettingsDrawer, 600);
+    return () => clearTimeout(timeoutId);
+  }, []);
+
   return (
     <>
       {chat && (
@@ -245,10 +273,14 @@ export function ChatCommonOverlays({
               chat={chat}
               open={settingsOpen}
               onClose={onCloseSettings}
+              anchor={settingsAnchor}
+              initialSection={settingsInitialSection}
               spriteArrangeMode={sceneSettings.spriteArrangeMode}
               onToggleSpriteArrange={sceneSettings.onToggleSpriteArrange}
               onResetSpritePlacements={sceneSettings.onResetSpritePlacements}
               onSpriteSideChange={sceneSettings.onSpriteSideChange}
+              spriteVisualSettings={sceneSettings.spriteVisualSettings}
+              onSpriteVisualSettingsChange={sceneSettings.onSpriteVisualSettingsChange}
             />
           )}
         </Suspense>
@@ -261,14 +293,19 @@ export function ChatCommonOverlays({
       {chat && (
         <Suspense fallback={null}>
           {galleryOpen && (
-            <ChatGalleryDrawer chat={chat} open={galleryOpen} onClose={onCloseGallery} onIllustrate={onIllustrate} />
+            <ChatGalleryDrawer
+              chat={chat}
+              open={galleryOpen}
+              onClose={onCloseGallery}
+              anchor={galleryAnchor}
+              onIllustrate={onIllustrate}
+            />
           )}
         </Suspense>
       )}
       {chat && (
         <Suspense fallback={null}>{wizardOpen && <ChatSetupWizard chat={chat} onFinish={onWizardFinish} />}</Suspense>
       )}
-      <PinnedImageOverlay activeChatId={activeChatId} />
       <Suspense fallback={null}>
         {peekPromptData && <PeekPromptModal data={peekPromptData} onClose={onClosePeekPrompt} />}
       </Suspense>

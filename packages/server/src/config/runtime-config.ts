@@ -18,6 +18,10 @@ const REGRESSION_DATA_DIR = resolve(MONOREPO_ROOT, "data");
 const DEFAULT_DATABASE_FILE = "marinara-engine.db";
 const DEFAULT_DATABASE_PATH = resolve(DEFAULT_DATA_DIR, DEFAULT_DATABASE_FILE);
 const REGRESSION_DATABASE_PATH = resolve(REGRESSION_DATA_DIR, DEFAULT_DATABASE_FILE);
+const DEFAULT_MAX_TOOL_ROUNDS = 100;
+const MAX_CONFIGURED_TOOL_ROUNDS = 10_000;
+const DEFAULT_CUSTOM_TOOL_TIMEOUT_MS = 60_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 let envLoaded = false;
 // Keys that the .env file currently contributes to process.env. Tracked so a
@@ -181,7 +185,15 @@ function isEnabledFlag(value: string | undefined | null) {
   return ["1", "true", "yes", "on"].includes((value ?? "").trim().toLowerCase());
 }
 
-function isDockerRuntime() {
+function parsePositiveIntEnv(value: string | undefined | null, fallback: number, max: number) {
+  const raw = normalizeEnvValue(value);
+  if (!raw || !/^\d+$/.test(raw)) return fallback;
+
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
+}
+
+export function isDockerRuntime() {
   return (
     isEnabledFlag(process.env.MARINARA_DOCKER) ||
     normalizeEnvValue(process.env.MARINARA_DOCKER_USER) !== null ||
@@ -224,6 +236,20 @@ export function getLogLevel() {
 
 export function getLogPreset() {
   return normalizeEnvValue(process.env.LOG_PRESET)?.toLowerCase() ?? "default";
+}
+
+/**
+ * Kill switch for the `claude_subscription` provider's resume code path.
+ * Default `true`; set `CLAUDE_SUBSCRIPTION_USE_RESUME=false` (or `0`/`off`/`no`)
+ * to revert to the legacy transcript-fold path. When enabled, prior turns are
+ * fed to the Claude Agent SDK through its `sessionStore` resume mechanism so
+ * prompt caching holds across turns; if that setup fails (e.g. a read-only
+ * data directory) the provider degrades to transcript-fold for that request.
+ */
+export function isClaudeSubscriptionResumeEnabled() {
+  const raw = normalizeEnvValue(process.env.CLAUDE_SUBSCRIPTION_USE_RESUME);
+  if (raw === null) return true;
+  return !isDisabledFlag(raw);
 }
 
 export function isPromptConnectionLogPreset() {
@@ -426,6 +452,18 @@ export function isUpdatesRemoteApplyAllowed() {
 
 export function isProviderLocalUrlsEnabled() {
   return isEnabledFlag(process.env.PROVIDER_LOCAL_URLS_ENABLED);
+}
+
+export function getEmbeddingRequestTimeoutMs() {
+  return parsePositiveIntEnv(process.env.EMBEDDING_TIMEOUT_MS, 300_000, MAX_TIMEOUT_MS);
+}
+
+export function getMaxToolRounds() {
+  return parsePositiveIntEnv(process.env.MAX_TOOL_ROUNDS, DEFAULT_MAX_TOOL_ROUNDS, MAX_CONFIGURED_TOOL_ROUNDS);
+}
+
+export function getCustomToolTimeoutMs() {
+  return parsePositiveIntEnv(process.env.CUSTOM_TOOL_TIMEOUT_MS, DEFAULT_CUSTOM_TOOL_TIMEOUT_MS, MAX_TIMEOUT_MS);
 }
 
 export function isImageLocalUrlsEnabled() {

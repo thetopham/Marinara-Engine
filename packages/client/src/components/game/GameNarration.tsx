@@ -16,11 +16,13 @@ import {
 } from "react";
 import DOMPurify from "dompurify";
 import {
+  AlertTriangle,
   MessageCircle,
   RefreshCw,
   ScrollText,
   X,
   Package,
+  Sword,
   Copy,
   Pencil,
   Check,
@@ -33,12 +35,14 @@ import {
   Loader2,
   Wand2,
   RotateCcw,
+  GitBranch,
 } from "lucide-react";
 import { cn, copyToClipboard, getAvatarCropStyle, type AvatarCrop, type LegacyAvatarCrop } from "../../lib/utils";
 import { findNamedMapValue } from "../../lib/game-character-name-match";
 import type { GameSegmentEdit } from "../../lib/game-segment-edits";
 import { parseGmTags, stripGmTagsKeepReadables } from "../../lib/game-tag-parser";
 import { audioManager } from "../../lib/game-audio";
+import { normalizeSpriteExpressionKey, resolveSpriteExpression } from "../../lib/sprite-expression-match";
 import {
   DIALOGUE_QUOTE_CAPTURE_GROUP_PATTERN_SOURCE,
   HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE,
@@ -51,12 +55,27 @@ import { useApplyRegex } from "../../hooks/use-apply-regex";
 import { useGameAssetStore } from "../../stores/game-asset.store";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useUIStore } from "../../stores/ui.store";
+import { useChatStore } from "../../stores/chat.store";
+import { parseChatMetadata } from "../../lib/chat-display";
 import { createMessageMacroResolver, findCharacterByName } from "../../lib/chat-macros";
 import { animateTextHtml } from "./AnimatedText";
 import { ttsService } from "../../lib/tts-service";
 import { getOrCreateCachedTTSAudioBlob } from "../../lib/tts-audio-cache";
-import { resolveTTSVoiceForSpeaker, splitTTSChunks, ttsConfigMatchesSpeaker } from "../../lib/tts-dialogue";
-import type { PartyDialogueLine, Message, TTSConfig, GameNpc, SkillCheckResult } from "@marinara-engine/shared";
+import {
+  resolveTTSNarratorVoice,
+  resolveTTSVoiceForSpeaker,
+  splitTTSChunks,
+  ttsConfigMatchesSpeaker,
+} from "../../lib/tts-dialogue";
+import {
+  formatTextQuotes,
+  normalizeTextForMatch,
+  type PartyDialogueLine,
+  type Message,
+  type TTSConfig,
+  type GameNpc,
+  type SkillCheckResult,
+} from "@marinara-engine/shared";
 import type { CharacterMap, PersonaInfo } from "../chat/chat-area.types";
 
 /** Build inline style for a color that may be a plain color or a CSS gradient. */
@@ -75,14 +94,6 @@ function nameColorStyle(color?: string): CSSProperties | undefined {
     };
   }
   return { color };
-}
-
-function normalizeSpriteExpressionKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^full_/, "")
-    .replace(/[_\s-]+/g, "_");
 }
 
 const GAME_TTS_EMOTIONS = [
@@ -261,6 +272,13 @@ type GameSegmentVoiceEntry =
   | { status: "ready"; speaker?: string; tone?: string; voice?: string; chunks: string[]; urls: string[] }
   | { status: "error"; speaker?: string; tone?: string; voice?: string; chunks: string[] };
 
+const GAME_VOICE_CACHE_MAX_ENTRIES = 80;
+
+function revokeGameVoiceEntry(entry: GameSegmentVoiceEntry | undefined): void {
+  if (entry?.status !== "ready") return;
+  for (const url of entry.urls) URL.revokeObjectURL(url);
+}
+
 interface GameSegmentVoiceRequest {
   speaker?: string;
   tone?: string;
@@ -393,8 +411,18 @@ interface GameNarrationProps {
   onOpenInventory?: () => void;
   /** Number of items in inventory (for badge) */
   inventoryCount?: number;
+  /** Ask the parent to manually start/generate combat for the current turn. */
+  onRequestCombatStart?: () => void;
+  /** Whether combat state is being prepared and the player has reached the combat beat. */
+  combatStarting?: boolean;
+  /** Whether combat state generation failed for the current combat beat. */
+  combatGenerationFailed?: boolean;
+  /** Retry combat state generation. */
+  onRetryCombatGeneration?: () => void;
   /** Open the standard delete-message flow for a backing chat message. */
   onDeleteMessage?: (messageId: string) => void;
+  /** Create a chat branch ending at a user-authored game log message. */
+  onBranchMessage?: (messageId: string) => void;
   /** Whether the global multi-delete bar is active. */
   multiSelectMode?: boolean;
   /** Chat message ids selected for global multi-delete. */
@@ -465,6 +493,8 @@ interface GameNarrationProps {
   onStepForward?: () => void;
   /** Jump straight back to the present in one shot. Bound to the Return button during review. */
   onJumpToLatest?: () => void;
+  /** Set the review offset directly when an action needs to land on a specific log beat. */
+  onSetReviewOffset?: (offset: number) => void;
   /**
    * Token bumped from the parent (background-click handler) when wheel-nav is enabled
    * and the player clicks the bare scene background. GameNarration interprets it as
@@ -559,6 +589,8 @@ function buildVoiceConfigSignature(config?: TTSConfig | null): string {
     config.baseUrl,
     config.model,
     config.voice,
+    config.narratorVoiceEnabled ? "narrator-voice" : "narrator-global",
+    config.narratorVoice,
     config.voiceMode,
     JSON.stringify(config.voiceAssignments ?? []),
     config.npcDefaultVoicesEnabled ? "npc-defaults" : "npc-global",
@@ -640,23 +672,44 @@ function waitForGameTTSRetry(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+function waitForGameTTSBlob(promise: Promise<Blob>, signal: AbortSignal): Promise<Blob> {
+  if (signal.aborted) return Promise.reject(new DOMException("TTS request aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("TTS request aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (blob) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(blob);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function generateGameVoiceJobBlob(job: GameVoiceAudioJob, controller: AbortController): Promise<Blob> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= GAME_TTS_CHUNK_ATTEMPTS; attempt += 1) {
     if (controller.signal.aborted) throw new DOMException("TTS request aborted", "AbortError");
     try {
-      return await getOrCreateCachedTTSAudioBlob(
+      const sharedPromise = getOrCreateCachedTTSAudioBlob(
         job.cacheKey,
         () =>
           ttsService.generateAudio(job.chunk, {
             speaker: job.speaker,
             tone: job.tone,
             voice: job.voice,
-            signal: controller.signal,
           }),
         [job.textCacheKey],
       );
+      return await waitForGameTTSBlob(sharedPromise, controller.signal);
     } catch (err) {
       if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) throw err;
       lastError = err;
@@ -672,8 +725,8 @@ async function generateGameVoiceJobBlob(job: GameVoiceAudioJob, controller: Abor
 function findNpcVoiceHint(speaker: string | null | undefined, gameNpcs: GameNpc[]) {
   const speakerName = speaker?.trim();
   if (!speakerName) return null;
-  const normalizedSpeaker = speakerName.toLowerCase();
-  const npc = gameNpcs.find((candidate) => candidate.name.trim().toLowerCase() === normalizedSpeaker);
+  const normalizedSpeaker = normalizeTextForMatch(speakerName);
+  const npc = gameNpcs.find((candidate) => normalizeTextForMatch(candidate.name) === normalizedSpeaker);
   if (!npc) return { name: speakerName };
   return { name: npc.name, description: npc.description, gender: npc.gender, pronouns: npc.pronouns, notes: npc.notes };
 }
@@ -683,7 +736,7 @@ type GameSegmentVoiceOptions = {
 };
 
 function normalizeGameVoiceSpeakerName(value: string | null | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  return normalizeTextForMatch(value);
 }
 
 function getGameVoicePlayerSpeakerNames(personaName: string | undefined): Set<string> {
@@ -750,7 +803,7 @@ function getGameSegmentVoiceRequest(
   if (config.dialogueOnly) return null;
   const chunks = splitTTSChunks(segment.content);
   if (chunks.length === 0) return null;
-  const voice = config.voice;
+  const voice = resolveTTSNarratorVoice(config);
   if (config.source === "elevenlabs" && !voice) return null;
   return { chunks, voice };
 }
@@ -893,7 +946,12 @@ export function GameNarration({
   skillCheckSlot,
   onOpenInventory,
   inventoryCount,
+  onRequestCombatStart,
+  combatStarting,
+  combatGenerationFailed,
+  onRetryCombatGeneration,
   onDeleteMessage,
+  onBranchMessage,
   multiSelectMode = false,
   selectedMessageIds,
   onDeleteSegment,
@@ -918,16 +976,22 @@ export function GameNarration({
   messageOffset = 0,
   onStepForward,
   onJumpToLatest,
+  onSetReviewOffset,
   nextActionToken,
   onMaxNavOffsetChange,
 }: GameNarrationProps) {
   const { translations, translating } = useTranslate();
   const { applyToAIOutput } = useApplyRegex();
+  // Parse the chat metadata in a memo (not the store selector) so streaming ticks
+  // don't re-parse the whole metadata object on every update.
+  const activeChatMetadata = useChatStore((s) => s.activeChat?.metadata);
+  const scopedRegexMode = useMemo(() => parseChatMetadata(activeChatMetadata).scopedRegexMode, [activeChatMetadata]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [visibleChars, setVisibleChars] = useState(0);
   const [logsOpen, setLogsOpen] = useState(false);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
   const gameDialogueDisplayMode = useUIStore((s) => s.gameDialogueDisplayMode);
+  const quoteFormat = useUIStore((s) => s.quoteFormat);
   const useStackedLogDisplay = gameDialogueDisplayMode === "stacked";
   const showLogsButton = !useStackedLogDisplay;
   const [editingContent, setEditingContent] = useState<string | null>(null);
@@ -962,9 +1026,26 @@ export function GameNarration({
   const gameVoiceCacheRef = useRef<Map<string, GameSegmentVoiceEntry>>(new Map());
   const gameVoicePendingRef = useRef<Map<string, AbortController>>(new Map());
   const gameVoiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Every voice <audio> currently created/playing. gameVoiceAudioRef only tracks
+  // the single most-recent element, so when two playback attempts interleave the
+  // earlier element is dropped from the ref and never paused — it plays to the end
+  // while new clips stack on top (issue #2647 overlap). This set lets
+  // stopGameVoicePlayback tear down ALL live elements, guaranteeing at most one
+  // voice clip is ever audible.
+  const gameVoiceActiveAudiosRef = useRef<Set<HTMLAudioElement>>(new Set());
   const gameVoiceSequenceRef = useRef(0);
   const gameVoiceGenerationTailRef = useRef<Promise<void>>(Promise.resolve());
   const lastAutoPlayedVoiceKeyRef = useRef<string | null>(null);
+  // Keys for which an auto-play attempt has been launched but not yet confirmed
+  // started. The committed dedup refs (lastAutoPlayedVoiceKeyRef /
+  // autoPlayedSideVoiceKeysRef) are only written in the async onStarted callback,
+  // so without these synchronous in-flight markers a gameVoiceVersion bump (fired
+  // as each clip finishes generating) re-runs the auto-play effects before the
+  // current clip reports playing and relaunches it — restarting the same line on
+  // a loop. onStarted clears in-flight after committing dedup; onBlocked clears it
+  // so the autoplay-blocked retry path still works. See issue #2647.
+  const autoPlayInFlightVoiceKeyRef = useRef<string | null>(null);
+  const autoPlayInFlightSideVoiceKeysRef = useRef<Set<string>>(new Set());
   const autoPlayedSideVoiceKeysRef = useRef<Set<string>>(new Set());
   const sideVoiceAutoPlayFailuresRef = useRef<Map<string, number>>(new Map());
   const sideVoiceAutoPlayRetryPendingRef = useRef<Set<string>>(new Set());
@@ -1002,16 +1083,16 @@ export function GameNarration({
     const byName = new Map<string, string>();
     for (const [, c] of activeCharacterEntries) {
       const color = c.dialogueColor || c.nameColor;
-      if (color) byName.set(c.name.toLowerCase(), color);
+      if (color) byName.set(normalizeTextForMatch(c.name), color);
     }
     if (speakerAvatarMap) {
       for (const [name, info] of speakerAvatarMap) {
         const color = info.dialogueColor || info.nameColor;
-        if (color) byName.set(name.toLowerCase(), color);
+        if (color) byName.set(normalizeTextForMatch(name), color);
       }
     }
     if (personaInfo?.name && (personaInfo.dialogueColor || personaInfo.nameColor)) {
-      byName.set(personaInfo.name.toLowerCase(), personaInfo.dialogueColor || personaInfo.nameColor || "");
+      byName.set(normalizeTextForMatch(personaInfo.name), personaInfo.dialogueColor || personaInfo.nameColor || "");
     }
     return byName;
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap]);
@@ -1021,16 +1102,16 @@ export function GameNarration({
     const byName = new Map<string, string>();
     for (const [, c] of activeCharacterEntries) {
       const color = c.nameColor || c.dialogueColor;
-      if (color) byName.set(c.name.toLowerCase(), color);
+      if (color) byName.set(normalizeTextForMatch(c.name), color);
     }
     if (speakerAvatarMap) {
       for (const [name, info] of speakerAvatarMap) {
         const color = info.nameColor || info.dialogueColor;
-        if (color) byName.set(name.toLowerCase(), color);
+        if (color) byName.set(normalizeTextForMatch(name), color);
       }
     }
     if (personaInfo?.name && (personaInfo.nameColor || personaInfo.dialogueColor)) {
-      byName.set(personaInfo.name.toLowerCase(), personaInfo.nameColor || personaInfo.dialogueColor || "");
+      byName.set(normalizeTextForMatch(personaInfo.name), personaInfo.nameColor || personaInfo.dialogueColor || "");
     }
     return byName;
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap]);
@@ -1045,10 +1126,17 @@ export function GameNarration({
     return byId;
   }, [messages]);
 
+  // Per-message speaker, so scoped regex can match a segment's character in exclusive mode.
+  const messageCharacterById = useMemo(() => {
+    const byId = new Map<string, string | null>();
+    for (const m of messages) byId.set(m.id, m.characterId ?? null);
+    return byId;
+  }, [messages]);
+
   const speakerAvatarInfos = useMemo(() => {
     const byName = new Map<string, SpeakerAvatarInfo>();
     const setAvatarInfo = (name: string, avatarInfo: SpeakerAvatarInfo) => {
-      const key = name.toLowerCase();
+      const key = normalizeTextForMatch(name);
       const existing = byName.get(key) ?? findNamedMapValue(byName, name);
       byName.set(key, {
         url: avatarInfo.url || existing?.url || "",
@@ -1076,16 +1164,16 @@ export function GameNarration({
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap, gameNpcs]);
 
   const uploadableNpcNames = useMemo(
-    () => new Set(gameNpcs.map((npc) => npc.name.trim().toLowerCase()).filter(Boolean)),
+    () => new Set(gameNpcs.map((npc) => normalizeTextForMatch(npc.name)).filter(Boolean)),
     [gameNpcs],
   );
 
   const nonNpcSpeakerNames = useMemo(() => {
     const names = new Set(["you", "player", "narrator", "gm", "game master", "system", "assistant", "story"]);
     for (const [, character] of activeCharacterEntries) {
-      if (character.name.trim()) names.add(character.name.trim().toLowerCase());
+      if (character.name.trim()) names.add(normalizeTextForMatch(character.name));
     }
-    if (personaInfo?.name?.trim()) names.add(personaInfo.name.trim().toLowerCase());
+    if (personaInfo?.name?.trim()) names.add(normalizeTextForMatch(personaInfo.name));
     return names;
   }, [activeCharacterEntries, personaInfo]);
 
@@ -1094,7 +1182,7 @@ export function GameNarration({
   const canUploadNpcPortrait = useCallback(
     (speaker?: string | null) => {
       const speakerName = speaker?.trim();
-      const normalizedSpeaker = speakerName?.toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speakerName);
       if (!speakerName || !normalizedSpeaker || !onNpcPortraitClick) return false;
       if (uploadableNpcNames.has(normalizedSpeaker)) return true;
       if (nonNpcSpeakerNames.has(normalizedSpeaker)) return false;
@@ -1113,7 +1201,7 @@ export function GameNarration({
     (speaker?: string | null) => {
       if (!speaker || !onNpcPortraitClick) return;
       const speakerName = speaker.trim();
-      const normalizedSpeaker = speakerName.toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speakerName);
       if (!uploadableNpcNames.has(normalizedSpeaker) && !/^\p{Lu}/u.test(speakerName)) return;
       onNpcPortraitClick(speaker);
     },
@@ -1141,7 +1229,7 @@ export function GameNarration({
       if (!speaker) return;
 
       if (isMobileGameViewport() && canGenerateNpcPortrait(speaker)) {
-        const normalizedSpeaker = speaker.trim().toLowerCase();
+        const normalizedSpeaker = normalizeTextForMatch(speaker);
         setMobilePortraitActionsSpeaker((current) => (current === normalizedSpeaker ? null : normalizedSpeaker));
         return;
       }
@@ -1153,7 +1241,7 @@ export function GameNarration({
 
   const isMobilePortraitActionsVisible = useCallback(
     (speaker?: string | null) => {
-      const normalizedSpeaker = speaker?.trim().toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speaker);
       return !!normalizedSpeaker && mobilePortraitActionsSpeaker === normalizedSpeaker;
     },
     [mobilePortraitActionsSpeaker],
@@ -1161,7 +1249,7 @@ export function GameNarration({
 
   const isNpcPortraitGenerating = useCallback(
     (speaker?: string | null) => {
-      const normalized = speaker?.trim().toLowerCase();
+      const normalized = normalizeTextForMatch(speaker);
       return !!normalized && !!generatingNpcPortraitNames?.has(normalized);
     },
     [generatingNpcPortraitNames],
@@ -1306,9 +1394,11 @@ export function GameNarration({
       return applyToAIOutput(text, {
         depth: sourceMessageId ? messageDepthById.get(sourceMessageId) : undefined,
         resolveMacros: resolveMacrosForText,
+        scopedMode: scopedRegexMode,
+        characterId: sourceMessageId ? messageCharacterById.get(sourceMessageId) : undefined,
       });
     },
-    [applyToAIOutput, messageDepthById],
+    [applyToAIOutput, messageDepthById, messageCharacterById, scopedRegexMode],
   );
 
   const prepareSegmentText = useCallback(
@@ -1326,9 +1416,9 @@ export function GameNarration({
       };
       const resolveMacrosForText = createMessageMacroResolver(macroContext);
       const regexApplied = applyOutputRegexForSource(text, sourceMessageId, sourceRole, resolveMacrosForText);
-      return resolveMacrosForText(regexApplied);
+      return formatTextQuotes(resolveMacrosForText(regexApplied), quoteFormat);
     },
-    [applyOutputRegexForSource, macroCharacters, personaInfo, resolveMacroCharacter],
+    [applyOutputRegexForSource, macroCharacters, personaInfo, quoteFormat, resolveMacroCharacter],
   );
 
   const prepareDisplaySegment = useCallback(
@@ -1694,6 +1784,34 @@ export function GameNarration({
   const normalizedGameVoiceVolume = Math.max(0, Math.min(1, gameVoiceVolume));
   const gameVoicePlaybackBlocked = voicePlaybackBlocked ?? autoPlayBlocked;
 
+  const cacheGameVoiceEntry = useCallback(
+    (key: string, entry: GameSegmentVoiceEntry) => {
+      const cache = gameVoiceCacheRef.current;
+      revokeGameVoiceEntry(cache.get(key));
+      cache.delete(key);
+      cache.set(key, entry);
+
+      const protectedKeys = new Set(
+        [gameVoicePlayingKey, gameVoicePausedKey].filter((value): value is string => !!value),
+      );
+      let guard = 0;
+      while (cache.size > GAME_VOICE_CACHE_MAX_ENTRIES && guard < cache.size) {
+        const oldestKey = cache.keys().next().value;
+        if (!oldestKey) break;
+        const oldestEntry = cache.get(oldestKey);
+        if (protectedKeys.has(oldestKey) && oldestEntry) {
+          cache.delete(oldestKey);
+          cache.set(oldestKey, oldestEntry);
+          guard += 1;
+          continue;
+        }
+        cache.delete(oldestKey);
+        revokeGameVoiceEntry(oldestEntry);
+      }
+    },
+    [gameVoicePausedKey, gameVoicePlayingKey],
+  );
+
   const queueLogScrollTopRestore = useCallback(() => {
     const scrollTop = logScrollContainerRef.current?.scrollTop;
     if (scrollTop != null) {
@@ -1704,14 +1822,16 @@ export function GameNarration({
   const stopGameVoicePlayback = useCallback(() => {
     gameVoiceSequenceRef.current += 1;
     queueLogScrollTopRestore();
-    const audio = gameVoiceAudioRef.current;
-    if (audio) {
+    // Tear down every live voice element, not just the current ref — interleaved
+    // playback attempts can orphan earlier elements off the single ref (#2647).
+    for (const audio of gameVoiceActiveAudiosRef.current) {
       audio.pause();
       audio.onended = null;
       audio.onerror = null;
       audio.onplaying = null;
-      gameVoiceAudioRef.current = null;
     }
+    gameVoiceActiveAudiosRef.current.clear();
+    gameVoiceAudioRef.current = null;
     setGameVoicePlayingKey(null);
     setGameVoicePausedKey(null);
   }, [queueLogScrollTopRestore]);
@@ -1764,6 +1884,7 @@ export function GameNarration({
         audio.preload = "auto";
         audioManager.setMediaElementVolume(audio, normalizedGameVoiceVolume);
         audio.muted = normalizedGameVoiceVolume <= 0;
+        gameVoiceActiveAudiosRef.current.add(audio);
         gameVoiceAudioRef.current = audio;
 
         let started = false;
@@ -1773,6 +1894,7 @@ export function GameNarration({
           options?.onStarted?.(key);
         };
         const markFailed = () => {
+          gameVoiceActiveAudiosRef.current.delete(audio);
           if (gameVoiceSequenceRef.current !== sequence || gameVoiceAudioRef.current !== audio) return;
           queueLogScrollTopRestore();
           setGameVoicePlayingKey(null);
@@ -1783,12 +1905,29 @@ export function GameNarration({
 
         audio.onplaying = markStarted;
         audio.onended = () => {
+          gameVoiceActiveAudiosRef.current.delete(audio);
           if (gameVoiceSequenceRef.current !== sequence || gameVoiceAudioRef.current !== audio) return;
           urlIndex += 1;
           playNext();
         };
         audio.onerror = markFailed;
-        void audio.play().then(markStarted).catch(markFailed);
+        void audio
+          .play()
+          .then(markStarted)
+          .catch(() => {
+            // Browsers can reject the play() promise (typically AbortError) when a
+            // rapid re-trigger "interrupts" it, even though playback actually
+            // started and continues. Dropping such a still-playing clip from the
+            // tracking set would orphan it so stopGameVoicePlayback() can never
+            // pause it — the clips stack and overlap (#2647). Only treat the
+            // rejection as a real failure when the element is genuinely not
+            // playing; otherwise treat it as a normal start.
+            if (!audio.paused && !audio.ended) {
+              markStarted();
+              return;
+            }
+            markFailed();
+          });
       };
 
       playNext();
@@ -2062,6 +2201,62 @@ export function GameNarration({
         }
       : null;
   }, [active?.sourceMessageId, activeIndex, activeSegmentAnchor]);
+
+  const revealSegmentFully = useCallback(
+    (index: number) => {
+      if (segments.length === 0) return false;
+      const targetIndex = Math.max(0, Math.min(index, segments.length - 1));
+      const segment = segments[targetIndex];
+      if (!segment) return false;
+      const displayLength = effectDisplayLength(segment.content);
+      setActiveIndex(targetIndex);
+      setVisibleChars(displayLength);
+      twRef.current.pos = displayLength;
+      activeSegmentAnchorRef.current = {
+        key: narrationSegmentAnchorKey(segment),
+        index: targetIndex,
+        sourceMessageId: segment.sourceMessageId ?? null,
+      };
+      return true;
+    },
+    [segments],
+  );
+
+  const prepareLogDeleteNavigation = useCallback(
+    (deletedLogKey: string, liveSegmentIndex: number) => {
+      const deletedLogIndex = flatLogEntries.findIndex((entry) => getFlatLogEntryKey(entry) === deletedLogKey);
+
+      if (messageOffset > 0 && pastReviewEntry) {
+        const currentKey = getFlatLogEntryKey(pastReviewEntry);
+        const currentLogIndex = flatLogEntries.findIndex((entry) => getFlatLogEntryKey(entry) === currentKey);
+        // Deleting a newer entry shifts offsets. Step forward only for that case
+        // so the currently viewed beat stays selected. Deleting the selected beat
+        // itself keeps the offset, which naturally lands on the previous beat.
+        if (deletedLogIndex > currentLogIndex && currentLogIndex >= 0) {
+          onStepForward?.();
+        }
+        return;
+      }
+
+      if (messageOffset !== 0 || liveSegmentIndex < 0 || liveSegmentIndex !== activeIndex) return;
+      if (liveSegmentIndex > 0 && revealSegmentFully(liveSegmentIndex - 1)) return;
+      if (deletedLogIndex <= 0) return;
+
+      // Deleting the first visible beat of the current turn should still land on
+      // the previous chronological log beat, even when that beat is in the prior turn.
+      onSetReviewOffset?.(Math.max(0, flatLogEntries.length - deletedLogIndex - 1));
+    },
+    [
+      activeIndex,
+      flatLogEntries,
+      getFlatLogEntryKey,
+      messageOffset,
+      onSetReviewOffset,
+      onStepForward,
+      pastReviewEntry,
+      revealSegmentFully,
+    ],
+  );
 
   // Notify parent about narration completion state. While reviewing the past via
   // wheel-nav, the past message will look "complete" — but it's not the present, so
@@ -2455,7 +2650,12 @@ export function GameNarration({
         ? null
         : (() => {
             const avatar = findNamedMapValue(speakerAvatarInfos, active.speaker);
-            return avatar ? { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite } : null;
+            if (avatar) return { name: active.speaker, avatarUrl: avatar.url, expression: active.sprite };
+            const sprites = spriteMap ? findNamedMapValue(spriteMap, active.speaker) : null;
+            const expressionSprites = sprites?.filter((sprite) => !sprite.expression.toLowerCase().startsWith("full_"));
+            if (!expressionSprites?.length) return null;
+            const sprite = resolveSpriteExpression(expressionSprites, active.sprite ?? "neutral");
+            return sprite ? { name: active.speaker, avatarUrl: sprite.url, expression: active.sprite } : null;
           })();
 
     // Composite key catches legitimate expression/avatar changes, not just name
@@ -2463,7 +2663,7 @@ export function GameNarration({
     if (nextKey === lastReportedSpeakerRef.current) return;
     lastReportedSpeakerRef.current = nextKey;
     onActiveSpeakerChange(next);
-  }, [active, speakerAvatarInfos, onActiveSpeakerChange]);
+  }, [active, speakerAvatarInfos, spriteMap, onActiveSpeakerChange]);
 
   // How many segments are prepended before the actual GM narration segments
   const playerSegmentOffset = latestUserMessage?.content && latestAssistant ? 1 : 0;
@@ -2619,7 +2819,7 @@ export function GameNarration({
 
       const controller = new AbortController();
       gameVoicePendingRef.current.set(key, controller);
-      gameVoiceCacheRef.current.set(key, {
+      cacheGameVoiceEntry(key, {
         status: "loading",
         chunks: audioJobs.map((job) => job.chunk),
         speaker: audioJobs[0]?.speaker,
@@ -2670,7 +2870,7 @@ export function GameNarration({
           if (controller.signal.aborted) return;
           const urls = blobs.map((blob) => URL.createObjectURL(blob));
           if (!failed && urls.length === audioJobs.length) {
-            gameVoiceCacheRef.current.set(key, {
+            cacheGameVoiceEntry(key, {
               status: "ready",
               chunks: audioJobs.map((job) => job.chunk),
               speaker: audioJobs[0]?.speaker,
@@ -2680,7 +2880,7 @@ export function GameNarration({
             });
           } else {
             for (const url of urls) URL.revokeObjectURL(url);
-            gameVoiceCacheRef.current.set(key, {
+            cacheGameVoiceEntry(key, {
               status: "error",
               chunks: audioJobs.map((job) => job.chunk),
               speaker: audioJobs[0]?.speaker,
@@ -2700,6 +2900,7 @@ export function GameNarration({
     gameVoiceGenerationTailRef.current = gameVoiceGenerationTailRef.current.catch(() => undefined).then(runPlans);
     void gameVoiceGenerationTailRef.current;
   }, [
+    cacheGameVoiceEntry,
     gameNpcs,
     gameVoiceConfigSignature,
     gameVoiceEnabled,
@@ -2750,6 +2951,8 @@ export function GameNarration({
 
   useEffect(() => {
     lastAutoPlayedVoiceKeyRef.current = null;
+    autoPlayInFlightVoiceKeyRef.current = null;
+    autoPlayInFlightSideVoiceKeysRef.current.clear();
     autoPlayedSideVoiceKeysRef.current.clear();
     sideVoiceAutoPlayFailuresRef.current.clear();
     clearSideVoiceAutoPlayRetry();
@@ -2760,6 +2963,8 @@ export function GameNarration({
     if (gameVoiceEnabled && !isStreaming && !scenePreparing && !directionsActive && !gameVoicePlaybackBlocked) return;
     if (isStreaming || scenePreparing || directionsActive || gameVoicePlaybackBlocked) {
       lastAutoPlayedVoiceKeyRef.current = null;
+      autoPlayInFlightVoiceKeyRef.current = null;
+      autoPlayInFlightSideVoiceKeysRef.current.clear();
       autoPlayedSideVoiceKeysRef.current.clear();
       sideVoiceAutoPlayFailuresRef.current.clear();
       clearSideVoiceAutoPlayRetry();
@@ -2779,12 +2984,23 @@ export function GameNarration({
     if (!gameVoiceEnabled || !activeVoiceKey) return;
     if (isStreaming || scenePreparing || directionsActive || gameVoicePlaybackBlocked) return;
     if (lastAutoPlayedVoiceKeyRef.current === activeVoiceKey) return;
+    // A launch is already pending for this key; don't relaunch on version churn.
+    if (autoPlayInFlightVoiceKeyRef.current === activeVoiceKey) return;
     const entry = gameVoiceCacheRef.current.get(activeVoiceKey);
     if (!entry || entry.status !== "ready") return;
+    autoPlayInFlightVoiceKeyRef.current = activeVoiceKey;
     playGameVoiceKey(activeVoiceKey, {
       onStarted: (startedKey) => {
         if (startedKey === activeVoiceKey) {
           lastAutoPlayedVoiceKeyRef.current = activeVoiceKey;
+        }
+        if (autoPlayInFlightVoiceKeyRef.current === startedKey) {
+          autoPlayInFlightVoiceKeyRef.current = null;
+        }
+      },
+      onBlocked: (blockedKey) => {
+        if (autoPlayInFlightVoiceKeyRef.current === blockedKey) {
+          autoPlayInFlightVoiceKeyRef.current = null;
         }
       },
     });
@@ -2818,18 +3034,22 @@ export function GameNarration({
       (key, index) =>
         entries[index]?.status === "ready" &&
         !autoPlayedSideVoiceKeysRef.current.has(key) &&
+        !autoPlayInFlightSideVoiceKeysRef.current.has(key) &&
         !sideVoiceAutoPlayRetryPendingRef.current.has(key) &&
         (sideVoiceAutoPlayFailuresRef.current.get(key) ?? 0) < SIDE_VOICE_AUTOPLAY_MAX_FAILURES,
     );
     if (playableKeys.length > 0) {
+      for (const key of playableKeys) autoPlayInFlightSideVoiceKeysRef.current.add(key);
       playGameVoiceKeys(playableKeys, {
         onStarted: (startedKey) => {
+          autoPlayInFlightSideVoiceKeysRef.current.delete(startedKey);
           autoPlayedSideVoiceKeysRef.current.add(startedKey);
           sideVoiceAutoPlayFailuresRef.current.delete(startedKey);
           sideVoiceAutoPlayRetryPendingRef.current.delete(startedKey);
           setGameVoiceVersion((version) => version + 1);
         },
         onBlocked: (blockedKey) => {
+          autoPlayInFlightSideVoiceKeysRef.current.delete(blockedKey);
           const failures = (sideVoiceAutoPlayFailuresRef.current.get(blockedKey) ?? 0) + 1;
           sideVoiceAutoPlayFailuresRef.current.set(blockedKey, failures);
           if (failures < SIDE_VOICE_AUTOPLAY_MAX_FAILURES) {
@@ -3110,16 +3330,8 @@ export function GameNarration({
       const expressionSprites = sprites.filter((s) => !s.expression.toLowerCase().startsWith("full_"));
       if (!expressionSprites.length) return null;
 
-      const exact = expressionSprites.find((s) => normalizeSpriteExpressionKey(s.expression) === exprKey);
-      if (exact) return { url: exact.url };
-
-      const partial = expressionSprites.find((s) => {
-        const spriteKey = normalizeSpriteExpressionKey(s.expression);
-        return spriteKey.includes(exprKey) || exprKey.includes(spriteKey);
-      });
-      if (partial) return { url: partial.url };
-
-      return { url: expressionSprites[0]!.url };
+      const match = resolveSpriteExpression(expressionSprites, exprKey);
+      return match ? { url: match.url } : null;
     },
     [spriteMap],
   );
@@ -3137,6 +3349,52 @@ export function GameNarration({
     "flex items-center gap-1.5 rounded-lg bg-[var(--muted)]/30 px-3 py-1.5 text-xs text-[var(--foreground)]/70 transition-colors hover:bg-[var(--muted)]/50 hover:text-[var(--foreground)] dark:bg-white/10 dark:text-white/70 dark:hover:bg-white/20 dark:hover:text-white";
   const NARRATION_META_BTN =
     "flex min-h-7 items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--muted)]/20 px-2.5 py-1 text-xs text-[var(--foreground)]/75 transition-colors hover:bg-[var(--muted)]/40 dark:border-white/10 dark:bg-white/5 dark:text-white/75 dark:hover:bg-white/10";
+  const NARRATION_COUNT_BADGE =
+    "absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--foreground)] px-0.5 text-[0.55rem] font-bold text-[var(--background)] ring-1 ring-[var(--background)]/20 dark:bg-white/90 dark:text-black dark:ring-black/20";
+  const combatMetaButton = onRequestCombatStart ? (
+    <button
+      type="button"
+      onClick={combatGenerationFailed && onRetryCombatGeneration ? onRetryCombatGeneration : onRequestCombatStart}
+      disabled={combatStarting}
+      className={cn(
+        NARRATION_META_BTN,
+        "relative",
+        combatGenerationFailed
+          ? "border-[var(--destructive)]/30 bg-[var(--destructive)]/15 text-[var(--destructive)] hover:bg-[var(--destructive)]/25"
+          : "border-amber-300/20 bg-amber-500/10 text-amber-100/90 hover:bg-amber-500/20",
+        combatStarting && "cursor-wait opacity-80",
+      )}
+      title={combatGenerationFailed ? "Retry combat generation" : "Start combat"}
+    >
+      {combatStarting ? <Loader2 size={12} className="animate-spin" /> : <Sword size={12} />}
+      <span className="hidden sm:inline">{combatGenerationFailed ? "Retry Combat" : "Combat"}</span>
+    </button>
+  ) : null;
+  const combatStatusNotice =
+    combatStarting || combatGenerationFailed ? (
+      <div
+        className={cn(
+          "mt-2 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs",
+          combatGenerationFailed
+            ? "border-[var(--destructive)]/25 bg-[var(--destructive)]/10 text-[var(--destructive)]"
+            : "border-amber-300/20 bg-amber-500/10 text-amber-100",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {combatStarting ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <AlertTriangle size={13} />}
+          <span>{combatStarting ? "Combat starting, please wait..." : "Combat generation failed."}</span>
+        </span>
+        {combatGenerationFailed && onRetryCombatGeneration && (
+          <button
+            type="button"
+            onClick={onRetryCombatGeneration}
+            className="shrink-0 rounded-md bg-white/10 px-2 py-1 font-semibold text-white/85 transition-colors hover:bg-white/15 hover:text-white"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    ) : null;
 
   const handleCopyMessage = useCallback(async (key: string, text: string) => {
     const didCopy = await copyToClipboard(text);
@@ -3313,7 +3571,8 @@ export function GameNarration({
             seg.partyType === "side" && "bg-sky-500/15 text-sky-200/70",
             seg.partyType === "extra" && "bg-sky-500/15 text-sky-200/70",
             seg.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
-            seg.partyType === "whisper" && "bg-rose-500/15 text-rose-200/70",
+            seg.partyType === "whisper" &&
+              "bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-panel-text)]",
           )}
         >
           {PARTY_TYPE_ICONS[seg.partyType] ?? ""} {seg.partyType}
@@ -3525,7 +3784,10 @@ export function GameNarration({
 
           {/* Side remarks — small floating box shown with the dialogue they follow */}
           {activeSideLines.length > 0 && doneTyping && (
-            <div className="relative z-20 mb-2 flex max-h-[min(16rem,38vh)] w-full flex-col space-y-1.5 overflow-x-hidden overflow-y-auto pr-1">
+            <div
+              data-game-skip-bg-nav="true"
+              className="relative z-20 mb-2 flex max-h-[min(16rem,38vh)] w-full flex-col space-y-1.5 overflow-x-hidden overflow-y-auto pr-1"
+            >
               {activeSideLines.map((line, i) => {
                 const expressionAvatar =
                   line.type === "side" || line.type === "extra"
@@ -3627,7 +3889,10 @@ export function GameNarration({
           {diceResultSlot}
         </div>
 
-        <div className="shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--card)]/90 p-3 shadow-[0_16px_38px_rgba(0,0,0,0.45)] backdrop-blur-md dark:border-white/15 dark:bg-black/50">
+        <div
+          data-game-skip-bg-nav="true"
+          className="shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--card)]/90 p-3 shadow-[0_16px_38px_rgba(0,0,0,0.45)] backdrop-blur-md dark:border-white/15 dark:bg-black/50"
+        >
           {/* Scene preparation gate: wait for effects before showing narration */}
           {scenePreparing && (
             <div className="flex items-center gap-2 py-3">
@@ -3782,7 +4047,8 @@ export function GameNarration({
                               className={cn(
                                 "rounded-full px-1.5 py-0.5 text-[0.5rem] font-semibold uppercase tracking-wide",
                                 active.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
-                                active.partyType === "whisper" && "bg-rose-500/15 text-rose-200/70",
+                                active.partyType === "whisper" &&
+                                  "bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-panel-text)]",
                               )}
                             >
                               {PARTY_TYPE_ICONS[active.partyType] ?? ""} {active.partyType}
@@ -3918,13 +4184,10 @@ export function GameNarration({
                     <button onClick={onOpenInventory} className={cn("relative", NARRATION_META_BTN)}>
                       <Package size={12} />
                       <span className="hidden sm:inline">Inventory</span>
-                      {(inventoryCount ?? 0) > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] font-bold text-black">
-                          {inventoryCount}
-                        </span>
-                      )}
+                      {(inventoryCount ?? 0) > 0 && <span className={NARRATION_COUNT_BADGE}>{inventoryCount}</span>}
                     </button>
                   )}
+                  {combatMetaButton}
                 </div>
                 {navControls}
               </div>
@@ -4035,13 +4298,10 @@ export function GameNarration({
                     <button onClick={onOpenInventory} className={cn("relative", NARRATION_META_BTN)}>
                       <Package size={12} />
                       <span className="hidden sm:inline">Inventory</span>
-                      {(inventoryCount ?? 0) > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[0.55rem] font-bold text-black">
-                          {inventoryCount}
-                        </span>
-                      )}
+                      {(inventoryCount ?? 0) > 0 && <span className={NARRATION_COUNT_BADGE}>{inventoryCount}</span>}
                     </button>
                   )}
+                  {combatMetaButton}
                 </div>
                 {navControls}
               </div>
@@ -4109,6 +4369,8 @@ export function GameNarration({
               </div>
             </>
           )}
+
+          {!scenePreparing && combatStatusNotice}
 
           {/* Inline input — appears inside the narration box once all segments are read,
               or after the player has CONFIRMED an interrupt (not just opened the modal).
@@ -4259,9 +4521,11 @@ export function GameNarration({
                       const sourceMessageId = seg.sourceMessageId ?? entry.messageId;
                       const hasSourceSegmentIndex = seg.sourceSegmentIndex != null;
                       const sourceSegmentIndex = seg.sourceSegmentIndex ?? 0;
-                      const sourceRole =
-                        seg.sourceRole ??
-                        (sourceMessageId ? (sourceMessagesById.get(sourceMessageId)?.role ?? null) : null);
+                      const sourceMessageRole = sourceMessageId
+                        ? (sourceMessagesById.get(sourceMessageId)?.role ?? null)
+                        : null;
+                      const sourceRole = seg.sourceRole ?? sourceMessageRole;
+                      const isUserAuthoredSource = sourceRole === "user" || sourceMessageRole === "user";
                       const isActiveSeg = active?.id === seg.id;
                       const liveSegmentIndex = segments.findIndex((s) => s.id === seg.id);
                       const canJumpToSeg =
@@ -4299,7 +4563,7 @@ export function GameNarration({
                       const jumpRowClasses = canJumpToSeg
                         ? "cursor-pointer hover:ring-1 hover:ring-white/15 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
                         : "";
-                      const canEditMessage = !!onEditMessage && !!sourceMessageId && sourceRole === "user";
+                      const canEditMessage = !!onEditMessage && !!sourceMessageId && isUserAuthoredSource;
                       const canEditSegment =
                         !!onEditSegment &&
                         !!sourceMessageId &&
@@ -4309,7 +4573,8 @@ export function GameNarration({
                         sourceMessageId !== "party-chat";
                       const canEdit = canEditMessage || canEditSegment;
                       const canDeleteMessage =
-                        !!onDeleteMessage && !!sourceMessageId && (sourceRole === "user" || sourceRole === "system");
+                        !!onDeleteMessage && !!sourceMessageId && (isUserAuthoredSource || sourceRole === "system");
+                      const canBranchMessage = !!onBranchMessage && !!sourceMessageId && isUserAuthoredSource;
                       const canDeleteThisSegment =
                         !!onDeleteSegment &&
                         !!sourceMessageId &&
@@ -4344,6 +4609,23 @@ export function GameNarration({
                           {copiedMessageKey === copyKey ? <Check size={11} /> : <Copy size={11} />}
                         </button>
                       ) : null;
+                      const branchButton = canBranchMessage ? (
+                        <button
+                          type="button"
+                          onPointerDown={stopLogActionPointerDown}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onBranchMessage?.(sourceMessageId);
+                            setLogsOpen(false);
+                          }}
+                          className="rounded p-1 text-white/45 opacity-100 transition-all hover:bg-white/10 hover:text-white/60 md:text-white/20 md:opacity-0 md:group-hover/logseg:opacity-100"
+                          title="Branch from here"
+                          aria-label="Branch from here"
+                        >
+                          <GitBranch size={11} />
+                        </button>
+                      ) : null;
                       const deleteButton = showDeleteButton ? (
                         <button
                           type="button"
@@ -4352,22 +4634,10 @@ export function GameNarration({
                             event.preventDefault();
                             event.stopPropagation();
                             captureLogScrollAnchor();
+                            prepareLogDeleteNavigation(`${sourceMessageId}:${sourceSegmentIndex}`, liveSegmentIndex);
                             if (canDeleteMessage && sourceMessageId) {
                               onDeleteMessage?.(sourceMessageId);
                             } else if (canDeleteThisSegment && sourceMessageId) {
-                              if (messageOffset > 0 && pastReviewEntry) {
-                                const deletedKey = `${sourceMessageId}:${sourceSegmentIndex}`;
-                                const currentKey = getFlatLogEntryKey(pastReviewEntry);
-                                const deletedLogIndex = flatLogEntries.findIndex(
-                                  (entry) => getFlatLogEntryKey(entry) === deletedKey,
-                                );
-                                const currentLogIndex = flatLogEntries.findIndex(
-                                  (entry) => getFlatLogEntryKey(entry) === currentKey,
-                                );
-                                if (deletedLogIndex >= currentLogIndex && currentLogIndex >= 0) {
-                                  onStepForward?.();
-                                }
-                              }
                               onDeleteSegment?.(sourceMessageId, sourceSegmentIndex);
                             }
                           }}
@@ -4386,7 +4656,8 @@ export function GameNarration({
                               seg.partyType === "side" && "bg-sky-500/15 text-sky-200/70",
                               seg.partyType === "extra" && "bg-sky-500/15 text-sky-200/70",
                               seg.partyType === "thought" && "bg-purple-500/15 text-purple-200/70",
-                              seg.partyType === "whisper" && "bg-rose-500/15 text-rose-200/70",
+                              seg.partyType === "whisper" &&
+                                "bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-panel-text)]",
                             )}
                           >
                             {PARTY_TYPE_ICONS[seg.partyType] ?? ""} {seg.partyType}
@@ -4521,12 +4792,13 @@ export function GameNarration({
                       );
 
                       const actionButtons =
-                        deleteButton || copyButton || editButtons ? (
+                        deleteButton || branchButton || copyButton || editButtons ? (
                           <div
                             onPointerDown={stopLogActionPointerDown}
                             onClick={(event) => event.stopPropagation()}
                             className="absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5"
                           >
+                            {branchButton}
                             {deleteButton}
                             {copyButton}
                             {editButtons}
@@ -4854,7 +5126,12 @@ function PartyOverlayBox({
     side: { border: "border-white/15", bg: "bg-black/75", icon: "💬", labelColor: "text-white/85" },
     extra: { border: "border-white/15", bg: "bg-black/75", icon: "💬", labelColor: "text-white/85" },
     thought: { border: "border-purple-400/20", bg: "bg-purple-950/70", icon: "💭", labelColor: "text-purple-200/80" },
-    whisper: { border: "border-rose-400/20", bg: "bg-rose-950/70", icon: "🤫", labelColor: "text-rose-200/80" },
+    whisper: {
+      border: "border-[var(--marinara-chat-chrome-button-border)]",
+      bg: "bg-[var(--marinara-chat-chrome-panel-bg)]",
+      icon: "🤫",
+      labelColor: "text-[var(--marinara-chat-chrome-panel-text)]",
+    },
   };
   const style = styleByType[line.type] ?? styleByType.side!;
 
@@ -4945,9 +5222,9 @@ const EXPRESSION_REACTIONS: Record<string, { symbol: string; color: string; effe
   mischievous: { symbol: "😈", color: "text-purple-300", effect: "pop" },
 
   // Affection
-  flirty: { symbol: "💗", color: "text-pink-400", effect: "heart" },
-  tender: { symbol: "💕", color: "text-pink-300", effect: "heart" },
-  loving: { symbol: "💕", color: "text-pink-300", effect: "heart" },
+  flirty: { symbol: "💗", color: "text-[var(--marinara-chat-chrome-panel-text)]", effect: "heart" },
+  tender: { symbol: "💕", color: "text-[var(--marinara-chat-chrome-panel-text)]", effect: "heart" },
+  loving: { symbol: "💕", color: "text-[var(--marinara-chat-chrome-panel-text)]", effect: "heart" },
 
   // Sadness
   sad: { symbol: "💧", color: "text-blue-300", effect: "tear" },
@@ -5550,7 +5827,7 @@ export function formatNarration(content: string, boldDialogue = true): string {
       const modifier = attrs.modifier ? `${attrs.stat || "modifier"} ${formatSignedNumber(attrs.modifier)}` : "";
       const turns = attrs.turns || attrs.duration ? `${attrs.turns || attrs.duration} turns` : "";
       return commandBadge(
-        "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/20",
+        "bg-[var(--destructive)]/15 text-[var(--destructive)] ring-1 ring-[var(--destructive)]/20",
         "✦ Status",
         [attrs.effect || attrs.name || "Effect", attrs.target ? `on ${attrs.target}` : "", turns, modifier]
           .filter(Boolean)
@@ -5590,7 +5867,7 @@ export function formatNarration(content: string, boldDialogue = true): string {
     .replace(/\[reputation:\s*([^\]]+)\]/gi, (_match, rawAttrs: string) => {
       const attrs = parseCommandAttributes(rawAttrs);
       return commandBadge(
-        "bg-fuchsia-500/15 text-fuchsia-200 ring-1 ring-fuchsia-400/20",
+        "bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-panel-text)] ring-1 ring-[var(--marinara-chat-chrome-button-border)]",
         "◆ Reputation",
         [attrs.npc, attrs.action].filter(Boolean).join(": "),
       );

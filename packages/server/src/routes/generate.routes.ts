@@ -1332,7 +1332,9 @@ export async function generateRoutes(app: FastifyInstance) {
 
       // Store attachments in message extra if present
       if (input.attachments?.length && userMsg?.id) {
-        await chats.updateMessageExtra(userMsg.id, { attachments: input.attachments }).catch(releaseActiveGenerationAndRethrow);
+        await chats
+          .updateMessageExtra(userMsg.id, { attachments: input.attachments })
+          .catch(releaseActiveGenerationAndRethrow);
       }
 
       // Snapshot persona info for per-message persona tracking
@@ -1459,8 +1461,10 @@ export async function generateRoutes(app: FastifyInstance) {
     let generationComplete = false;
     let clientDisconnected = false;
     const originalSseWrite = reply.raw.write.bind(reply.raw);
+    const canWriteSse = () =>
+      !clientDisconnected && !reply.raw.destroyed && !reply.raw.writableEnded && !reply.raw.writableFinished;
     reply.raw.write = ((chunk: any, encodingOrCallback?: any, callback?: any) => {
-      if (clientDisconnected || reply.raw.destroyed) return false;
+      if (!canWriteSse()) return false;
       try {
         return originalSseWrite(chunk, encodingOrCallback, callback);
       } catch {
@@ -1470,8 +1474,8 @@ export async function generateRoutes(app: FastifyInstance) {
     const stopSseKeepalive = startSseKeepalive(reply);
 
     const onClose = () => {
-      if (generationComplete) return;
       clientDisconnected = true;
+      if (generationComplete) return;
       if (!shouldAbortOnPassiveGenerationDisconnect({ chatMode: requestChatMode, impersonate: input.impersonate })) {
         logger.info("[generate] Conversation client disconnected; generation will continue for chat: %s", input.chatId);
         return;
@@ -1986,7 +1990,8 @@ export async function generateRoutes(app: FastifyInstance) {
         if (followUpIteration === 0) {
           const regexScripts = await getPromptRegexScripts();
           applyRegexScriptsToPromptMessages(mappedMessages, regexScripts, {
-            resolveMacros: (value, randomSeed) => resolveMacros(value, promptMacroContext, { trimResult: false, randomSeed }),
+            resolveMacros: (value, randomSeed) =>
+              resolveMacros(value, promptMacroContext, { trimResult: false, randomSeed }),
             targetCharacterId: promptTargetCharacterId,
           });
           if (regenerateUserSourceMessage) {
@@ -2985,9 +2990,7 @@ export async function generateRoutes(app: FastifyInstance) {
             // Turn-games — conversation mode only, when no game is running yet
             // and at least one other character is present to play with.
             const unoAdvertisable =
-              chatMode === "conversation" &&
-              isConversationCommandEnabled(chatMeta, "uno") &&
-              characterIds.length >= 1;
+              chatMode === "conversation" && isConversationCommandEnabled(chatMeta, "uno") && characterIds.length >= 1;
             const chessAdvertisable =
               chatMode === "conversation" &&
               isConversationCommandEnabled(chatMeta, "chess") &&
@@ -3688,7 +3691,8 @@ export async function generateRoutes(app: FastifyInstance) {
             customThinkingTags = normalizeThinkingTagPairs(params.customThinkingTags);
           }
           customParameters = mergeCustomParameters(customParameters, params.customParameters);
-          if (params.enabledParameters) enabledParameters = { ...(enabledParameters ?? {}), ...params.enabledParameters };
+          if (params.enabledParameters)
+            enabledParameters = { ...(enabledParameters ?? {}), ...params.enabledParameters };
           if (Array.isArray(params.stopSequences)) {
             stopSequences = params.stopSequences.map((value) => value.trim()).filter((value) => value.length > 0);
           }
@@ -4400,10 +4404,7 @@ export async function generateRoutes(app: FastifyInstance) {
 
         if (input.continueMessageId) {
           finalMessages.push({ role: "user" as const, content: CONTINUE_ASSISTANT_MESSAGE_PROMPT });
-          logger.debug(
-            "[generate] Injected continuation prompt for assistant message %s",
-            input.continueMessageId,
-          );
+          logger.debug("[generate] Injected continuation prompt for assistant message %s", input.continueMessageId);
         }
 
         // ── Group chat processing ──
@@ -5172,7 +5173,7 @@ export async function generateRoutes(app: FastifyInstance) {
           baseToolExecutionContext,
           updateChatMetadataForTools,
         } = await resolveGenerationTools({
-          requestBody: req.body as Record<string, unknown>,
+          requestBody: input as Record<string, unknown>,
           chatId: input.chatId,
           chatMetadata: chatMeta,
           chats,
@@ -5653,7 +5654,9 @@ export async function generateRoutes(app: FastifyInstance) {
               if (criticalFailedRegen.length > 0) {
                 const failedNames = criticalFailedRegen.map((r) => r.agentType).join(", ");
                 const firstError = criticalFailedRegen[0]!.error ?? "unknown error";
-                logger.error(`[pre-gen] FATAL: critical agent(s) failed on regen (${failedNames}) — aborting generation`);
+                logger.error(
+                  `[pre-gen] FATAL: critical agent(s) failed on regen (${failedNames}) — aborting generation`,
+                );
                 sendSseEvent(reply, {
                   type: "error",
                   data: `Critical pre-generation agent failed (${failedNames}): ${firstError}. Please try again.`,
@@ -6707,8 +6710,7 @@ export async function generateRoutes(app: FastifyInstance) {
             // Merged group conversations carry multiple characters' turns in one
             // response; attribute each command to its speaker so e.g. a [selfie]
             // renders the character that took it, not always the first one.
-            const useSpeakerAttribution =
-              isGroupChat && groupChatMode === "merged" && chatMode === "conversation";
+            const useSpeakerAttribution = isGroupChat && groupChatMode === "merged" && chatMode === "conversation";
             const speakerParse = useSpeakerAttribution
               ? parseCharacterCommandsBySpeaker(fullResponse, charInfo, targetCharId)
               : null;
@@ -8889,9 +8891,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 const savedNegativePrompt = ((illustratorAgent?.settings?.imageNegativePrompt as string) ?? "").trim();
                 const chatGameImageConnectionId =
                   typeof chatMeta.gameImageConnectionId === "string" ? chatMeta.gameImageConnectionId.trim() : "";
-                const agentImageConnectionId = (
-                  (illustratorAgent?.settings?.imageConnectionId as string) ?? ""
-                ).trim();
+                const agentImageConnectionId = ((illustratorAgent?.settings?.imageConnectionId as string) ?? "").trim();
                 const imageConnectionOverride = chatGameImageConnectionId || agentImageConnectionId;
                 let imgConnFull = imageConnectionOverride
                   ? await connections.getWithKey(imageConnectionOverride)
@@ -11098,9 +11098,10 @@ export async function generateRoutes(app: FastifyInstance) {
           logger.info(
             `[generate] Posted ${collectedOocMessages.length} OOC message(s) to conversation ${chat.connectedChatId}`,
           );
-          reply.raw.write(
-            `data: ${JSON.stringify({ type: "ooc_posted", data: { chatId: chat.connectedChatId, count: collectedOocMessages.length } })}\n\n`,
-          );
+          trySendSseEvent(reply, {
+            type: "ooc_posted",
+            data: { chatId: chat.connectedChatId, count: collectedOocMessages.length },
+          });
         } catch (oocErr) {
           logger.error(oocErr, "[generate] Failed to post OOC messages");
         }
@@ -11141,7 +11142,7 @@ export async function generateRoutes(app: FastifyInstance) {
       stopSseKeepalive();
       reply.raw.off("close", onClose);
       releaseActiveGeneration();
-      if (!clientDisconnected && !reply.raw.destroyed) {
+      if (canWriteSse()) {
         reply.raw.end();
       }
     }

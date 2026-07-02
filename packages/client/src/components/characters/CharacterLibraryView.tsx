@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { ArrowLeft, ArrowUpDown, Download, Hash, Pencil, Plus, Search, Star, User } from "lucide-react";
-import { useCharacters } from "../../hooks/use-characters";
+import { flattenCharacterPages, useCharacterPages } from "../../hooks/use-characters";
 import { getCharacterTitle } from "../../lib/character-display";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
@@ -213,9 +213,12 @@ export function CharacterLibraryView() {
   const sort = useUIStore((s) => s.characterLibrarySort);
   const setCharacterLibrarySort = useUIStore((s) => s.setCharacterLibrarySort);
   const setCharacterLibraryScrollTop = useUIStore((s) => s.setCharacterLibraryScrollTop);
-  const { data: characters, isLoading } = useCharacters();
 
   const [search, setSearch] = useState("");
+  const serverSearch = useMemo(() => parseCharacterSearchQuery(search).text, [search]);
+  const characterPages = useCharacterPages({ search: serverSearch, sort });
+  const characters = useMemo(() => flattenCharacterPages(characterPages.data), [characterPages.data]);
+  const isLoading = characterPages.isLoading;
   const libraryRootScrollRef = useRef<HTMLDivElement | null>(null);
   const libraryListScrollRef = useRef<HTMLElement | null>(null);
   const pendingLibraryScrollTopRef = useRef(0);
@@ -464,108 +467,122 @@ export function CharacterLibraryView() {
           )}
 
           {!isLoading && sortedCharacters.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-              {sortedCharacters.map((char) => {
-                const charName = getText(char.parsed.name) || "Unnamed";
-                const charTitle = getCharacterTitle({ name: charName, comment: char.comment });
-                const cardSummary = truncateText(getCharacterSummary(char), 180);
-                const cardMeta = getCharacterMeta(char);
-                const tokenEstimate = estimateCharacterCardTokens(char.parsed);
-                const isFavorite = !!char.parsed.extensions?.fav;
-                const tags = getCharacterTags(char);
-                const isActive = selectedCharacterId === char.id;
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-4">
+                {sortedCharacters.map((char) => {
+                  const charName = getText(char.parsed.name) || "Unnamed";
+                  const charTitle = getCharacterTitle({ name: charName, comment: char.comment });
+                  const cardSummary = truncateText(getCharacterSummary(char), 180);
+                  const cardMeta = getCharacterMeta(char);
+                  const tokenEstimate = estimateCharacterCardTokens(char.parsed);
+                  const isFavorite = !!char.parsed.extensions?.fav;
+                  const tags = getCharacterTags(char);
+                  const isActive = selectedCharacterId === char.id;
 
-                return (
-                  <Fragment key={char.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCharacterId(char.id)}
-                      className={cn(
-                        "group flex h-full items-stretch overflow-hidden rounded-[1.25rem] border bg-[var(--card)]/70 text-left shadow-[0_20px_50px_-32px_rgba(15,23,42,0.75)] transition-all hover:border-[var(--primary)]/35 hover:shadow-[0_24px_60px_-32px_color-mix(in_srgb,var(--primary)_45%,transparent)] sm:flex-col sm:rounded-[1.75rem] sm:hover:-translate-y-0.5",
-                        isActive
-                          ? "border-[var(--primary)]/45 ring-1 ring-[var(--primary)]/25"
-                          : "border-[var(--border)]/50",
-                      )}
-                    >
-                      <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative h-24 w-24 shrink-0 overflow-hidden sm:h-auto sm:w-full sm:aspect-square">
-                        {char.avatarPath ? (
-                          <img
-                            src={char.avatarPath}
-                            alt={charName}
-                            loading="lazy"
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                            style={getAvatarCropStyle(
-                              char.parsed.extensions?.avatarCrop as AvatarCropValue | undefined,
+                  return (
+                    <Fragment key={char.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCharacterId(char.id)}
+                        className={cn(
+                          "group flex h-full items-stretch overflow-hidden rounded-[1.25rem] border bg-[var(--card)]/70 text-left shadow-[0_20px_50px_-32px_rgba(15,23,42,0.75)] transition-all hover:border-[var(--primary)]/35 hover:shadow-[0_24px_60px_-32px_color-mix(in_srgb,var(--primary)_45%,transparent)] sm:flex-col sm:rounded-[1.75rem] sm:hover:-translate-y-0.5",
+                          isActive
+                            ? "border-[var(--primary)]/45 ring-1 ring-[var(--primary)]/25"
+                            : "border-[var(--border)]/50",
+                        )}
+                      >
+                        <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative h-24 w-24 shrink-0 overflow-hidden sm:h-auto sm:w-full sm:aspect-square">
+                          {char.avatarPath ? (
+                            <img
+                              src={char.avatarPath}
+                              alt={charName}
+                              loading="lazy"
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                              style={getAvatarCropStyle(
+                                char.parsed.extensions?.avatarCrop as AvatarCropValue | undefined,
+                              )}
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-white/85">
+                              <User size="1.5rem" className="sm:h-8 sm:w-8" />
+                            </div>
+                          )}
+
+                          {isFavorite && (
+                            <div className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[0.5625rem] font-medium text-amber-200 backdrop-blur-sm sm:right-3 sm:top-3 sm:text-[0.625rem]">
+                              <Star size="0.625rem" className="fill-current sm:h-[0.6875rem] sm:w-[0.6875rem]" /> Favorite
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 sm:gap-3 sm:p-4">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-[var(--foreground)] sm:text-base">
+                              {charName}
+                            </div>
+                            {charTitle && (
+                              <div className="mt-0.5 truncate text-[0.625rem] italic text-[var(--muted-foreground)] sm:mt-1 sm:text-[0.6875rem]">
+                                {charTitle}
+                              </div>
                             )}
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-white/85">
-                            <User size="1.5rem" className="sm:h-8 sm:w-8" />
+                            {cardMeta && (
+                              <div className="mt-0.5 truncate text-[0.5625rem] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)] sm:mt-1 sm:text-[0.625rem] sm:tracking-[0.18em]">
+                                {cardMeta}
+                              </div>
+                            )}
                           </div>
-                        )}
 
-                        {isFavorite && (
-                          <div className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[0.5625rem] font-medium text-amber-200 backdrop-blur-sm sm:right-3 sm:top-3 sm:text-[0.625rem]">
-                            <Star size="0.625rem" className="fill-current sm:h-[0.6875rem] sm:w-[0.6875rem]" /> Favorite
-                          </div>
-                        )}
-                      </div>
+                          <p className="line-clamp-3 text-[0.6875rem] leading-4 text-[var(--muted-foreground)] sm:line-clamp-4 sm:text-xs sm:leading-5">
+                            {cardSummary}
+                          </p>
 
-                      <div className="flex min-w-0 flex-1 flex-col gap-2 p-3 sm:gap-3 sm:p-4">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-[var(--foreground)] sm:text-base">
-                            {charName}
-                          </div>
-                          {charTitle && (
-                            <div className="mt-0.5 truncate text-[0.625rem] italic text-[var(--muted-foreground)] sm:mt-1 sm:text-[0.6875rem]">
-                              {charTitle}
-                            </div>
-                          )}
-                          {cardMeta && (
-                            <div className="mt-0.5 truncate text-[0.5625rem] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)] sm:mt-1 sm:text-[0.625rem] sm:tracking-[0.18em]">
-                              {cardMeta}
-                            </div>
-                          )}
-                        </div>
-
-                        <p className="line-clamp-3 text-[0.6875rem] leading-4 text-[var(--muted-foreground)] sm:line-clamp-4 sm:text-xs sm:leading-5">
-                          {cardSummary}
-                        </p>
-
-                        <div className="mt-auto flex flex-wrap gap-1 sm:gap-1.5">
-                          <span
-                            className="mari-chrome-muted-badge gap-1 px-1.5 py-0.5 text-[0.5625rem] sm:px-2 sm:py-1 sm:text-[0.625rem]"
-                            title="Estimated from character card text fields; actual tokenizer counts vary by model."
-                          >
-                            <Hash size="0.5625rem" />
-                            {formatEstimatedTokens(tokenEstimate)}
-                          </span>
-                          {tags.slice(0, 2).map((tag) => (
+                          <div className="mt-auto flex flex-wrap gap-1 sm:gap-1.5">
                             <span
-                              key={tag}
-                              className="rounded-full bg-[var(--primary)]/8 px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--primary)]/85 sm:px-2 sm:py-1 sm:text-[0.625rem]"
+                              className="mari-chrome-muted-badge gap-1 px-1.5 py-0.5 text-[0.5625rem] sm:px-2 sm:py-1 sm:text-[0.625rem]"
+                              title="Estimated from character card text fields; actual tokenizer counts vary by model."
                             >
-                              {tag}
+                              <Hash size="0.5625rem" />
+                              {formatEstimatedTokens(tokenEstimate)}
                             </span>
-                          ))}
-                          {tags.length > 2 && (
-                            <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] sm:px-2 sm:py-1 sm:text-[0.625rem]">
-                              +{tags.length - 2}
-                            </span>
-                          )}
+                            {tags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full bg-[var(--primary)]/8 px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--primary)]/85 sm:px-2 sm:py-1 sm:text-[0.625rem]"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {tags.length > 2 && (
+                              <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] sm:px-2 sm:py-1 sm:text-[0.625rem]">
+                                +{tags.length - 2}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
 
-                    {isActive && (
-                      <div className="col-span-full lg:hidden">
-                        <CharacterLibraryDetailCard character={char} onEdit={openCharacterDetailFromLibrary} />
-                      </div>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </div>
+                      {isActive && (
+                        <div className="col-span-full lg:hidden">
+                          <CharacterLibraryDetailCard character={char} onEdit={openCharacterDetailFromLibrary} />
+                        </div>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </div>
+              {characterPages.hasNextPage && (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => void characterPages.fetchNextPage()}
+                    disabled={characterPages.isFetchingNextPage}
+                    className="mari-chrome-control mari-chrome-control--primary px-5 py-2 text-sm"
+                  >
+                    {characterPages.isFetchingNextPage ? "Loading..." : `Load more (${parsedCharacters.length} loaded)`}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </section>
 

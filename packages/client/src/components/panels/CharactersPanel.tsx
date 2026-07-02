@@ -4,7 +4,8 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type UIEvent } from "react";
 import { toast } from "sonner";
 import {
-  useCharacters,
+  flattenCharacterPages,
+  useCharacterPages,
   useDeleteCharacter,
   useCharacterGroups,
   useCreateGroup,
@@ -137,7 +138,6 @@ function usePanelMobileOverlay() {
 }
 
 export function CharactersPanel() {
-  const { data: characters, isLoading } = useCharacters();
   const { data: groups } = useCharacterGroups();
   const deleteCharacter = useDeleteCharacter();
   const duplicateCharacter = useDuplicateCharacter();
@@ -161,6 +161,10 @@ export function CharactersPanel() {
   const favFilter = useUIStore((s) => s.characterPanelFavoriteFilter);
   const setFavFilter = useUIStore((s) => s.setCharacterPanelFavoriteFilter);
   const setCharacterPanelScrollTop = useUIStore((s) => s.setCharacterPanelScrollTop);
+  const serverSearch = useMemo(() => parseCharacterSearchQuery(search).text, [search]);
+  const characterPages = useCharacterPages({ search: serverSearch, sort });
+  const characters = useMemo(() => flattenCharacterPages(characterPages.data), [characterPages.data]);
+  const isLoading = characterPages.isLoading;
 
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -1382,6 +1386,17 @@ export function CharactersPanel() {
           );
         })}
       </div>
+
+      {characterPages.hasNextPage && (
+        <button
+          type="button"
+          onClick={() => void characterPages.fetchNextPage()}
+          disabled={characterPages.isFetchingNextPage}
+          className="mari-chrome-control mari-chrome-control--primary justify-center text-xs"
+        >
+          {characterPages.isFetchingNextPage ? "Loading..." : `Load more (${parsedCharacters.length} loaded)`}
+        </button>
+      )}
 
       {selectionMode && (
         <SelectionActionBar

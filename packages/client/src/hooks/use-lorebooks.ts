@@ -1,16 +1,19 @@
 // ──────────────────────────────────────────────
 // React Query: Lorebook hooks
 // ──────────────────────────────────────────────
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../lib/api-client";
 import type { Lorebook, LorebookEntry, LorebookFolder } from "@marinara-engine/shared";
 import { characterKeys } from "./use-characters";
 import { achievementKeys, trackAchievementEvent } from "./use-achievements";
+import { flattenPaginatedItems, getNextPageOffset, LIBRARY_PAGE_SIZE, type PaginatedList } from "../lib/list-pagination";
 
 export const lorebookKeys = {
   all: ["lorebooks"] as const,
   list: () => [...lorebookKeys.all, "list"] as const,
   byCategory: (cat: string) => [...lorebookKeys.all, "category", cat] as const,
+  page: (category: string, search: string, sort: string, activeKey: string) =>
+    [...lorebookKeys.list(), "page", category, search, sort, activeKey] as const,
   detail: (id: string) => [...lorebookKeys.all, "detail", id] as const,
   entries: (lorebookId: string) => [...lorebookKeys.all, "entries", lorebookId] as const,
   entry: (entryId: string) => [...lorebookKeys.all, "entry", entryId] as const,
@@ -18,6 +21,11 @@ export const lorebookKeys = {
   search: (q: string) => [...lorebookKeys.all, "search", q] as const,
   active: (chatId?: string | null) =>
     chatId ? ([...lorebookKeys.all, "active", chatId] as const) : ([...lorebookKeys.all, "active"] as const),
+};
+
+export type LorebookListItem = Lorebook & {
+  characterNames?: string[];
+  personaNames?: string[];
 };
 
 // ── Lorebooks ──
@@ -28,6 +36,58 @@ export function useLorebooks(category?: string) {
     queryFn: () => api.get<Lorebook[]>(category ? `/lorebooks?category=${category}` : "/lorebooks"),
     staleTime: 5 * 60_000,
   });
+}
+
+export function useLorebookPages(options: {
+  category?: string;
+  search?: string;
+  sort?: string;
+  active?: {
+    lorebookIds: string[];
+    characterIds: string[];
+    personaId?: string | null;
+    chatId?: string | null;
+  };
+}) {
+  const category = options.category ?? "";
+  const search = (options.search ?? "").trim();
+  const sort = options.sort ?? "";
+  const activeKey = options.active
+    ? [
+        [...options.active.lorebookIds].sort().join(","),
+        [...options.active.characterIds].sort().join(","),
+        options.active.personaId ?? "",
+        options.active.chatId ?? "",
+      ].join("|")
+    : "";
+
+  return useInfiniteQuery({
+    queryKey: lorebookKeys.page(category, search, sort, activeKey),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({
+        limit: String(LIBRARY_PAGE_SIZE),
+        offset: String(Number(pageParam) || 0),
+      });
+      if (category) params.set("category", category);
+      if (search) params.set("search", search);
+      if (sort) params.set("sort", sort);
+      if (options.active) {
+        params.set("active", "true");
+        if (options.active.lorebookIds.length > 0) params.set("activeLorebookIds", options.active.lorebookIds.join(","));
+        if (options.active.characterIds.length > 0) params.set("characterIds", options.active.characterIds.join(","));
+        if (options.active.personaId) params.set("personaId", options.active.personaId);
+        if (options.active.chatId) params.set("chatId", options.active.chatId);
+      }
+      return api.get<PaginatedList<LorebookListItem>>(`/lorebooks?${params.toString()}`);
+    },
+    getNextPageParam: getNextPageOffset,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function flattenLorebookPages(data: { pages?: Array<PaginatedList<LorebookListItem>> } | undefined) {
+  return flattenPaginatedItems(data?.pages);
 }
 
 export function useLorebook(id: string | null) {

@@ -4,7 +4,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import {
-  usePersonas,
+  flattenPersonaPages,
+  usePersonaPages,
   useDeletePersona,
   useActivatePersona,
   useUploadPersonaAvatar,
@@ -126,7 +127,6 @@ function useTouchSafePersonaDragMode() {
 }
 
 export function PersonasPanel() {
-  const { data: personas, isLoading } = usePersonas();
   const deletePersona = useDeletePersona();
   const duplicatePersona = useDuplicatePersona();
   const updatePersona = useUpdatePersona();
@@ -149,6 +149,9 @@ export function PersonasPanel() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
+  const personaPages = usePersonaPages({ search, sort });
+  const personas = useMemo(() => flattenPersonaPages(personaPages.data), [personaPages.data]);
+  const isLoading = personaPages.isLoading;
 
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -1119,6 +1122,17 @@ export function PersonasPanel() {
           );
         })}
       </div>
+
+      {personaPages.hasNextPage && (
+        <button
+          type="button"
+          onClick={() => void personaPages.fetchNextPage()}
+          disabled={personaPages.isFetchingNextPage}
+          className="mari-chrome-control mari-chrome-control--primary justify-center text-xs"
+        >
+          {personaPages.isFetchingNextPage ? "Loading..." : `Load more (${rawList.length} loaded)`}
+        </button>
+      )}
 
       {selectionMode && (
         <SelectionActionBar

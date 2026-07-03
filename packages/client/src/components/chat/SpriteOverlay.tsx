@@ -250,7 +250,7 @@ export function SpriteOverlay({
     setStates(newStates);
   }, [messages, characterIds, expressionResult, spriteExpressions, fullBodyOnly]);
 
-  const visibleChars = useMemo(() => characterIds.slice(0, 3), [characterIds]);
+  const visibleChars = useMemo(() => characterIds, [characterIds]);
   const renderModes = useMemo<SpriteRenderMode[]>(() => {
     if (fullBodyOnly) return ["full-body"];
     const modes: SpriteRenderMode[] = [];

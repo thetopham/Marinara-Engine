@@ -569,6 +569,33 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
     },
   },
   {
+    name: "danbooru illustration prompts keep grouped weighted tags intact",
+    run() {
+      const styleProfiles = createDefaultImageStyleProfileSettings();
+      const compiled = compileImagePrompt({
+        kind: "illustration",
+        prompt: [
+          "masterpiece",
+          "1boy",
+          "solo",
+          "(shaved head, bald:1.2)",
+          "(grey beard, short beard, stubble:1.3)",
+          "blue eyes",
+          "no (bad hands, extra fingers:1.2)",
+          "standing",
+        ].join(", "),
+        styleProfiles,
+        styleProfileId: "danbooru",
+      });
+
+      assert.match(compiled.prompt, /\(shaved head, bald:1\.2\)/);
+      assert.match(compiled.prompt, /\(grey beard, short beard, stubble:1\.3\)/);
+      assert.match(compiled.prompt, /\bstanding\b/);
+      assert.match(compiled.negativePrompt, /\(bad hands, extra fingers:1\.2\)/);
+      assert.doesNotMatch(compiled.prompt, /\(bad hands, extra fingers:1\.2\)/);
+    },
+  },
+  {
     name: "image prompt negation only moves the directly negated comma clause",
     run() {
       const styleProfiles = createDefaultImageStyleProfileSettings();

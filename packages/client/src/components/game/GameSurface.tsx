@@ -3594,7 +3594,10 @@ function GameSurfaceComponent({
     typeof chatMeta.gameVideoConnectionId === "string" && chatMeta.gameVideoConnectionId.trim().length > 0;
   const gameImageAutoGenerationEnabled =
     gameImageGenerationEnabled && chatMeta.gameImageAutoGenerationEnabled !== false;
-  const gameStoryboardAutoGenerationEnabled = chatMeta.gameStoryboardAutoGenerationEnabled === true;
+  const gameStoryboardAutoIllustrationsEnabled = chatMeta.gameStoryboardAutoIllustrationsEnabled === true;
+  const gameStoryboardAutoAnimationsEnabled = chatMeta.gameStoryboardAutoGenerationEnabled === true;
+  const gameStoryboardAutoGenerationEnabled =
+    gameStoryboardAutoIllustrationsEnabled || gameStoryboardAutoAnimationsEnabled;
   const gameImageUseAvatarReferences = chatMeta.gameImageUseAvatarReferences !== false;
   const gameImageIncludeCharacterAppearance = chatMeta.gameImageIncludeCharacterAppearance !== false;
 
@@ -5339,7 +5342,7 @@ function GameSurfaceComponent({
         messageId: latestAssistantMsg.id,
         swipeIndex: latestAssistantSwipeIndex,
         sections: latestAssistantStoryboardSections,
-        generateVideos: gameVideoGenerationEnabled,
+        generateVideos: gameStoryboardAutoAnimationsEnabled && gameVideoGenerationEnabled,
         debugMode: useUIStore.getState().debugMode,
       });
       void queryClient.invalidateQueries({
@@ -5363,6 +5366,7 @@ function GameSurfaceComponent({
   }, [
     activeChatId,
     gameImageGenerationEnabled,
+    gameStoryboardAutoAnimationsEnabled,
     gameVideoGenerationEnabled,
     generateTurnStoryboard,
     latestAssistantMsg?.id,
@@ -5406,7 +5410,7 @@ function GameSurfaceComponent({
         messageId: latestAssistantMsg.id,
         swipeIndex: latestAssistantSwipeIndex,
         sections: latestAssistantStoryboardSections,
-        generateVideos: gameVideoGenerationEnabled,
+        generateVideos: gameStoryboardAutoAnimationsEnabled && gameVideoGenerationEnabled,
         debugMode: useUIStore.getState().debugMode,
       })
       .then((result) => {
@@ -5429,6 +5433,7 @@ function GameSurfaceComponent({
   }, [
     activeChatId,
     gameImageGenerationEnabled,
+    gameStoryboardAutoAnimationsEnabled,
     gameStoryboardAutoGenerationEnabled,
     gameVideoGenerationEnabled,
     generateTurnStoryboard,

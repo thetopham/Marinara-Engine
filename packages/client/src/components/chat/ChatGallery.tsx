@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat Gallery — Image grid for per-chat generated images
 // ──────────────────────────────────────────────
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Image,
@@ -18,6 +18,8 @@ import {
   Film,
   Eye,
   EyeOff,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   useChatAssetBrowser,
@@ -34,6 +36,7 @@ import type { PinnedGalleryMedia } from "../../stores/gallery.store";
 import { toast } from "sonner";
 import { ImageUploadDropzone } from "../ui/ImageUploadDropzone";
 import { buildCardAssetMarkdown, dispatchCardAssetInsert } from "../../lib/card-asset-links";
+import { copyToClipboard } from "../../lib/utils";
 import {
   ChatImageLightbox,
   ChatVideoLightbox,
@@ -88,6 +91,8 @@ export function ChatGallery({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [assetBrowserOpen, setAssetBrowserOpen] = useState(false);
   const [assetSearch, setAssetSearch] = useState("");
+  const [copiedPromptImageId, setCopiedPromptImageId] = useState<string | null>(null);
+  const copyResetTimerRef = useRef<number | null>(null);
   const isIllustrating = useGalleryStore((s) => s.illustratingChatIds.has(chatId));
   const isGeneratingVideo = useGalleryStore((s) => s.videoGeneratingChatIds.has(chatId));
   const isGeneratingBackground = useGalleryStore((s) => s.backgroundGeneratingChatIds.has(chatId));
@@ -128,6 +133,14 @@ export function ChatGallery({
     if (!isFollowingLatest || !latestMedia) return;
     syncLatestViewer(latestMedia);
   }, [isFollowingLatest, latestMedia, syncLatestViewer]);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleUpload = useCallback(
     (files: File[]) => {
@@ -214,6 +227,27 @@ export function ChatGallery({
     },
     [chatId, pinImage],
   );
+
+  const handleCopyPrompt = useCallback(async (image: ChatImage) => {
+    const prompt = image.prompt.trim();
+    if (!prompt) return;
+
+    const ok = await copyToClipboard(prompt);
+    if (!ok) {
+      toast.error("Could not copy prompt.");
+      return;
+    }
+
+    setCopiedPromptImageId(image.id);
+    if (copyResetTimerRef.current !== null) {
+      window.clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = window.setTimeout(() => {
+      setCopiedPromptImageId(null);
+      copyResetTimerRef.current = null;
+    }, 1400);
+    toast.success("Prompt copied.");
+  }, []);
 
   const handlePinVideo = useCallback(
     (video: GeneratedSceneVideo) => {
@@ -421,6 +455,20 @@ export function ChatGallery({
                           {isGeneratingVideo ? <Loader2 size="0.75rem" className="animate-spin" /> : <Film size="0.75rem" />}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void handleCopyPrompt(img);
+                        }}
+                        disabled={!img.prompt.trim()}
+                        aria-label="Copy image prompt"
+                        className="pointer-events-auto rounded-md bg-white/20 p-1.5 text-white transition-colors hover:bg-white/30 disabled:cursor-not-allowed disabled:opacity-45"
+                        title={img.prompt.trim() ? "Copy prompt" : "No prompt saved"}
+                      >
+                        {copiedPromptImageId === img.id ? <Check size="0.75rem" /> : <Copy size="0.75rem" />}
+                      </button>
                     </div>
                     <button
                       type="button"

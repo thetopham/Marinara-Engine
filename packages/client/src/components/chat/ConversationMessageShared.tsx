@@ -5,7 +5,7 @@
 import { Fragment, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronRight, EyeOff, FileText, X } from "lucide-react";
 import {
-  normalizeTextForMatch,
+  type GroupedSegment,
   type MessageExtra,
   type MessageReaction,
   type QuoteFormat,
@@ -23,16 +23,6 @@ import type { CharacterMap } from "./chat-area.types";
 // ── Types ────────────────────────────────────────
 
 export type CharInfo = NonNullable<ReturnType<CharacterMap["get"]>>;
-
-export interface SpeakerSegment {
-  speaker: string | null;
-  text: string;
-}
-
-export interface GroupedSegment {
-  speaker: string | null;
-  lines: string[];
-}
 
 export interface MessageData {
   id: string;
@@ -232,74 +222,10 @@ export function highlightMentions(nodes: ReactNode[], names: string[], keyPrefix
   });
 }
 
-export function parseSpeakerTags(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  const regex = /<speaker="([^"]*)">([\s\S]*?)<\/speaker>/g;
-  let match: RegExpExecArray | null;
-  const segments: SpeakerSegment[] = [];
-  let lastIndex = 0;
-  let foundTag = false;
-  while ((match = regex.exec(content)) !== null) {
-    foundTag = true;
-    const speakerName = match[1]!.trim();
-    const knownSpeaker = knownNames.has(normalizeTextForMatch(speakerName));
-    if (match.index > lastIndex) {
-      const before = content.slice(lastIndex, match.index).trim();
-      if (before) segments.push({ speaker: null, text: before });
-    }
-    segments.push({ speaker: knownSpeaker ? speakerName : null, text: match[2]!.trim() });
-    lastIndex = regex.lastIndex;
-  }
-  if (lastIndex < content.length) {
-    const after = content.slice(lastIndex).trim();
-    if (after) segments.push({ speaker: null, text: after });
-  }
-  return foundTag ? segments : null;
-}
-
-export function parseNamePrefixFormat(content: string, knownNames: Set<string>): SpeakerSegment[] | null {
-  if (!knownNames.size) return null;
-  const lines = content.split("\n");
-  const segments: SpeakerSegment[] = [];
-  let currentSpeaker: string | null = null;
-  let currentLines: string[] = [];
-  let found = false;
-  for (const line of lines) {
-    const colonIdx = line.indexOf(": ");
-    if (colonIdx > 0) {
-      const potentialName = line.slice(0, colonIdx).trim();
-      if (knownNames.has(normalizeTextForMatch(potentialName))) {
-        if (currentLines.length > 0) segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-        currentSpeaker = potentialName;
-        currentLines = [line.slice(colonIdx + 2)];
-        found = true;
-        continue;
-      }
-    }
-    currentLines.push(line);
-  }
-  if (currentLines.length > 0) segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
-  if (!found) return null;
-  return segments.filter((s) => s.text.trim());
-}
-
-export function groupConsecutiveSegments(segments: SpeakerSegment[]): GroupedSegment[] {
-  const groups: GroupedSegment[] = [];
-  for (const seg of segments) {
-    const last = groups[groups.length - 1];
-    const trimmed = seg.text.replace(/^\n+|\n+$/g, "");
-    if (
-      last &&
-      last.speaker &&
-      seg.speaker &&
-      normalizeTextForMatch(last.speaker) === normalizeTextForMatch(seg.speaker)
-    ) {
-      last.lines.push(trimmed);
-    } else {
-      groups.push({ speaker: seg.speaker, lines: [trimmed] });
-    }
-  }
-  return groups;
-}
+// Speaker-segment parsing (parseSpeakerTags / parseNamePrefixFormat /
+// groupConsecutiveSegments / parseGroupedSpeakerSegments) lives in
+// @marinara-engine/shared (utils/speaker-segments.ts): the server derives
+// reaction-attribution segment indexes with the same code.
 
 // ── Small shared components ───────────────────────
 

@@ -35,7 +35,9 @@ import {
   findKnownModel,
   LOCAL_SIDECAR_CONNECTION_ID,
   normalizeTextForMatch,
+  parseGroupedSpeakerSegments,
   type APIProvider,
+  type GroupedSegment,
 } from "@marinara-engine/shared";
 import type {
   AgentContext,
@@ -1319,44 +1321,32 @@ function buildCustomStickerAdvertisement(
  * leaves it intact. `resolveReactorName` maps a reactor id ("user" or a character
  * id) to a display name. Returns "" when there is nothing to annotate.
  */
-/**
- * Whether `content` contains a part spoken by `speaker`, in either of the two
- * formats the client's segment parser recognizes: `<speaker="Name">` tags or
- * `Name: text` line prefixes. Used to gate reaction-annotation attribution so
- * the prompt never claims a speaker part the annotated text doesn't have (a
- * segment reaction synced onto a swipe with different segmentation) — the same
- * fallback the client applies when rendering orphaned segment reactions.
- */
-function contentHasSpeakerPart(content: string, speaker: string): boolean {
-  const wanted = normalizeTextForMatch(speaker);
-  if (!wanted) return false;
-  // Complete <speaker="Name">...</speaker> pairs take precedence and, when any
-  // exist, are consulted exclusively — the client's parseSpeakerTags wins over
-  // its Name:-prefix fallback the same way, so a "Name:" line quoted inside
-  // another speaker's tagged part never counts as that speaker's own part.
-  const tagRe = /<speaker="([^"]*)">[\s\S]*?<\/speaker>/g;
-  let sawTag = false;
-  let match: RegExpExecArray | null;
-  while ((match = tagRe.exec(content)) !== null) {
-    sawTag = true;
-    if (normalizeTextForMatch(match[1]!.trim()) === wanted) return true;
-  }
-  if (sawTag) return false;
-  for (const line of content.split("\n")) {
-    const colonIdx = line.indexOf(": ");
-    if (colonIdx > 0 && normalizeTextForMatch(line.slice(0, colonIdx).trim()) === wanted) return true;
-  }
-  return false;
+/** Single-line excerpt of a grouped segment's text for reaction attribution. */
+function excerptSegmentText(lines: string[]): string {
+  const text = lines.join(" ").replace(/\s+/g, " ").trim();
+  const MAX = 80;
+  if (text.length <= MAX) return text;
+  return `${text.slice(0, MAX).trimEnd()}…`;
 }
 
 function buildReactionAnnotation(
   reactions: unknown,
   content: string,
+  knownSpeakerNames: Set<string>,
   resolveReactorName: (reactorId: string) => string,
 ): string {
   if (!Array.isArray(reactions) || reactions.length === 0) return "";
+  // Segment the annotated content exactly as the client's grouped layout does
+  // (shared parseGroupedSpeakerSegments), so a stored segment index resolves to
+  // the same part the reaction chip renders under.
+  const groups: GroupedSegment[] | null = parseGroupedSpeakerSegments(content, knownSpeakerNames);
   const parts: string[] = [];
-  for (const entry of reactions as Array<{ emoji?: unknown; by?: unknown; segmentSpeaker?: unknown }>) {
+  for (const entry of reactions as Array<{
+    emoji?: unknown;
+    by?: unknown;
+    segment?: unknown;
+    segmentSpeaker?: unknown;
+  }>) {
     const emoji = typeof entry.emoji === "string" ? entry.emoji : null;
     const reactors = Array.isArray(entry.by) ? entry.by.filter((id): id is string => typeof id === "string") : [];
     if (!emoji || reactors.length === 0) continue;
@@ -1367,13 +1357,38 @@ function buildReactionAnnotation(
         : names.length === 2
           ? `${names[0]} and ${names[1]}`
           : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-    // A segment-targeted reaction (grouped multi-speaker message) names whose
-    // part it was aimed at, so that character can respond to it specifically —
-    // but only when the annotated content actually has a part by that speaker.
+    // A segment-targeted reaction quotes the exact part it was aimed at so the
+    // characters can respond to it specifically. Attribution tiers, mirroring
+    // the client's orphan fallback: (1) stored index still resolves to a part
+    // by the stored speaker → quote that part; (2) index stale but the speaker
+    // still has a part in this content (e.g. another swipe's layout) → name the
+    // speaker only; (3) speaker absent → plain reaction, no attribution.
     const targetSpeaker =
       typeof entry.segmentSpeaker === "string" && entry.segmentSpeaker.trim() ? entry.segmentSpeaker.trim() : null;
-    const attributed = targetSpeaker !== null && contentHasSpeakerPart(content, targetSpeaker);
-    parts.push(`${who} reacted with ${emoji}${attributed ? ` to ${targetSpeaker}'s part` : ""}`);
+    let suffix = "";
+    if (targetSpeaker !== null && groups) {
+      const wanted = normalizeTextForMatch(targetSpeaker);
+      const segIdx = typeof entry.segment === "number" && Number.isInteger(entry.segment) ? entry.segment : null;
+      const seg = segIdx !== null && segIdx >= 0 && segIdx < groups.length ? groups[segIdx] : undefined;
+      const segAligned =
+        seg !== undefined &&
+        seg.speaker != null &&
+        normalizeTextForMatch(seg.speaker) === wanted &&
+        seg.lines.some((line) => line.trim().length > 0);
+      if (segAligned) {
+        suffix = ` to ${targetSpeaker}'s part ("${excerptSegmentText(seg.lines)}")`;
+      } else if (
+        groups.some(
+          (g) =>
+            g.speaker != null &&
+            normalizeTextForMatch(g.speaker) === wanted &&
+            g.lines.some((line) => line.trim().length > 0),
+        )
+      ) {
+        suffix = ` to ${targetSpeaker}'s part`;
+      }
+    }
+    parts.push(`${who} reacted with ${emoji}${suffix}`);
   }
   // Dedupe: entries for the same emoji+speaker can exist at different segment
   // indices (stale targets synced across swipes) and collapse to one wording.
@@ -2882,12 +2897,18 @@ export async function generateRoutes(app: FastifyInstance) {
           // any other id is a character.
           const reactorDisplayName = (reactorId: string): string =>
             reactorId === "user" ? personaName : (charIdToName.get(reactorId) ?? "a character");
+          // Normalized chat-character names — the known-speaker set the client's
+          // grouped layout segments against (segment indexes must line up).
+          const reactionSpeakerNames = new Set(
+            Array.from(charIdToName.values()).map((name) => normalizeTextForMatch(name)),
+          );
           for (let i = 0; i < finalMessages.length; i++) {
             const raw = chatMessages[i];
             if (!raw) continue;
             const note = buildReactionAnnotation(
               parseExtra(raw.extra).reactions,
               finalMessages[i]!.content,
+              reactionSpeakerNames,
               reactorDisplayName,
             );
             if (note) finalMessages[i]!.content += note;

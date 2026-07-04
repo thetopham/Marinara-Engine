@@ -7,7 +7,13 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProper
 import { createPortal } from "react-dom";
 import { Brain, Trash2, X } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { formatTextQuotes, normalizeTextForMatch, type Message, type MessageReaction } from "@marinara-engine/shared";
+import {
+  formatTextQuotes,
+  normalizeTextForMatch,
+  parseGroupedSpeakerSegments,
+  type Message,
+  type MessageReaction,
+} from "@marinara-engine/shared";
 import { toast } from "sonner";
 import { useUIStore, type ConversationMessageStyle } from "../../stores/ui.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
@@ -20,9 +26,6 @@ import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./Gene
 import {
   HiddenFromAIConversationButton,
   ConversationMessageLightbox,
-  parseSpeakerTags,
-  parseNamePrefixFormat,
-  groupConsecutiveSegments,
   type MessageData,
   type MessageRenderContext,
 } from "./ConversationMessageShared";
@@ -414,11 +417,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const groupedSegments = useMemo(() => {
     if (isUser || !renderedContent) return null;
     const knownNames = charByName ? new Set(charByName.keys()) : new Set<string>();
-    const speakerSegs = parseSpeakerTags(renderedContent, knownNames);
-    if (speakerSegs) return groupConsecutiveSegments(speakerSegs);
-    const nameSegs = parseNamePrefixFormat(renderedContent, knownNames);
-    if (nameSegs) return groupConsecutiveSegments(nameSegs);
-    return null;
+    return parseGroupedSpeakerSegments(renderedContent, knownNames);
   }, [isUser, renderedContent, charByName]);
 
   // Segment-targeted reactions render inline under their speaker's segment; the

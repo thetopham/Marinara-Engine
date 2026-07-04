@@ -24,7 +24,6 @@ import { SceneBanner, EndSceneBar } from "./SceneBanner";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { ActiveLorebookEntriesButton } from "./ActiveLorebookEntriesButton";
 import { ChatToolbarButton, ChatToolbarMenu } from "./ChatToolbarControls";
-import { groupConsecutiveSegments, parseNamePrefixFormat, parseSpeakerTags } from "./ConversationMessageShared";
 import { ConversationPresenceCard } from "./ConversationPresenceCard";
 import { PendingTypingDots } from "./PendingTypingDots";
 import { TranscriptWindowControls } from "./TranscriptWindowControls";
@@ -41,7 +40,7 @@ import { useThrottledStreamBuffer } from "../../hooks/use-throttled-stream-buffe
 import { useConversationCustomEmojis } from "../../hooks/use-conversation-custom-emojis";
 import { useConversationCustomStickers } from "../../hooks/use-conversation-custom-stickers";
 import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
-import { normalizeTextForMatch, type Message } from "@marinara-engine/shared";
+import { normalizeTextForMatch, parseGroupedSpeakerSegments, type Message } from "@marinara-engine/shared";
 
 const ConversationAutonomousEffects = lazy(async () => {
   const module = await import("./ConversationAutonomousEffects");
@@ -133,10 +132,7 @@ function hasNamePrefixFormat(content: string, knownNames: Set<string>): boolean 
 }
 
 function getGroupedSegmentCount(content: string, knownNames: Set<string>): number {
-  const speakerSegments = parseSpeakerTags(content, knownNames);
-  if (speakerSegments) return groupConsecutiveSegments(speakerSegments).length;
-  const nameSegments = parseNamePrefixFormat(content, knownNames);
-  return nameSegments ? groupConsecutiveSegments(nameSegments).length : 0;
+  return parseGroupedSpeakerSegments(content, knownNames)?.length ?? 0;
 }
 
 function isHiddenFromUser(message: Message) {

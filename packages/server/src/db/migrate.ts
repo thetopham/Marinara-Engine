@@ -1151,6 +1151,9 @@ export async function runMigrations(db: DB) {
     ),
   );
   await db.run(
+    sql.raw(`CREATE INDEX IF NOT EXISTS idx_game_scene_videos_chat ON game_scene_videos(chat_id, created_at DESC)`),
+  );
+  await db.run(
     sql.raw(
       `CREATE INDEX IF NOT EXISTS idx_game_storyboards_message ON game_turn_storyboards(message_id, swipe_index)`,
     ),

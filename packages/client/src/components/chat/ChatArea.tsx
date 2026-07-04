@@ -1105,12 +1105,6 @@ export function ChatArea() {
     async (source?: { galleryImageId?: string }) => {
       if (!activeChatId || !chat || (chatMode !== "roleplay" && chatMode !== "visual_novel")) return;
       if (roleplaySceneVideoGeneratingRef.current) return;
-      const sceneVideoConnectionId =
-        typeof chatMeta.sceneVideoConnectionId === "string" ? chatMeta.sceneVideoConnectionId.trim() : "";
-      if (!sceneVideoConnectionId) {
-        toast.error("Choose a Scene Video connection in Chat Settings first.");
-        return;
-      }
 
       const galleryImageId = source?.galleryImageId?.trim();
       roleplaySceneVideoGeneratingRef.current = true;
@@ -1135,7 +1129,7 @@ export function ChatArea() {
         roleplaySceneVideoGeneratingRef.current = false;
       }
     },
-    [activeChatId, chat, chatMeta.sceneVideoConnectionId, chatMode, queryClient],
+    [activeChatId, chat, chatMode, queryClient],
   );
 
   // Creator-notes card CSS: resolve the per-chat mode (default "chat") and map

@@ -239,6 +239,21 @@ const CASCADES: Array<{ parent: FileBackedTable; child: FileBackedTable; parentK
   { parent: "agent_configs", child: "agent_memory", parentKey: "id", childKey: "agentConfigId" },
 ];
 
+const SET_NULL_RELATIONS: Array<{
+  parent: FileBackedTable;
+  child: FileBackedTable;
+  parentKey: string;
+  childKey: string;
+}> = [
+  { parent: "chat_images", child: "game_turn_storyboard_keyframes", parentKey: "id", childKey: "chatImageId" },
+  {
+    parent: "game_scene_videos",
+    child: "game_turn_storyboard_keyframes",
+    parentKey: "id",
+    childKey: "sceneVideoId",
+  },
+];
+
 const tableMetasByObject = new WeakMap<object, TableMeta>();
 const columnMetasByObject = new WeakMap<object, ColumnMeta>();
 const tableMetasByName = new Map<string, TableMeta>();
@@ -1234,7 +1249,26 @@ class FileTableStore {
     this.recordTxMutation(meta.name);
     this.tables.set(meta.name, kept);
     this.markDirty(meta.name);
+    this.applySetNullRelations(meta.name as FileBackedTable, deleted);
     this.applyCascades(meta.name as FileBackedTable, deleted);
+  }
+
+  private applySetNullRelations(parentTable: FileBackedTable, deletedRows: Row[]) {
+    for (const relation of SET_NULL_RELATIONS.filter((entry) => entry.parent === parentTable)) {
+      const childMeta = getMeta(relation.child);
+      const deletedValues = new Set(deletedRows.map((row) => row[relation.parentKey]));
+      let changed = false;
+      for (const row of this.rows(childMeta.name)) {
+        if (row[relation.childKey] != null && deletedValues.has(row[relation.childKey])) {
+          row[relation.childKey] = null;
+          changed = true;
+        }
+      }
+      if (changed) {
+        this.recordTxMutation(childMeta.name);
+        this.markDirty(childMeta.name);
+      }
+    }
   }
 
   private applyCascades(parentTable: FileBackedTable, deletedRows: Row[]) {

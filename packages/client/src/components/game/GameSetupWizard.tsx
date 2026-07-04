@@ -650,7 +650,7 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
         sceneConnectionId: sceneModelValue && sceneModelValue !== "local" ? sceneModelValue : undefined,
         enableSpriteGeneration: enableSpriteGeneration || undefined,
         imageConnectionId: enableSpriteGeneration && imageConnectionId ? imageConnectionId : undefined,
-        videoConnectionId: videoConnectionId || undefined,
+        videoConnectionId: enableSpriteGeneration && videoConnectionId ? videoConnectionId : undefined,
         activeLorebookIds: activeLorebookIds.length > 0 ? activeLorebookIds : undefined,
         enableCustomWidgets,
         customHudWidgets:

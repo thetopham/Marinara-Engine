@@ -152,7 +152,12 @@ import {
   buildSceneIllustrationProviderPrompt,
 } from "../services/game/game-asset-generation.js";
 import { saveImageToDisk } from "../services/image/image-generation.js";
-import { generateVideo, saveVideoToDisk, type VideoReferenceImage } from "../services/video/video-generation.js";
+import {
+  generateVideo,
+  removeSavedVideoFromDisk,
+  saveVideoToDisk,
+  type VideoReferenceImage,
+} from "../services/video/video-generation.js";
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import {
   loadImageGenerationUserSettings,
@@ -2315,6 +2320,7 @@ const GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS = 31 * 60 * 1000;
 const GAME_ILLUSTRATION_SUMMARY_TIMEOUT_MS = 60 * 1000;
 const GAME_STORYBOARD_DIRECTOR_TIMEOUT_MS = 3 * 60 * 1000;
 const GAME_ASSET_PORTRAIT_CONCURRENCY = 2;
+const GAME_STORYBOARD_FRAME_CONCURRENCY = 2;
 const gameAssetGenerationLocks = new Map<string, Promise<void>>();
 
 class GameGenerationTimeoutError extends Error {
@@ -9025,7 +9031,10 @@ export async function gameRoutes(app: FastifyInstance) {
       GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS,
       "Game storyboard generation",
     );
-    const releaseStoryboardLock = await acquireGameAssetGenerationLock(input.chatId, storyboardAbortSignal);
+    const releaseStoryboardLock = await acquireGameAssetGenerationLock(
+      `storyboard:${input.chatId}`,
+      storyboardAbortSignal,
+    );
     try {
       const requestDebug = input.debugMode === true;
       const debugOverrideEnabled = requestDebug || isDebugAgentsEnabled();
@@ -9359,6 +9368,8 @@ export async function gameRoutes(app: FastifyInstance) {
           if (videoRuntime) {
             await storyboards.update(storyboardRow.id, { status: "rendering_videos" });
             await storyboards.updateKeyframe(frame.id, { status: "rendering_video" });
+            let savedFilePath: string | null = null;
+            let metadataSaved = false;
             try {
               const galleryImagePath = resolveGalleryImagePath(galleryImage);
               if (!galleryImagePath) throw new Error("Storyboard keyframe image file could not be found.");
@@ -9382,7 +9393,8 @@ export async function gameRoutes(app: FastifyInstance) {
                   signal: storyboardAbortSignal,
                 },
               );
-              const filePath = saveVideoToDisk(input.chatId, generated.base64);
+              const filePath = await saveVideoToDisk(input.chatId, generated.base64);
+              savedFilePath = filePath;
               const videoRow = await sceneVideos.create({
                 chatId: input.chatId,
                 filePath,
@@ -9395,9 +9407,15 @@ export async function gameRoutes(app: FastifyInstance) {
                 aspectRatio: plannedFrame.aspectRatio,
               });
               if (!videoRow) throw new Error("Storyboard video metadata could not be saved.");
+              metadataSaved = true;
               await storyboards.updateKeyframe(frame.id, { sceneVideoId: videoRow.id, status: "complete" });
               return { generatedImage: true, generatedVideo: true, imageFailure: false, videoFailure: false };
             } catch (err) {
+              if (savedFilePath && !metadataSaved) {
+                await removeSavedVideoFromDisk(savedFilePath).catch((cleanupErr) => {
+                  logger.warn(cleanupErr, "[game/storyboard] Failed to clean up orphaned video file %s", savedFilePath);
+                });
+              }
               const message = err instanceof Error ? err.message : "Storyboard keyframe video generation failed";
               logger.warn(err, "[game/storyboard] video generation failed for frame %s", frame.id);
               await storyboards.updateKeyframe(frame.id, { status: "image_complete", error: message });
@@ -9412,7 +9430,19 @@ export async function gameRoutes(app: FastifyInstance) {
           return { generatedImage: false, generatedVideo: false, imageFailure: true, videoFailure: false };
         }
       };
-      const frameResults = await Promise.all(frameRows.map(renderStoryboardFrame));
+      const frameResults: StoryboardFrameRenderResult[] = [];
+      let nextFrameIndex = 0;
+      const runFrameWorker = async () => {
+        while (nextFrameIndex < frameRows.length) {
+          const index = nextFrameIndex;
+          nextFrameIndex += 1;
+          const frame = frameRows[index];
+          if (!frame) continue;
+          frameResults[index] = await renderStoryboardFrame(frame);
+        }
+      };
+      const frameWorkerCount = Math.min(GAME_STORYBOARD_FRAME_CONCURRENCY, frameRows.length);
+      await Promise.all(Array.from({ length: frameWorkerCount }, () => runFrameWorker()));
       const imageFailures = frameResults.filter((result) => result.imageFailure).length;
       const generatedImages = frameResults.filter((result) => result.generatedImage).length;
       const videoFailures = frameResults.filter((result) => result.videoFailure).length;
@@ -9630,6 +9660,8 @@ export async function gameRoutes(app: FastifyInstance) {
       debugLog("[debug/game/scene-video] prompt:\n%s", prompt);
     }
 
+    let savedFilePath: string | null = null;
+    let metadataSaved = false;
     try {
       const generated = await generateVideo(source, baseUrl, videoConn.apiKey || "", serviceHint, {
         prompt,
@@ -9640,7 +9672,8 @@ export async function gameRoutes(app: FastifyInstance) {
         referenceImage,
         signal: sceneVideoAbortSignal,
       });
-      const filePath = saveVideoToDisk(input.chatId, generated.base64);
+      const filePath = await saveVideoToDisk(input.chatId, generated.base64);
+      savedFilePath = filePath;
       const row = await sceneVideos.create({
         chatId: input.chatId,
         filePath,
@@ -9653,11 +9686,21 @@ export async function gameRoutes(app: FastifyInstance) {
         aspectRatio,
       });
       if (!row) throw new Error("Scene video metadata could not be saved");
+      metadataSaved = true;
 
       await chats.patchMetadata(input.chatId, () => ({ gameLastSceneVideoId: row.id }));
       logger.info("[game/generate-scene-video] saved video %s for chat %s", row.id, input.chatId);
       return { video: serializeGameSceneVideo(row) };
     } catch (err) {
+      if (savedFilePath && !metadataSaved) {
+        await removeSavedVideoFromDisk(savedFilePath).catch((cleanupErr) => {
+          logger.warn(
+            cleanupErr,
+            "[game/generate-scene-video] Failed to clean up orphaned video file %s",
+            savedFilePath,
+          );
+        });
+      }
       logger.warn(err, "[game/generate-scene-video] Scene video generation failed for chat %s", input.chatId);
       const message = err instanceof Error ? err.message : "Scene video generation failed";
       return reply.status(502).send({ error: message });

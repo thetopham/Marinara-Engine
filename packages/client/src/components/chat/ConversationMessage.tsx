@@ -7,7 +7,13 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProper
 import { createPortal } from "react-dom";
 import { Brain, Trash2, X } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { formatTextQuotes, normalizeTextForMatch, type Message, type MessageReaction } from "@marinara-engine/shared";
+import {
+  formatTextQuotes,
+  normalizeTextForMatch,
+  parseGroupedSpeakerSegments,
+  type Message,
+  type MessageReaction,
+} from "@marinara-engine/shared";
 import { toast } from "sonner";
 import { useUIStore, type ConversationMessageStyle } from "../../stores/ui.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
@@ -20,9 +26,6 @@ import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./Gene
 import {
   HiddenFromAIConversationButton,
   ConversationMessageLightbox,
-  parseSpeakerTags,
-  parseNamePrefixFormat,
-  groupConsecutiveSegments,
   type MessageData,
   type MessageRenderContext,
 } from "./ConversationMessageShared";
@@ -31,7 +34,14 @@ import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
 import { ConversationMessageLine } from "./ConversationMessageLine";
 import { MessageReactions } from "./MessageReactions";
-import { toggleReaction, USER_REACTOR } from "../../lib/reactions";
+import {
+  findRetargetableUserReaction,
+  reactionTargetOf,
+  splitReactionsBySegment,
+  toggleReaction,
+  USER_REACTOR,
+  type ReactionSegmentTarget,
+} from "../../lib/reactions";
 import {
   NEUTRAL_PANEL_HEADER,
   NEUTRAL_PANEL_SCROLL_AREA,
@@ -327,11 +337,10 @@ export const ConversationMessage = memo(function ConversationMessage({
   );
 
   // ── Reactions ──
-  // Toggle the human's reaction on this message; optimistic, then PATCH extra
+  // Persist a new reactions array for this message; optimistic, then PATCH extra
   // (mirrors handleRemoveAttachment). Character reactions are applied server-side.
-  const handleToggleReaction = useCallback(
-    async (emoji: string, imageUrl: string | null) => {
-      const next = toggleReaction(reactions, emoji, USER_REACTOR, imageUrl);
+  const applyReactions = useCallback(
+    async (next: MessageReaction[]) => {
       const msgKey = chatKeys.messages(message.chatId);
       const previous = qc.getQueryData<InfiniteData<Message[]>>(msgKey);
       qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
@@ -356,7 +365,15 @@ export const ConversationMessage = memo(function ConversationMessage({
         await qc.invalidateQueries({ queryKey: msgKey });
       }
     },
-    [reactions, message.chatId, message.id, qc],
+    [message.chatId, message.id, qc],
+  );
+
+  // Toggle the human's reaction. `target` aims it at one grouped speaker segment
+  // (issue #3210); omitted, it applies to the whole message as before.
+  const handleToggleReaction = useCallback(
+    (emoji: string, imageUrl: string | null, target?: ReactionSegmentTarget) =>
+      applyReactions(toggleReaction(reactions, emoji, USER_REACTOR, imageUrl, target)),
+    [applyReactions, reactions],
   );
 
   // Resolve a reactor id to a display name for the chip tooltips.
@@ -364,6 +381,14 @@ export const ConversationMessage = memo(function ConversationMessage({
     (reactorId: string) =>
       reactorId === USER_REACTOR ? "You" : (scopedCharacterMap?.get(reactorId)?.name ?? "Someone"),
     [scopedCharacterMap],
+  );
+
+  // Toggle the user's membership in an existing reaction entry (chip click) —
+  // re-targets the entry's own segment so orphaned entries toggle themselves.
+  const handleToggleReactionEntry = useCallback(
+    (reaction: MessageReaction) =>
+      handleToggleReaction(reaction.emoji, reaction.imageUrl ?? null, reactionTargetOf(reaction)),
+    [handleToggleReaction],
   );
 
   // ── Speaker-segment parsing (for grouped / group-in-bubble) ──
@@ -392,12 +417,36 @@ export const ConversationMessage = memo(function ConversationMessage({
   const groupedSegments = useMemo(() => {
     if (isUser || !renderedContent) return null;
     const knownNames = charByName ? new Set(charByName.keys()) : new Set<string>();
-    const speakerSegs = parseSpeakerTags(renderedContent, knownNames);
-    if (speakerSegs) return groupConsecutiveSegments(speakerSegs);
-    const nameSegs = parseNamePrefixFormat(renderedContent, knownNames);
-    if (nameSegs) return groupConsecutiveSegments(nameSegs);
-    return null;
+    return parseGroupedSpeakerSegments(renderedContent, knownNames);
   }, [isUser, renderedContent, charByName]);
+
+  // Segment-targeted reactions render inline under their speaker's segment; the
+  // remainder (whole-message entries + orphans from a re-segmentation) keeps the
+  // block-bottom row. The grouped layout is the only surface with per-segment
+  // rows, so while it isn't rendered (editing, no parseable segments) every
+  // reaction belongs to the bottom row — otherwise segment chips would vanish.
+  const groupedLayoutActive = !!groupedSegments && !editing && !isUser;
+  const { segmentReactions, messageReactions } = useMemo(
+    () => splitReactionsBySegment(reactions, groupedLayoutActive ? groupedSegments : null),
+    [reactions, groupedLayoutActive, groupedSegments],
+  );
+
+  // Add/toggle the user's reaction on one grouped speaker segment (per-segment
+  // picker). If the user's same-emoji reaction to this speaker is stranded as an
+  // orphan (stale segment target from another swipe's layout or an edit), move it
+  // to the picked segment instead of stacking a second entry — unless this pick
+  // is a plain toggle-off of a reaction already on the target segment.
+  const handlePickSegmentReaction = useCallback(
+    (target: ReactionSegmentTarget, emoji: string, imageUrl: string | null) => {
+      const targetHasUser = (segmentReactions?.[target.segment] ?? []).some(
+        (reaction) => reaction.emoji === emoji && reaction.by.includes(USER_REACTOR),
+      );
+      const orphan = targetHasUser ? undefined : findRetargetableUserReaction(messageReactions, emoji, target);
+      const base = orphan ? toggleReaction(reactions, emoji, USER_REACTOR, null, reactionTargetOf(orphan)) : reactions;
+      return applyReactions(toggleReaction(base, emoji, USER_REACTOR, imageUrl, target));
+    },
+    [applyReactions, messageReactions, reactions, segmentReactions],
+  );
 
   // ── Staggered reveal for multi-speaker segments ──
   const segmentCount = groupedSegments?.length ?? 0;
@@ -665,6 +714,10 @@ export const ConversationMessage = memo(function ConversationMessage({
     onShowGenerationReplay: () => setShowGenerationReplay(true),
     onShowThinking: () => setShowThinking(true),
     onPickReaction: handleToggleReaction,
+    segmentReactions,
+    resolveReactorName,
+    onPickSegmentReaction: handlePickSegmentReaction,
+    onToggleReactionEntry: handleToggleReactionEntry,
     messageTextStyle,
     isBubbleStyle,
     bubbleGroupPosition,
@@ -676,8 +729,10 @@ export const ConversationMessage = memo(function ConversationMessage({
   // Rendered by the shell as a sibling of the message row, OUTSIDE the
   // [data-card-css] container, so a character's bubble theme can't restyle it.
   // Indented to sit under the message body; right-aligned for user bubbles.
+  // Holds the whole-message reactions; segment-targeted ones render inline under
+  // their segment inside the grouped layout instead.
   const reactionRow =
-    reactions.length > 0 && !isHiddenCollapsed ? (
+    messageReactions.length > 0 && !isHiddenCollapsed ? (
       <div
         className={cn(
           "mari-message-reactions-row pb-1",
@@ -685,9 +740,9 @@ export const ConversationMessage = memo(function ConversationMessage({
         )}
       >
         <MessageReactions
-          reactions={reactions}
+          reactions={messageReactions}
           resolveReactorName={resolveReactorName}
-          onToggle={handleToggleReaction}
+          onToggle={handleToggleReactionEntry}
         />
       </div>
     ) : null;
@@ -786,7 +841,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   }
 
   // ── Grouped multi-speaker layout ──
-  if (groupedSegments && !editing && !isUser) {
+  if (groupedLayoutActive) {
     return (
       <>
         <ConversationMessageGrouped ctx={ctx} msgRef={msgRef} />

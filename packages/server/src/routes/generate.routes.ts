@@ -2527,6 +2527,7 @@ export async function generateRoutes(app: FastifyInstance) {
             idleDuration: promptIdleDuration,
             timeZone: promptTimeZone,
             impersonate: input.impersonate === true,
+            preserveImpersonatePresetSections: input.impersonate === true && presetSource === "impersonate",
             deferCharacterMacros,
           };
 
@@ -6315,7 +6316,8 @@ export async function generateRoutes(app: FastifyInstance) {
         // ── Determine characters to generate for ──
         // Individual group mode: each character responds separately
         // Merged/single: one generation for the first (or mentioned) character
-        const useIndividualLoop = isGroupChat && groupChatMode === "individual" && !input.regenerateMessageId; // regeneration always targets one message
+        const useIndividualLoop =
+          isGroupChat && groupChatMode === "individual" && !input.regenerateMessageId && !input.impersonate; // regeneration/impersonate always target one message
         const regenGroupChatIndividual = isGroupChat && groupChatMode === "individual" && input.regenerateMessageId;
         const mentionedConversationCharacters =
           chatMode === "conversation" && isGroupChat && !input.impersonate
@@ -6326,10 +6328,21 @@ export async function generateRoutes(app: FastifyInstance) {
               )
             : [];
 
-        const needsSmartResponseQueue = useIndividualLoop && groupResponseOrder === "smart" && !input.forCharacterId;
+        const hasExplicitGenerationDirective = input.impersonate === true || Boolean(input.generationGuide?.trim());
+        const selectExplicitOrFallbackSmartGroupResponder = (): string[] => {
+          const explicitMentionIds = getExplicitlyMentionedCharacterIds();
+          return explicitMentionIds.length > 0 ? explicitMentionIds : selectFallbackSmartGroupResponder();
+        };
+        const needsSmartResponseQueue =
+          useIndividualLoop &&
+          groupResponseOrder === "smart" &&
+          !input.forCharacterId &&
+          !hasExplicitGenerationDirective;
         let smartResponseQueue =
           useIndividualLoop && groupResponseOrder === "smart" && !input.forCharacterId
-            ? await selectSmartGroupResponders()
+            ? hasExplicitGenerationDirective
+              ? selectExplicitOrFallbackSmartGroupResponder()
+              : await selectSmartGroupResponders()
             : null;
 
         if (needsSmartResponseQueue && (!smartResponseQueue || smartResponseQueue.length === 0)) {

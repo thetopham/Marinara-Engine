@@ -12,6 +12,7 @@ import {
   Suspense,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -231,10 +232,10 @@ const GAME_MOBILE_FLOATING_PANEL =
 const GAME_MOBILE_FLOATING_MENU = "fixed z-[9999] max-h-[min(32rem,calc(100dvh-4.75rem))] overflow-y-auto";
 const GAME_ACTION_MENU_ITEM =
   "marinara-chat-popover__item flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--marinara-chat-chrome-panel-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent";
-const STORYBOARD_VIEWER_SIZE_CLASS: Record<StoryboardViewerSize, string> = {
-  small: "max-w-[18rem] sm:w-[18rem]",
-  medium: "max-w-[24rem] sm:w-[min(23rem,calc(100vw-2rem))]",
-  large: "max-w-[min(34rem,calc(100vw-1.5rem))] sm:w-[min(34rem,calc(100vw-2rem))]",
+const STORYBOARD_VIEWER_PRESET_WIDTH: Record<StoryboardViewerSize, number> = {
+  small: 288,
+  medium: 368,
+  large: 544,
 };
 const STORYBOARD_VIEWER_CONTROL_BUTTON =
   "flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-white/10";
@@ -243,6 +244,17 @@ function nextStoryboardViewerSize(size: StoryboardViewerSize): StoryboardViewerS
   if (size === "small") return "medium";
   if (size === "medium") return "large";
   return "small";
+}
+
+function clampStoryboardViewerWidth(width: number): number {
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const minWidth = viewportWidth < 640 ? 180 : 240;
+  const maxWidth = viewportWidth < 640 ? viewportWidth - 24 : Math.min(680, viewportWidth - 32);
+  return Math.max(minWidth, Math.min(width, Math.max(minWidth, maxWidth)));
+}
+
+function getStoryboardViewerPresetWidth(size: StoryboardViewerSize): number {
+  return clampStoryboardViewerWidth(STORYBOARD_VIEWER_PRESET_WIDTH[size]);
 }
 
 function getGameMobileFloatingPanelStyle(anchor: ChatToolbarFloatingPanelAnchor): CSSProperties {
@@ -2626,8 +2638,10 @@ function GameSurfaceComponent({
   const [sceneVideoFailed, setSceneVideoFailed] = useState(false);
   const [activeStoryboardSegmentIndex, setActiveStoryboardSegmentIndex] = useState<number | null>(null);
   const [storyboardViewerSize, setStoryboardViewerSize] = useState<StoryboardViewerSize>("medium");
+  const [storyboardViewerWidth, setStoryboardViewerWidth] = useState(() => getStoryboardViewerPresetWidth("medium"));
   const [storyboardViewerMuted, setStoryboardViewerMuted] = useState(true);
   const [storyboardViewerPlaying, setStoryboardViewerPlaying] = useState(true);
+  const [storyboardViewerDismissedKey, setStoryboardViewerDismissedKey] = useState<string | null>(null);
   const [failedNpcAvatarNames, setFailedNpcAvatarNames] = useState<Set<string>>(() => new Set());
   const [imagePromptReviewItems, setImagePromptReviewItems] = useState<GameImagePromptReviewItem[]>([]);
   const [imagePromptReviewSubmitting, setImagePromptReviewSubmitting] = useState(false);
@@ -2663,6 +2677,7 @@ function GameSurfaceComponent({
   const autoAssetGenerationKeyRef = useRef<string | null>(null);
   const autoStoryboardGenerationKeyRef = useRef<string | null>(null);
   const storyboardViewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const storyboardViewerResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const closeGameFloatingPanels = useCallback(() => {
     setSessionPanelOpen(false);
@@ -3372,6 +3387,31 @@ function GameSurfaceComponent({
       video.pause();
     }
   }, [activeStoryboardKeyframe?.video?.id, storyboardViewerMuted, storyboardViewerPlaying]);
+  useEffect(() => {
+    const handleResize = () => setStoryboardViewerWidth((width) => clampStoryboardViewerWidth(width));
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  const handleStoryboardViewerResizeStart = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      storyboardViewerResizeRef.current = { startX: event.clientX, startWidth: storyboardViewerWidth };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [storyboardViewerWidth],
+  );
+  const handleStoryboardViewerResizeMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (!storyboardViewerResizeRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const dx = event.clientX - storyboardViewerResizeRef.current.startX;
+    setStoryboardViewerWidth(clampStoryboardViewerWidth(storyboardViewerResizeRef.current.startWidth + dx));
+  }, []);
+  const handleStoryboardViewerResizeEnd = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    storyboardViewerResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }, []);
 
   const combatLogEntries = useMemo(
     () =>
@@ -9225,6 +9265,10 @@ function GameSurfaceComponent({
   const renderStoryboardInlineViewer = () => {
     if (!latestAssistantMsg?.id) return null;
     if (!latestTurnStoryboard && !storyboardGenerating) return null;
+    const storyboardViewerTurnKey = activeChatId
+      ? `${activeChatId}:${latestAssistantMsg.id}:${latestAssistantSwipeIndex}`
+      : latestAssistantMsg.id;
+    if (storyboardViewerDismissedKey === storyboardViewerTurnKey) return null;
 
     const frame = activeStoryboardKeyframe;
     const framePosition =
@@ -9235,109 +9279,146 @@ function GameSurfaceComponent({
 
     return (
       <div
-        className={cn(
-          "pointer-events-auto absolute left-3 right-3 top-[4.75rem] z-30 mx-auto w-auto overflow-hidden rounded-xl border border-white/15 bg-black/75 shadow-2xl backdrop-blur-md sm:left-auto sm:right-4 sm:top-[4.5rem]",
-          STORYBOARD_VIEWER_SIZE_CLASS[storyboardViewerSize],
-        )}
+        className="group pointer-events-auto absolute left-1/2 top-[4.75rem] z-30 -translate-x-1/2 select-none sm:left-auto sm:right-4 sm:top-[4.5rem] sm:translate-x-0"
+        style={{ width: storyboardViewerWidth, maxWidth: "calc(100vw - 1.5rem)" }}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-white/75">
-            <PanelsTopLeft size={13} className="shrink-0 text-[var(--primary)]" />
-            <span className="truncate">Storyboard</span>
-          </div>
-          <span className="shrink-0 text-[0.625rem] text-white/45">
-            {frame ? formatStoryboardSectionLabel(frame) : "Rendering"}
-          </span>
-        </div>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setStoryboardViewerDismissedKey(storyboardViewerTurnKey);
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            className={getChatToolbarButtonClass({
+              compact: true,
+              sizeClassName: "h-7 w-7",
+              className: "absolute -right-2 -top-2 z-20 shadow-lg",
+            })}
+            aria-label="Close storyboard viewer"
+            title="Close storyboard viewer"
+          >
+            <X size={14} />
+          </button>
+          <div className="overflow-hidden rounded-xl border border-white/15 bg-black/75 shadow-2xl backdrop-blur-md">
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-white/75">
+                <PanelsTopLeft size={13} className="shrink-0 text-[var(--primary)]" />
+                <span className="truncate">Storyboard</span>
+              </div>
+              <span className="shrink-0 text-[0.625rem] text-white/45">
+                {frame ? formatStoryboardSectionLabel(frame) : "Rendering"}
+              </span>
+            </div>
 
-        {frame?.video ? (
-          <video
-            ref={storyboardViewerVideoRef}
-            key={frame.video.id}
-            src={frame.video.url}
-            autoPlay={storyboardViewerPlaying}
-            loop
-            muted={storyboardViewerMuted}
-            playsInline
-            onPlay={() => setStoryboardViewerPlaying(true)}
-            onPause={() => setStoryboardViewerPlaying(false)}
-            className="aspect-video w-full bg-black object-cover"
-          />
-        ) : frame?.image ? (
-          <img
-            src={frame.image.url}
-            alt={frame.title || `Storyboard keyframe ${frame.index + 1}`}
-            className="aspect-video w-full bg-black object-cover"
-          />
-        ) : (
-          <div className="flex aspect-video w-full items-center justify-center gap-2 bg-black/45 text-xs text-white/55">
-            {storyboardGenerating ? <Loader2 size={14} className="animate-spin" /> : null}
-            {frame ? frame.status.replace("_", " ") : "Creating storyboard"}
-          </div>
-        )}
+            {frame?.video ? (
+              <video
+                ref={storyboardViewerVideoRef}
+                key={frame.video.id}
+                src={frame.video.url}
+                autoPlay={storyboardViewerPlaying}
+                controls
+                loop
+                muted={storyboardViewerMuted}
+                playsInline
+                onPlay={() => setStoryboardViewerPlaying(true)}
+                onPause={() => setStoryboardViewerPlaying(false)}
+                className="aspect-video w-full bg-black object-cover"
+              />
+            ) : frame?.image ? (
+              <img
+                src={frame.image.url}
+                alt={frame.title || `Storyboard keyframe ${frame.index + 1}`}
+                className="aspect-video w-full bg-black object-cover"
+              />
+            ) : (
+              <div className="flex aspect-video w-full items-center justify-center gap-2 bg-black/45 text-xs text-white/55">
+                {storyboardGenerating ? <Loader2 size={14} className="animate-spin" /> : null}
+                {frame ? frame.status.replace("_", " ") : "Creating storyboard"}
+              </div>
+            )}
 
-        <div className="space-y-2 px-3 py-2.5">
-          <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 truncate text-xs font-semibold text-white/90">
-              {frame?.title || latestTurnStoryboard?.title || "Storyboard turn"}
-            </p>
-            <div className="flex shrink-0 items-center gap-1">
-              {hasVideo ? (
-                <>
+            <div className="space-y-2 px-3 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 truncate text-xs font-semibold text-white/90">
+                  {frame?.title || latestTurnStoryboard?.title || "Storyboard turn"}
+                </p>
+                <div className="flex shrink-0 items-center gap-1">
+                  {hasVideo ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setStoryboardViewerPlaying((playing) => !playing)}
+                        className={STORYBOARD_VIEWER_CONTROL_BUTTON}
+                        title={storyboardViewerPlaying ? "Pause storyboard video" : "Play storyboard video"}
+                        aria-label={storyboardViewerPlaying ? "Pause storyboard video" : "Play storyboard video"}
+                      >
+                        {storyboardViewerPlaying ? <Pause size={13} /> : <Play size={13} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStoryboardViewerMuted((muted) => !muted)}
+                        className={STORYBOARD_VIEWER_CONTROL_BUTTON}
+                        title={storyboardViewerMuted ? "Unmute storyboard video" : "Mute storyboard video"}
+                        aria-label={storyboardViewerMuted ? "Unmute storyboard video" : "Mute storyboard video"}
+                      >
+                        {storyboardViewerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={() => setStoryboardViewerPlaying((playing) => !playing)}
+                    onClick={() =>
+                      setStoryboardViewerSize((size) => {
+                        const nextSize = nextStoryboardViewerSize(size);
+                        setStoryboardViewerWidth(getStoryboardViewerPresetWidth(nextSize));
+                        return nextSize;
+                      })
+                    }
                     className={STORYBOARD_VIEWER_CONTROL_BUTTON}
-                    title={storyboardViewerPlaying ? "Pause storyboard video" : "Play storyboard video"}
-                    aria-label={storyboardViewerPlaying ? "Pause storyboard video" : "Play storyboard video"}
+                    title={`Change storyboard viewer size. Current: ${storyboardViewerSize}`}
+                    aria-label={`Change storyboard viewer size. Current: ${storyboardViewerSize}`}
                   >
-                    {storyboardViewerPlaying ? <Pause size={13} /> : <Play size={13} />}
+                    <Maximize2 size={13} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setStoryboardViewerMuted((muted) => !muted)}
-                    className={STORYBOARD_VIEWER_CONTROL_BUTTON}
-                    title={storyboardViewerMuted ? "Unmute storyboard video" : "Mute storyboard video"}
-                    aria-label={storyboardViewerMuted ? "Unmute storyboard video" : "Mute storyboard video"}
-                  >
-                    {storyboardViewerMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setStoryboardViewerSize((size) => nextStoryboardViewerSize(size))}
-                className={STORYBOARD_VIEWER_CONTROL_BUTTON}
-                title={`Change storyboard viewer size. Current: ${storyboardViewerSize}`}
-                aria-label={`Change storyboard viewer size. Current: ${storyboardViewerSize}`}
-              >
-                <Maximize2 size={13} />
-              </button>
+                  {latestTurnStoryboard?.keyframes.length ? (
+                    <span className="ml-1 text-[0.625rem] text-white/45">
+                      {framePosition + 1}/{latestTurnStoryboard.keyframes.length}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <p className="line-clamp-2 text-[0.6875rem] leading-4 text-white/58">
+                {frame?.anchorQuote || frame?.narrationBeat || latestTurnStoryboard?.error || "Generating keyframes..."}
+              </p>
               {latestTurnStoryboard?.keyframes.length ? (
-                <span className="ml-1 text-[0.625rem] text-white/45">
-                  {framePosition + 1}/{latestTurnStoryboard.keyframes.length}
-                </span>
+                <div className="flex gap-1">
+                  {latestTurnStoryboard.keyframes.map((item) => (
+                    <span
+                      key={item.id}
+                      className={cn(
+                        "h-1 flex-1 rounded-full transition-colors",
+                        frame?.id === item.id ? "bg-[var(--primary)]" : "bg-white/15",
+                      )}
+                    />
+                  ))}
+                </div>
               ) : null}
             </div>
           </div>
-          <p className="line-clamp-2 text-[0.6875rem] leading-4 text-white/58">
-            {frame?.anchorQuote || frame?.narrationBeat || latestTurnStoryboard?.error || "Generating keyframes..."}
-          </p>
-          {latestTurnStoryboard?.keyframes.length ? (
-            <div className="flex gap-1">
-              {latestTurnStoryboard.keyframes.map((item) => (
-                <span
-                  key={item.id}
-                  className={cn(
-                    "h-1 flex-1 rounded-full transition-colors",
-                    frame?.id === item.id ? "bg-[var(--primary)]" : "bg-white/15",
-                  )}
-                />
-              ))}
-            </div>
-          ) : null}
+          <div
+            className="absolute -bottom-2 -right-2 z-20 flex h-7 w-7 cursor-nwse-resize items-center justify-center rounded-lg border border-[var(--marinara-chat-chrome-button-border)] bg-[var(--marinara-chat-chrome-button-bg)] text-[var(--marinara-chat-chrome-button-text)] shadow-lg transition-all duration-150 hover:border-[var(--marinara-chat-chrome-button-border-hover)] hover:bg-[var(--marinara-chat-chrome-button-bg-hover)] hover:text-[var(--marinara-chat-chrome-button-text-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--marinara-chat-chrome-focus-ring)] active:scale-95"
+            aria-label="Resize storyboard viewer"
+            tabIndex={0}
+            onPointerDown={handleStoryboardViewerResizeStart}
+            onPointerMove={handleStoryboardViewerResizeMove}
+            onPointerUp={handleStoryboardViewerResizeEnd}
+            onPointerCancel={handleStoryboardViewerResizeEnd}
+          >
+            <span className="h-2.5 w-2.5 rounded-br-sm border-b-2 border-r-2 border-current" />
+          </div>
         </div>
       </div>
     );

@@ -49,6 +49,11 @@ import {
   patchChatMetadata,
 } from "../../hooks/use-game";
 import {
+  gameStoryboardKeys,
+  useGameTurnStoryboards,
+  useGenerateGameTurnStoryboard,
+} from "../../hooks/use-game-storyboards";
+import {
   chatKeys,
   useBranchChat,
   useCreateMessage,
@@ -1715,6 +1720,7 @@ import {
   ImagePlus,
   Loader2,
   MoreHorizontal,
+  PanelsTopLeft,
   Play,
   Plug,
   RefreshCw,
@@ -3208,6 +3214,16 @@ function GameSurfaceComponent({
     }
     return null;
   }, [messages]);
+  const latestAssistantSwipeIndex = latestAssistantMsg?.activeSwipeIndex ?? 0;
+  const turnStoryboardsQuery = useGameTurnStoryboards(
+    activeChatId,
+    latestAssistantMsg?.id,
+    latestAssistantSwipeIndex,
+    !!latestAssistantMsg,
+  );
+  const latestTurnStoryboard = turnStoryboardsQuery.data?.[0] ?? null;
+  const generateTurnStoryboard = useGenerateGameTurnStoryboard();
+  const storyboardGenerating = generateTurnStoryboard.isPending;
 
   const latestAssistantDirectAddressMode = useMemo(() => {
     if (!latestAssistantMsg) return null;
@@ -3243,10 +3259,7 @@ function GameSurfaceComponent({
       const segment = segments[index]!;
       if (segmentDeletes.has(`${latestAssistantMsg.id}:${index}`)) continue;
       if (segment.partyType === "side" || segment.partyType === "extra") continue;
-      const text = formatNarrationSegmentForContext(
-        segment,
-        segmentEdits.get(`${latestAssistantMsg.id}:${index}`),
-      );
+      const text = formatNarrationSegmentForContext(segment, segmentEdits.get(`${latestAssistantMsg.id}:${index}`));
       if (text) visibleText.push(text);
     }
     return visibleText.join("\n").trim();
@@ -4996,47 +5009,100 @@ function GameSurfaceComponent({
     sceneWrapCharacterNames,
   ]);
 
-  const handleGenerateSceneVideo = useCallback(async (source?: { galleryImageId?: string }) => {
-    if (!activeChatId || sceneVideoGenerating) return;
-    if (!gameVideoGenerationEnabled) {
-      toast.error("Choose a Video Generation connection in Game Settings first.");
+  const handleGenerateSceneVideo = useCallback(
+    async (source?: { galleryImageId?: string }) => {
+      if (!activeChatId || sceneVideoGenerating) return;
+      if (!gameVideoGenerationEnabled) {
+        toast.error("Choose a Video Generation connection in Game Settings first.");
+        return;
+      }
+      const galleryImageId = source?.galleryImageId?.trim();
+      const illustrationTag =
+        typeof chatMeta.gameLastIllustrationTag === "string" ? chatMeta.gameLastIllustrationTag.trim() : "";
+      if (!galleryImageId && !illustrationTag) {
+        toast.error("Generate a scene illustration before generating a scene video.");
+        return;
+      }
+
+      setSceneVideoGenerating(true);
+      setSceneVideoFailed(false);
+      try {
+        const result = await api.post<{ video: GeneratedSceneVideo }>("/game/generate-scene-video", {
+          chatId: activeChatId,
+          ...(galleryImageId ? { galleryImageId } : { illustrationTag }),
+          debugMode: useUIStore.getState().debugMode,
+        });
+        const galleryStore = useGalleryStore.getState();
+        galleryStore.pinVideo(result.video);
+        galleryStore.syncLatestViewer({ ...result.video, kind: "video" as const });
+        void queryClient.invalidateQueries({ queryKey: ["gallery", "scene-videos", activeChatId] });
+        await sceneVideosQuery.refetch();
+        toast.success("Scene video generated.", { duration: 1800 });
+      } catch (error) {
+        setSceneVideoFailed(true);
+        toast.error(error instanceof Error ? error.message : "Scene video generation failed.");
+      } finally {
+        setSceneVideoGenerating(false);
+      }
+    },
+    [
+      activeChatId,
+      chatMeta.gameLastIllustrationTag,
+      gameVideoGenerationEnabled,
+      queryClient,
+      sceneVideoGenerating,
+      sceneVideosQuery,
+    ],
+  );
+
+  const handleGenerateTurnStoryboard = useCallback(async () => {
+    if (!activeChatId || storyboardGenerating) return;
+    if (!latestAssistantMsg?.id) {
+      toast.error("No GM narration turn is available to storyboard.");
       return;
     }
-    const galleryImageId = source?.galleryImageId?.trim();
-    const illustrationTag =
-      typeof chatMeta.gameLastIllustrationTag === "string" ? chatMeta.gameLastIllustrationTag.trim() : "";
-    if (!galleryImageId && !illustrationTag) {
-      toast.error("Generate a scene illustration before generating a scene video.");
+    if (!gameImageGenerationEnabled) {
+      toast.error("Choose an Illustrator image connection in Game Settings first.");
       return;
     }
 
-    setSceneVideoGenerating(true);
-    setSceneVideoFailed(false);
     try {
-      const result = await api.post<{ video: GeneratedSceneVideo }>("/game/generate-scene-video", {
+      const result = await generateTurnStoryboard.mutateAsync({
         chatId: activeChatId,
-        ...(galleryImageId ? { galleryImageId } : { illustrationTag }),
+        messageId: latestAssistantMsg.id,
+        swipeIndex: latestAssistantSwipeIndex,
+        generateVideos: gameVideoGenerationEnabled,
         debugMode: useUIStore.getState().debugMode,
       });
-      const galleryStore = useGalleryStore.getState();
-      galleryStore.pinVideo(result.video);
-      galleryStore.syncLatestViewer({ ...result.video, kind: "video" as const });
+      void queryClient.invalidateQueries({
+        queryKey: gameStoryboardKeys.turn(activeChatId, latestAssistantMsg.id, latestAssistantSwipeIndex),
+      });
+      void queryClient.invalidateQueries({ queryKey: ["gallery", activeChatId] });
+      void queryClient.invalidateQueries({ queryKey: ["gallery", "assets", activeChatId] });
       void queryClient.invalidateQueries({ queryKey: ["gallery", "scene-videos", activeChatId] });
-      await sceneVideosQuery.refetch();
-      toast.success("Scene video generated.", { duration: 1800 });
+      void queryClient.invalidateQueries({ queryKey: ["game", "scene-videos", activeChatId] });
+      await Promise.all([turnStoryboardsQuery.refetch(), sceneVideosQuery.refetch()]);
+      const frameCount = result.storyboard.keyframes.length;
+      toast.success(
+        result.storyboard.status === "partial"
+          ? `Storyboard saved with ${frameCount} keyframes; some media failed.`
+          : `Storyboard saved with ${frameCount} keyframes.`,
+        { duration: 2200 },
+      );
     } catch (error) {
-      setSceneVideoFailed(true);
-      toast.error(error instanceof Error ? error.message : "Scene video generation failed.");
-    } finally {
-      setSceneVideoGenerating(false);
+      toast.error(error instanceof Error ? error.message : "Storyboard generation failed.");
     }
   }, [
     activeChatId,
-    chatMeta.gameLastIllustrationTag,
+    gameImageGenerationEnabled,
     gameVideoGenerationEnabled,
+    generateTurnStoryboard,
+    latestAssistantMsg?.id,
+    latestAssistantSwipeIndex,
     queryClient,
-    sceneVideoGenerating,
     sceneVideosQuery,
+    storyboardGenerating,
+    turnStoryboardsQuery,
   ]);
 
   useEffect(() => {
@@ -8985,7 +9051,7 @@ function GameSurfaceComponent({
         )}
         style={mobile ? getGameMobileFloatingPanelStyle(mobileGameAssetsPanelAnchor) : undefined}
       >
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--marinara-chat-chrome-panel-divider)] p-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--marinara-chat-chrome-panel-divider)] p-2">
           <button
             type="button"
             onClick={handleManualSceneBackground}
@@ -9011,8 +9077,89 @@ function GameSurfaceComponent({
             {sceneVideoGenerating ? <Loader2 size={14} className="animate-spin" /> : <Film size={14} />}
             Generate video
           </button>
+          <button
+            type="button"
+            onClick={() => void handleGenerateTurnStoryboard()}
+            disabled={storyboardGenerating || !gameImageGenerationEnabled || !latestAssistantMsg?.id}
+            className="marinara-chat-popover__item flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-[var(--marinara-chat-chrome-panel-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            title="Create manga keyframes and animation prompts from the current GM narration"
+          >
+            {storyboardGenerating ? <Loader2 size={14} className="animate-spin" /> : <PanelsTopLeft size={14} />}
+            Storyboard turn
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {(latestTurnStoryboard || storyboardGenerating) && (
+            <div className="border-b border-[var(--marinara-chat-chrome-panel-divider)] p-3">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold text-[var(--marinara-chat-chrome-panel-text)]">
+                    {latestTurnStoryboard?.title || "Storyboard turn"}
+                  </h3>
+                  <p className="mt-0.5 text-[0.6875rem] uppercase tracking-wide text-[var(--marinara-chat-chrome-panel-muted)]">
+                    {storyboardGenerating ? "Generating" : (latestTurnStoryboard?.status ?? "ready").replace("_", " ")}
+                  </p>
+                </div>
+                {latestTurnStoryboard?.turnNumber ? (
+                  <span className="shrink-0 rounded-md border border-[var(--marinara-chat-chrome-panel-divider)] px-2 py-1 text-[0.6875rem] text-[var(--marinara-chat-chrome-panel-muted)]">
+                    Turn {latestTurnStoryboard.turnNumber}
+                  </span>
+                ) : null}
+              </div>
+              {storyboardGenerating && !latestTurnStoryboard ? (
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--marinara-chat-chrome-panel-divider)] px-3 py-4 text-xs text-[var(--marinara-chat-chrome-panel-muted)]">
+                  <Loader2 size={14} className="animate-spin" />
+                  Creating storyboard keyframes
+                </div>
+              ) : null}
+              {latestTurnStoryboard ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {latestTurnStoryboard.keyframes.map((frame) => (
+                    <div
+                      key={frame.id}
+                      className="overflow-hidden rounded-lg border border-[var(--marinara-chat-chrome-panel-divider)] bg-[var(--marinara-chat-chrome-panel-bg)]"
+                    >
+                      {frame.video ? (
+                        <video
+                          src={frame.video.url}
+                          controls
+                          muted
+                          playsInline
+                          className="aspect-video w-full bg-black object-contain"
+                        />
+                      ) : frame.image ? (
+                        <img
+                          src={frame.image.url}
+                          alt={frame.title || `Storyboard keyframe ${frame.index + 1}`}
+                          className="aspect-video w-full bg-black object-cover"
+                        />
+                      ) : (
+                        <div className="flex aspect-video items-center justify-center bg-black/40 text-[0.6875rem] text-[var(--marinara-chat-chrome-panel-muted)]">
+                          {frame.status.replace("_", " ")}
+                        </div>
+                      )}
+                      <div className="space-y-2 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="min-w-0 truncate text-xs font-semibold text-[var(--marinara-chat-chrome-panel-text)]">
+                            {frame.index + 1}. {frame.title || "Keyframe"}
+                          </h4>
+                          <span className="shrink-0 text-[0.625rem] uppercase tracking-wide text-[var(--marinara-chat-chrome-panel-muted)]">
+                            {frame.status.replace("_", " ")}
+                          </span>
+                        </div>
+                        <p className="line-clamp-2 text-[0.6875rem] leading-4 text-[var(--marinara-chat-chrome-panel-muted)]">
+                          {frame.narrationBeat || frame.videoPrompt}
+                        </p>
+                        {frame.error ? (
+                          <p className="text-[0.6875rem] text-[var(--destructive)]">{frame.error}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
           {(latestSceneVideo || sceneVideoFailed) && (
             <div className="border-b border-[var(--marinara-chat-chrome-panel-divider)] p-3">
               {latestSceneVideo ? (

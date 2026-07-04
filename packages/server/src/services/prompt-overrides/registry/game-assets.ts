@@ -258,6 +258,60 @@ export const GAME_NARRATION_SUMMARIZER: PromptOverrideKeyDef<GameNarrationSummar
   },
 };
 
+// ── Turn storyboard director (GM narration -> manga keyframes + video prompts) ──
+
+export interface GameStoryboardDirectorCtx extends Record<string, string | number | undefined> {
+  gameContextBlock: string;
+  sourceNarration: string;
+  keyframeCount: number;
+  durationSeconds: number;
+  aspectRatio: string;
+}
+
+export const GAME_STORYBOARD_DIRECTOR: PromptOverrideKeyDef<GameStoryboardDirectorCtx> = {
+  key: "game.storyboardDirector",
+  description:
+    "Game Mode Prompt Director instructions that split one GM turn narration into manga keyframes and video prompts.",
+  variables: [
+    {
+      name: "gameContextBlock",
+      description: "Pre-formatted context block with mode, location, weather, world, style, and image instructions.",
+      example:
+        "<game_context>\nMode: exploration\nLocation: moonlit graveyard\nWeather: cold rain\nArt style: manga ink and watercolor\n</game_context>",
+    },
+    {
+      name: "sourceNarration",
+      description: "The stripped GM narration for one completed Game Mode turn.",
+      example: "Korr drops to one knee in the rain while Lyra steadies herself over the fallen blade.",
+    },
+    { name: "keyframeCount", description: "Target number of storyboard frames.", example: "4" },
+    { name: "durationSeconds", description: "Default video duration per keyframe.", example: "6" },
+    { name: "aspectRatio", description: "Default output aspect ratio.", example: "16:9" },
+  ],
+  defaultBuilder: (ctx) =>
+    [
+      "You are Marinara's Game Mode Prompt Director.",
+      "Turn exactly one completed GM narration into an anime-style storyboard made from manga illustration keyframes.",
+      `Create ${ctx.keyframeCount} ordered keyframes unless the narration is too short; never create fewer than 2 or more than 6.`,
+      `Each keyframe should describe one manga illustration panel and one animation prompt that could be generated from that panel as a ${ctx.durationSeconds}-second ${ctx.aspectRatio} clip.`,
+      "Use only the GM narration as the story source. Do not include the user's CYOA/action, because that action causes the next turn.",
+      "Preserve continuity across frames: character identity, outfits, props, wounds, lighting, location, and emotional escalation.",
+      "Manga panel prompts should be still-image prompts: composition, character staging, expression, camera angle, lighting, linework, screentone/inking, and background detail.",
+      "Video prompts should animate only the current panel: camera drift, hair/cloth/atmosphere motion, eye movement, gesture, impact, or focus shift. Avoid cuts inside a single clip.",
+      "Do not add captions, dialogue lettering, UI, subtitles, logos, watermarks, speech bubbles, or manga SFX text.",
+      "Return strict JSON only with this shape:",
+      '{ "title": string, "summary": string, "keyframes": [ { "title": string, "narrationBeat": string, "mangaPanelPrompt": string, "imagePrompt": string, "videoPrompt": string, "characters": string[], "continuityNotes": string, "cameraMotion": string, "transitionHint": string, "durationSeconds": number, "aspectRatio": "16:9" | "9:16" } ] }',
+    ].join("\n"),
+  exampleContext: {
+    gameContextBlock:
+      "<game_context>\nMode: exploration\nLocation: moonlit graveyard\nWeather: cold rain\nArt style: manga ink and watercolor\n</game_context>",
+    sourceNarration: "Korr drops to one knee in the rain while Lyra steadies herself over the fallen blade.",
+    keyframeCount: 4,
+    durationSeconds: 6,
+    aspectRatio: "16:9",
+  },
+};
+
 // ── Game video prompt (scene illustration -> animated clip) ──
 
 export interface GameVideoCtx extends Record<string, string | number | undefined> {

@@ -2,7 +2,7 @@
 // Routes: Game Mode
 // ──────────────────────────────────────────────
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename, extname, join } from "path";
 import { z } from "zod";
@@ -14,6 +14,7 @@ import { createConnectionsStorage } from "../services/storage/connections.storag
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
 import { createGalleryStorage } from "../services/storage/gallery.storage.js";
 import { createGameSceneVideosStorage } from "../services/storage/game-scene-videos.storage.js";
+import { createGameStoryboardsStorage } from "../services/storage/game-storyboards.storage.js";
 import { createGameStateStorage } from "../services/storage/game-state.storage.js";
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
@@ -125,7 +126,11 @@ import type {
   GameMap,
   GameNpc,
   GeneratedSceneVideo,
+  GameStoryboardKeyframeStatus,
+  GameStoryboardStatus,
   GameSceneVideoAspectRatio,
+  GameTurnStoryboard,
+  GameTurnStoryboardKeyframe,
   GenerationParameterSendMap,
   GenerationParameters,
   APIProvider,
@@ -157,7 +162,12 @@ import {
   createPromptOverridesStorage,
   type PromptOverridesStorage,
 } from "../services/storage/prompt-overrides.storage.js";
-import { GAME_NARRATION_SUMMARIZER, GAME_VIDEO, loadPrompt } from "../services/prompt-overrides/index.js";
+import {
+  GAME_NARRATION_SUMMARIZER,
+  GAME_STORYBOARD_DIRECTOR,
+  GAME_VIDEO,
+  loadPrompt,
+} from "../services/prompt-overrides/index.js";
 import {
   compactVideoPromptText,
   excerptIllustrationPromptForVideo,
@@ -557,7 +567,11 @@ function fallbackSummarizedIllustrationPrompt(
   raw: string,
   fallback: SceneIllustrationRequest,
 ): SummarizedIllustrationPrompt | null {
-  const prompt = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const prompt = raw
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
   if (prompt.length < 40) return null;
   return {
     prompt: prompt.slice(0, 6500),
@@ -753,17 +767,17 @@ async function addGeneratedIllustrationToGallery(opts: {
   illustration: SceneIllustrationRequest;
   model: string;
   prompt?: string | null;
-}): Promise<void> {
+}): Promise<ChatGalleryImageRow | null> {
   const prefix = "backgrounds:illustrations:";
-  if (!opts.tag.startsWith(prefix)) return;
+  if (!opts.tag.startsWith(prefix)) return null;
 
   const slug = opts.tag.slice(prefix.length);
-  if (!/^[a-z0-9-]+$/.test(slug)) return;
+  if (!/^[a-z0-9-]+$/.test(slug)) return null;
 
   const assetPath = GENERATED_GAME_BACKGROUND_EXTS.map((ext) =>
     join(GAME_ASSETS_DIR, "backgrounds", "illustrations", `${slug}.${ext}`),
   ).find((candidate) => existsSync(candidate));
-  if (!assetPath) return;
+  if (!assetPath) return null;
 
   try {
     const ext = extname(assetPath).toLowerCase().replace(/^\./, "") || "png";
@@ -771,7 +785,7 @@ async function addGeneratedIllustrationToGallery(opts: {
     const gallery = createGalleryStorage(opts.app.db);
     const prompt =
       opts.prompt?.trim() || [opts.illustration.reason, opts.illustration.prompt].filter(Boolean).join("\n\n");
-    await gallery.create({
+    return await gallery.create({
       chatId: opts.chatId,
       filePath,
       prompt,
@@ -782,6 +796,7 @@ async function addGeneratedIllustrationToGallery(opts: {
     });
   } catch (err) {
     opts.app.log.warn({ err, chatId: opts.chatId, tag: opts.tag }, "Failed to add game illustration to gallery");
+    return null;
   }
 }
 
@@ -798,9 +813,7 @@ const DEFAULT_GEMINI_OMNI_BASE_URL = "https://generativelanguage.googleapis.com/
 const DEFAULT_XAI_VIDEO_MODEL = "grok-imagine-video-1.5";
 const DEFAULT_XAI_VIDEO_BASE_URL = "https://api.x.ai/v1";
 
-type GameSceneVideoRow = NonNullable<
-  Awaited<ReturnType<ReturnType<typeof createGameSceneVideosStorage>["getById"]>>
->;
+type GameSceneVideoRow = NonNullable<Awaited<ReturnType<ReturnType<typeof createGameSceneVideosStorage>["getById"]>>>;
 type ChatGalleryImageRow = NonNullable<Awaited<ReturnType<ReturnType<typeof createGalleryStorage>["getById"]>>>;
 
 function sceneVideoUrl(chatId: string, filePath: string): string {
@@ -928,7 +941,9 @@ function collectOmniCharacterNames(meta: Record<string, unknown>, latestState: u
     const name = optionalTrimmedString(character.name);
     if (name) names.add(name);
   }
-  const gameCards = Array.isArray(meta.gameCharacterCards) ? (meta.gameCharacterCards as Record<string, unknown>[]) : [];
+  const gameCards = Array.isArray(meta.gameCharacterCards)
+    ? (meta.gameCharacterCards as Record<string, unknown>[])
+    : [];
   for (const card of gameCards) {
     const name = optionalTrimmedString(card.name);
     if (name) names.add(name);
@@ -1143,9 +1158,17 @@ const mapGenerateSchema = z.object({
 });
 
 function normalizeMapGenerationContext(context: string): string {
-  const compact = context.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim();
+  const compact = context
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
   if (compact.length <= 4000) return compact;
-  return compact.slice(-4000).replace(/^[^\n]*\n?/, "").trim() || compact.slice(-4000).trim();
+  return (
+    compact
+      .slice(-4000)
+      .replace(/^[^\n]*\n?/, "")
+      .trim() || compact.slice(-4000).trim()
+  );
 }
 
 const mapMoveSchema = z.object({
@@ -3851,6 +3874,370 @@ function replaceFirstUnresolvedSkillCheckTag(
 // Route Registration
 // ──────────────────────────────────────────────
 
+type GameTurnStoryboardRow = NonNullable<
+  Awaited<ReturnType<ReturnType<typeof createGameStoryboardsStorage>["getById"]>>
+>;
+
+type PlannedStoryboardKeyframe = {
+  title: string;
+  narrationBeat: string;
+  mangaPanelPrompt: string;
+  imagePrompt: string;
+  videoPrompt: string;
+  characters: string[];
+  continuityNotes: string;
+  cameraMotion: string;
+  transitionHint: string;
+  durationSeconds: number;
+  aspectRatio: GameSceneVideoAspectRatio;
+};
+
+type PlannedStoryboard = {
+  title: string;
+  summary: string;
+  keyframes: PlannedStoryboardKeyframe[];
+};
+
+const STORYBOARD_STATUSES = new Set<GameStoryboardStatus>([
+  "planning",
+  "rendering_images",
+  "rendering_videos",
+  "complete",
+  "partial",
+  "failed",
+]);
+const STORYBOARD_KEYFRAME_STATUSES = new Set<GameStoryboardKeyframeStatus>([
+  "planned",
+  "rendering_image",
+  "image_complete",
+  "rendering_video",
+  "complete",
+  "failed",
+]);
+
+function chatGalleryImageUrl(image: ChatGalleryImageRow, fallbackChatId: string): string {
+  const parts = image.filePath.replace(/\\/g, "/").split("/").filter(Boolean);
+  const ownerChatId = parts.length > 1 ? parts[0]! : fallbackChatId;
+  const filename = parts[parts.length - 1] ?? image.filePath;
+  return `/api/gallery/file/${encodeURIComponent(ownerChatId)}/${encodeURIComponent(filename)}`;
+}
+
+function normalizeStoryboardStatus(value: string): GameStoryboardStatus {
+  return STORYBOARD_STATUSES.has(value as GameStoryboardStatus) ? (value as GameStoryboardStatus) : "failed";
+}
+
+function normalizeStoryboardKeyframeStatus(value: string): GameStoryboardKeyframeStatus {
+  return STORYBOARD_KEYFRAME_STATUSES.has(value as GameStoryboardKeyframeStatus)
+    ? (value as GameStoryboardKeyframeStatus)
+    : "failed";
+}
+
+function normalizeStoryboardAspectRatio(
+  value: unknown,
+  fallback: GameSceneVideoAspectRatio,
+): GameSceneVideoAspectRatio {
+  return value === "9:16" || value === "16:9" ? value : fallback;
+}
+
+function normalizeStoryboardDuration(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) ? Math.min(15, Math.max(1, Math.trunc(parsed))) : fallback;
+}
+
+function compactStoryboardText(value: unknown, max: number): string {
+  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return text.length > max ? `${text.slice(0, max - 1).trim()}...` : text;
+}
+
+function parseStoryboardCharacters(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)),
+    ).slice(0, 8);
+  }
+  if (typeof value === "string") {
+    return Array.from(
+      new Set(
+        value
+          .split(/[,;\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, 8);
+  }
+  return [];
+}
+
+function asStoryboardRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function fallbackStoryboardPlan(args: {
+  sourceNarration: string;
+  keyframeCount: number;
+  durationSeconds: number;
+  aspectRatio: GameSceneVideoAspectRatio;
+}): PlannedStoryboard {
+  const cleanNarration = compactStoryboardText(args.sourceNarration, 2000);
+  const frameCount = Math.min(6, Math.max(2, args.keyframeCount));
+  const sentences = cleanNarration.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const chunks = Array.from({ length: frameCount }, (_, index) => {
+    const picked = sentences.filter((_, sentenceIndex) => sentenceIndex % frameCount === index).join(" ");
+    return picked || cleanNarration;
+  });
+
+  return {
+    title: compactStoryboardText(sentences[0] ?? "Turn storyboard", 120) || "Turn storyboard",
+    summary: cleanNarration,
+    keyframes: chunks.map((chunk, index) => ({
+      title: `Keyframe ${index + 1}`,
+      narrationBeat: compactStoryboardText(chunk, 900),
+      mangaPanelPrompt: `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${chunk}`,
+      imagePrompt: `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${chunk}`,
+      videoPrompt: `Animate this manga keyframe as a short anime shot: subtle camera drift, atmospheric motion, character expression shift, and continuity-preserving movement. Story beat: ${chunk}`,
+      characters: [],
+      continuityNotes:
+        "Preserve character designs, props, setting, lighting, and emotional continuity from the GM narration.",
+      cameraMotion: "subtle cinematic camera drift",
+      transitionHint: index === frameCount - 1 ? "hold on the result of the turn" : "continue into the next beat",
+      durationSeconds: args.durationSeconds,
+      aspectRatio: args.aspectRatio,
+    })),
+  };
+}
+
+function sanitizeStoryboardPlan(
+  raw: unknown,
+  args: {
+    sourceNarration: string;
+    keyframeCount: number;
+    durationSeconds: number;
+    aspectRatio: GameSceneVideoAspectRatio;
+  },
+): PlannedStoryboard {
+  const root = asStoryboardRecord(raw);
+  const rawKeyframes = Array.isArray(root.keyframes) ? root.keyframes : [];
+  const fallback = fallbackStoryboardPlan(args);
+  const keyframeCount = Math.min(6, Math.max(2, args.keyframeCount));
+  const frames = rawKeyframes
+    .map((rawFrame, index): PlannedStoryboardKeyframe | null => {
+      const frame = asStoryboardRecord(rawFrame);
+      const narrationBeat = compactStoryboardText(frame.narrationBeat, 1200);
+      const mangaPanelPrompt = compactStoryboardText(frame.mangaPanelPrompt, 5000);
+      const imagePrompt = compactStoryboardText(frame.imagePrompt, 6500) || mangaPanelPrompt || narrationBeat;
+      const videoPrompt = compactStoryboardText(frame.videoPrompt, 6500) || narrationBeat || imagePrompt;
+      if (!narrationBeat && !imagePrompt && !videoPrompt) return null;
+      return {
+        title: compactStoryboardText(frame.title, 120) || `Keyframe ${index + 1}`,
+        narrationBeat,
+        mangaPanelPrompt: mangaPanelPrompt || imagePrompt,
+        imagePrompt,
+        videoPrompt,
+        characters: parseStoryboardCharacters(frame.characters),
+        continuityNotes: compactStoryboardText(frame.continuityNotes, 1200),
+        cameraMotion: compactStoryboardText(frame.cameraMotion, 400),
+        transitionHint: compactStoryboardText(frame.transitionHint, 400),
+        durationSeconds: normalizeStoryboardDuration(frame.durationSeconds, args.durationSeconds),
+        aspectRatio: normalizeStoryboardAspectRatio(frame.aspectRatio, args.aspectRatio),
+      };
+    })
+    .filter((frame): frame is PlannedStoryboardKeyframe => Boolean(frame))
+    .slice(0, Math.max(keyframeCount, 2));
+
+  if (frames.length < 2) return fallback;
+
+  return {
+    title: compactStoryboardText(root.title, 160) || fallback.title,
+    summary: compactStoryboardText(root.summary, 2000) || fallback.summary,
+    keyframes: frames.slice(0, 6),
+  };
+}
+
+function storyboardSourceNarrationHash(sourceNarration: string): string {
+  return createHash("sha256").update(sourceNarration).digest("hex");
+}
+
+function storyboardTurnNumberForMessage(
+  messages: Array<{ id: string; role: string }>,
+  messageId: string,
+): number | null {
+  let turnNumber = 0;
+  for (const message of messages) {
+    if (message.role === "assistant" || message.role === "narrator") turnNumber += 1;
+    if (message.id === messageId) return turnNumber || null;
+  }
+  return null;
+}
+
+function storyboardSlug(value: string, fallback: string): string {
+  const slug = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return slug || fallback;
+}
+
+async function resolveMessageContentForSwipe(
+  chats: ReturnType<typeof createChatsStorage>,
+  message: NonNullable<Awaited<ReturnType<ReturnType<typeof createChatsStorage>["getMessage"]>>>,
+  swipeIndex: number,
+): Promise<string> {
+  if ((message.activeSwipeIndex ?? 0) === swipeIndex) return message.content ?? "";
+  const swipes = await chats.getSwipes(message.id).catch(() => []);
+  const target = swipes.find((swipe: { index?: number; content?: string }) => swipe.index === swipeIndex);
+  return target?.content ?? message.content ?? "";
+}
+
+function buildStoryboardGameContextBlock(args: {
+  meta: Record<string, unknown>;
+  setupConfig: Record<string, unknown> | null;
+  latestState: unknown;
+}): string {
+  const latest = asStoryboardRecord(args.latestState);
+  const lines = [
+    `Mode: ${readTrimmedString(args.meta.gameActiveState) ?? "game"}`,
+    readTrimmedString(latest.location) ? `Location: ${readTrimmedString(latest.location)}` : "",
+    readTrimmedString(latest.weather) ? `Weather: ${readTrimmedString(latest.weather)}` : "",
+    readTrimmedString(latest.time) ? `Time: ${readTrimmedString(latest.time)}` : "",
+    readTrimmedString(args.setupConfig?.genre) ? `Genre: ${readTrimmedString(args.setupConfig?.genre)}` : "",
+    readTrimmedString(args.setupConfig?.setting) ? `Setting: ${readTrimmedString(args.setupConfig?.setting)}` : "",
+    readTrimmedString(args.meta.gameWorldOverview)
+      ? `World: ${compactStoryboardText(args.meta.gameWorldOverview, 1200)}`
+      : "",
+    readTrimmedString(args.setupConfig?.artStylePrompt)
+      ? `Art style: ${compactStoryboardText(args.setupConfig?.artStylePrompt, 1000)}`
+      : "",
+    readTrimmedString(args.meta.gameImagePromptInstructions)
+      ? `User image instructions: ${compactStoryboardText(args.meta.gameImagePromptInstructions, 1200)}`
+      : "",
+  ].filter(Boolean);
+  return `<game_context>\n${lines.join("\n")}\n</game_context>`;
+}
+
+async function buildStoryboardDirectorMessages(args: {
+  promptOverridesStorage: PromptOverridesStorage;
+  meta: Record<string, unknown>;
+  setupConfig: Record<string, unknown> | null;
+  latestState: unknown;
+  sourceNarration: string;
+  keyframeCount: number;
+  durationSeconds: number;
+  aspectRatio: GameSceneVideoAspectRatio;
+}): Promise<{ systemPrompt: string; messages: ChatMessage[] }> {
+  const gameContextBlock = buildStoryboardGameContextBlock({
+    meta: args.meta,
+    setupConfig: args.setupConfig,
+    latestState: args.latestState,
+  });
+  const systemPrompt = await loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_DIRECTOR, {
+    gameContextBlock,
+    sourceNarration: args.sourceNarration,
+    keyframeCount: args.keyframeCount,
+    durationSeconds: args.durationSeconds,
+    aspectRatio: args.aspectRatio,
+  });
+  return {
+    systemPrompt,
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          gameContextBlock,
+          `<gm_turn_narration>\n${args.sourceNarration}\n</gm_turn_narration>`,
+          [
+            "Create the storyboard JSON now.",
+            `Target keyframes: ${args.keyframeCount}.`,
+            `Default clip duration: ${args.durationSeconds} seconds.`,
+            `Default aspect ratio: ${args.aspectRatio}.`,
+            "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
+          ].join("\n"),
+        ].join("\n\n"),
+      },
+    ],
+  };
+}
+
+async function serializeGameTurnStoryboard(args: {
+  storyboards: ReturnType<typeof createGameStoryboardsStorage>;
+  gallery: ReturnType<typeof createGalleryStorage>;
+  sceneVideos: ReturnType<typeof createGameSceneVideosStorage>;
+  row: GameTurnStoryboardRow;
+}): Promise<GameTurnStoryboard> {
+  const frames = await args.storyboards.listKeyframes(args.row.id);
+  const serializedFrames: GameTurnStoryboardKeyframe[] = [];
+  for (const frame of frames) {
+    let image: GameTurnStoryboardKeyframe["image"] = null;
+    let video: GeneratedSceneVideo | null = null;
+    if (frame.chatImageId) {
+      const imageRow = await args.gallery.getById(frame.chatImageId).catch(() => null);
+      if (imageRow) {
+        image = {
+          id: imageRow.id,
+          url: chatGalleryImageUrl(imageRow, args.row.chatId),
+          prompt: imageRow.prompt,
+          provider: imageRow.provider,
+          model: imageRow.model,
+          createdAt: imageRow.createdAt,
+        };
+      }
+    }
+    if (frame.sceneVideoId) {
+      const videoRow = await args.sceneVideos.getById(frame.sceneVideoId).catch(() => null);
+      if (videoRow) video = serializeGameSceneVideo(videoRow);
+    }
+
+    serializedFrames.push({
+      id: frame.id,
+      storyboardId: frame.storyboardId,
+      index: frame.index,
+      title: frame.title,
+      narrationBeat: frame.narrationBeat,
+      mangaPanelPrompt: frame.mangaPanelPrompt,
+      imagePrompt: frame.imagePrompt,
+      videoPrompt: frame.videoPrompt,
+      characters: parseStoryboardCharacters(frame.characters),
+      continuityNotes: frame.continuityNotes,
+      cameraMotion: frame.cameraMotion,
+      transitionHint: frame.transitionHint,
+      durationSeconds: frame.durationSeconds,
+      aspectRatio: normalizeStoryboardAspectRatio(frame.aspectRatio, "16:9"),
+      chatImageId: frame.chatImageId ?? null,
+      sceneVideoId: frame.sceneVideoId ?? null,
+      image,
+      video,
+      status: normalizeStoryboardKeyframeStatus(frame.status),
+      error: frame.error ?? null,
+      createdAt: frame.createdAt,
+      updatedAt: frame.updatedAt,
+    });
+  }
+
+  return {
+    id: args.row.id,
+    chatId: args.row.chatId,
+    messageId: args.row.messageId,
+    swipeIndex: args.row.swipeIndex,
+    snapshotId: args.row.snapshotId ?? null,
+    sessionNumber: args.row.sessionNumber ?? null,
+    turnNumber: args.row.turnNumber ?? null,
+    title: args.row.title,
+    sourceNarration: args.row.sourceNarration,
+    sourceNarrationHash: args.row.sourceNarrationHash,
+    status: normalizeStoryboardStatus(args.row.status),
+    provider: args.row.provider,
+    model: args.row.model,
+    directorPrompt: args.row.directorPrompt,
+    error: args.row.error ?? null,
+    keyframes: serializedFrames,
+    createdAt: args.row.createdAt,
+    updatedAt: args.row.updatedAt,
+  };
+}
+
 export async function gameRoutes(app: FastifyInstance) {
   const buildHydratedGameMeta = async (
     chatId: string,
@@ -4075,8 +4462,7 @@ export async function gameRoutes(app: FastifyInstance) {
             )?.[1] ??
             null;
           const isPersona =
-            rpgContext.personaName &&
-            normalizedCardName === normalizeCharacterLookupName(rpgContext.personaName);
+            rpgContext.personaName && normalizedCardName === normalizeCharacterLookupName(rpgContext.personaName);
           const rpg = isPersona ? rpgContext.personaRpgStats : charStats;
           return {
             ...normalizedCard,
@@ -4617,12 +5003,7 @@ export async function gameRoutes(app: FastifyInstance) {
     if (!setupGenerationParameters?.verbosity) {
       setupOverrides.verbosity = undefined;
     }
-    const setupOptions = gameGenOptions(
-      conn.model,
-      setupOverrides,
-      setupGenerationParameters,
-      conn.provider,
-    );
+    const setupOptions = gameGenOptions(conn.model, setupOverrides, setupGenerationParameters, conn.provider);
     if (debugLogsEnabled) {
       debugLog(
         "[game/setup] Sending to provider=%s model=%s baseUrl=%s options=%s",
@@ -5225,11 +5606,7 @@ export async function gameRoutes(app: FastifyInstance) {
         conn.maxTokensOverride,
       );
 
-      const conclusionAbort = createResponseAbortTracker(
-        reply,
-        GAME_GENERATION_TIMEOUT_MS,
-        "Game session conclusion",
-      );
+      const conclusionAbort = createResponseAbortTracker(reply, GAME_GENERATION_TIMEOUT_MS, "Game session conclusion");
       const conclusionOptions = gameGenOptions(
         conn.model,
         {
@@ -8394,6 +8771,432 @@ export async function gameRoutes(app: FastifyInstance) {
     durationSeconds: z.number().int().min(1).max(60).optional(),
     aspectRatio: z.enum(["16:9", "9:16"]).optional(),
     debugMode: z.boolean().optional().default(false),
+  });
+
+  const listStoryboardsQuerySchema = z.object({
+    messageId: z.string().min(1).optional(),
+    swipeIndex: z.coerce.number().int().min(0).optional(),
+  });
+
+  const generateStoryboardSchema = z.object({
+    chatId: z.string().min(1),
+    messageId: z.string().min(1),
+    swipeIndex: z.number().int().min(0).optional().default(0),
+    keyframeCount: z.number().int().min(2).max(6).optional().default(4),
+    durationSeconds: z.number().int().min(1).max(15).optional().default(6),
+    aspectRatio: z.enum(["16:9", "9:16"]).optional().default("16:9"),
+    generateVideos: z.boolean().optional().default(true),
+    debugMode: z.boolean().optional().default(false),
+  });
+
+  app.get<{ Params: { chatId: string }; Querystring: { messageId?: string; swipeIndex?: string } }>(
+    "/storyboards/:chatId",
+    async (req, reply) => {
+      const { chatId } = req.params;
+      const query = listStoryboardsQuerySchema.parse(req.query);
+      const chats = createChatsStorage(app.db);
+      const chat = await chats.getById(chatId);
+      if (!chat) return reply.status(404).send({ error: "Chat not found" });
+
+      const storyboards = createGameStoryboardsStorage(app.db);
+      const gallery = createGalleryStorage(app.db);
+      const sceneVideos = createGameSceneVideosStorage(app.db);
+      const rows = query.messageId
+        ? await storyboards.listForTurn(chatId, query.messageId, query.swipeIndex ?? 0)
+        : await storyboards.listByChatId(chatId);
+      return {
+        storyboards: await Promise.all(
+          rows.map((row) => serializeGameTurnStoryboard({ storyboards, gallery, sceneVideos, row })),
+        ),
+      };
+    },
+  );
+
+  app.post("/storyboard/generate", async (req, reply) => {
+    const input = generateStoryboardSchema.parse(req.body);
+    const storyboardAbortSignal = createResponseAbortSignal(
+      reply,
+      GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS,
+      "Game storyboard generation",
+    );
+    const releaseStoryboardLock = await acquireGameAssetGenerationLock(input.chatId, storyboardAbortSignal);
+    try {
+      const requestDebug = input.debugMode === true;
+      const debugOverrideEnabled = requestDebug || isDebugAgentsEnabled();
+      const debugLogsEnabled = debugOverrideEnabled || logger.isLevelEnabled("debug");
+      const debugLog = (message: string, ...args: any[]) => {
+        logDebugOverride(debugOverrideEnabled, message, ...args);
+      };
+      const chats = createChatsStorage(app.db);
+      const connections = createConnectionsStorage(app.db);
+      const agents = createAgentsStorage(app.db);
+      const storyboards = createGameStoryboardsStorage(app.db);
+      const sceneVideos = createGameSceneVideosStorage(app.db);
+      const gallery = createGalleryStorage(app.db);
+      const promptOverridesStorage = createPromptOverridesStorage(app.db);
+
+      const chat = await chats.getById(input.chatId);
+      if (!chat) return reply.status(404).send({ error: "Chat not found" });
+
+      const message = await chats.getMessage(input.messageId);
+      if (!message || message.chatId !== input.chatId) return reply.status(404).send({ error: "GM message not found" });
+      if (message.role !== "assistant" && message.role !== "narrator") {
+        return reply.status(400).send({ error: "Storyboards can only be generated from GM narration turns." });
+      }
+
+      const rawNarration = await resolveMessageContentForSwipe(chats, message, input.swipeIndex);
+      const sourceNarration = stripGmCommandTags(rawNarration).trim();
+      if (!sourceNarration) return reply.status(400).send({ error: "This GM turn has no narration to storyboard." });
+
+      const meta = parseMeta(chat.metadata);
+      const enableGen = !!meta.enableSpriteGeneration;
+      const imgConnId = await resolveGameImageConnectionId(meta, agents);
+      if (!enableGen || !imgConnId) {
+        return reply.status(400).send({ error: "Choose an Illustrator image connection in Game Settings first." });
+      }
+      const imgConn = await connections.getWithKey(imgConnId);
+      if (!imgConn) return reply.status(404).send({ error: "Image generation connection not found" });
+
+      const sceneConnId =
+        readTrimmedString(meta.gameSceneConnectionId) ||
+        readTrimmedString((meta.gameSetupConfig as Record<string, unknown> | null)?.sceneConnectionId);
+      const { conn, baseUrl, defaultGenerationParameters } = await resolveConnection(
+        connections,
+        sceneConnId,
+        chat.connectionId,
+      );
+      const parameters = resolveStoredGameGenerationParameters(meta, defaultGenerationParameters);
+      const provider = createLLMProvider(
+        conn.provider,
+        baseUrl,
+        conn.apiKey!,
+        conn.maxContext,
+        conn.openrouterProvider,
+        conn.maxTokensOverride,
+      );
+
+      const setupCfg = (meta.gameSetupConfig as Record<string, unknown> | null) ?? null;
+      const latestState = await createGameStateStorage(app.db)
+        .getByChatAndMessage(input.chatId, input.messageId, input.swipeIndex)
+        .catch(() => null);
+      const fallbackState =
+        latestState ??
+        (await createGameStateStorage(app.db)
+          .getLatest(input.chatId)
+          .catch(() => null));
+      const directorMessages = await buildStoryboardDirectorMessages({
+        promptOverridesStorage,
+        meta,
+        setupConfig: setupCfg,
+        latestState: fallbackState,
+        sourceNarration,
+        keyframeCount: input.keyframeCount,
+        durationSeconds: input.durationSeconds,
+        aspectRatio: input.aspectRatio,
+      });
+      if (debugLogsEnabled) {
+        debugLog("[debug/game/storyboard-director] messages:\n%s", JSON.stringify(directorMessages.messages, null, 2));
+      }
+
+      const directorResult = await runGameChatComplete(
+        provider,
+        directorMessages.messages,
+        gameGenOptions(
+          conn.model ?? "",
+          {
+            stream: false,
+            maxTokens: 5000,
+            responseFormat: { type: "json_object" },
+            signal: storyboardAbortSignal,
+          },
+          parameters,
+          conn.provider,
+        ),
+        "Game storyboard director",
+        GAME_ILLUSTRATION_SUMMARY_TIMEOUT_MS,
+      );
+      const extraction = extractLeadingThinkingBlocks(directorResult.content || "", parameters?.customThinkingTags);
+      const rawPlan = extraction.content.trim();
+      if (debugLogsEnabled) debugLog("[debug/game/storyboard-director] raw response:\n%s", rawPlan);
+      const plan = sanitizeStoryboardPlan(parseJSON(rawPlan), {
+        sourceNarration,
+        keyframeCount: input.keyframeCount,
+        durationSeconds: input.durationSeconds,
+        aspectRatio: input.aspectRatio,
+      });
+
+      const allMessages = await chats.listMessages(input.chatId);
+      const snapshot = await createGameStateStorage(app.db)
+        .getByChatAndMessage(input.chatId, input.messageId, input.swipeIndex)
+        .catch(() => null);
+      const storyboardRow = await storyboards.create({
+        chatId: input.chatId,
+        messageId: input.messageId,
+        swipeIndex: input.swipeIndex,
+        snapshotId: snapshot?.id ?? null,
+        sessionNumber: currentGameSessionNumber(meta),
+        turnNumber: storyboardTurnNumberForMessage(allMessages, input.messageId),
+        title: plan.title,
+        sourceNarration,
+        sourceNarrationHash: storyboardSourceNarrationHash(sourceNarration),
+        status: "rendering_images",
+        provider: conn.provider,
+        model: conn.model ?? "",
+        directorPrompt: directorMessages.systemPrompt,
+      });
+      if (!storyboardRow) throw new Error("Storyboard metadata could not be saved");
+      await storyboards.replaceKeyframes(
+        storyboardRow.id,
+        plan.keyframes.map((frame, index) => ({
+          index,
+          title: frame.title,
+          narrationBeat: frame.narrationBeat,
+          mangaPanelPrompt: frame.mangaPanelPrompt,
+          imagePrompt: frame.imagePrompt,
+          videoPrompt: frame.videoPrompt,
+          characters: JSON.stringify(frame.characters),
+          continuityNotes: frame.continuityNotes,
+          cameraMotion: frame.cameraMotion,
+          transitionHint: frame.transitionHint,
+          durationSeconds: frame.durationSeconds,
+          aspectRatio: frame.aspectRatio,
+          status: "planned",
+        })),
+      );
+
+      const imgModel = imgConn.model || "";
+      const imgBaseUrl = imgConn.baseUrl || "https://image.pollinations.ai";
+      const imgApiKey = imgConn.apiKey || "";
+      const imgSource = (imgConn as any).imageGenerationSource || imgModel;
+      const imgComfyWorkflow = imgConn.comfyuiWorkflow || undefined;
+      const imgServiceHint = imgConn.imageService || imgSource;
+      const imgEndpointId = imgConn.imageEndpointId || undefined;
+      const imgDefaults = resolveConnectionImageDefaults(imgConn);
+      const imageSettings = await loadImageGenerationUserSettings(app.db);
+      const backgroundSize: ImageGenerationSize = imageSettings.background;
+      const styleProfiles = imageSettings.styleProfiles;
+      const genre = (setupCfg?.genre as string) || "";
+      const setting = (setupCfg?.setting as string) || "";
+      const artStyle = (setupCfg?.artStylePrompt as string) || "";
+      const styleProfileId =
+        ((setupCfg?.imageStyleProfileId as string | undefined) ?? (meta.imageStyleProfileId as string | undefined)) ||
+        null;
+      const imagePromptInstructions =
+        typeof meta.gameImagePromptInstructions === "string"
+          ? meta.gameImagePromptInstructions.trim().slice(0, 5000)
+          : "";
+      const useAvatarReferences = meta.gameImageUseAvatarReferences !== false;
+      const includeCharacterAppearance = meta.gameImageIncludeCharacterAppearance !== false;
+      const charStore = createCharactersStorage(app.db);
+      const allChars = await charStore.list();
+      const charReferenceByName = new Map<string, string>();
+      const charAvatarByName = new Map<string, string>();
+      const charDescriptionByName = new Map<string, string>();
+      for (const ch of allChars) {
+        try {
+          const parsed = JSON.parse(ch.data) as Record<string, unknown> & { name?: string };
+          const fullBodyReference = parsed.name ? readPreferredFullBodySpriteBase64(ch.id) : null;
+          if (parsed.name && fullBodyReference)
+            addNameLookupEntry(charReferenceByName, parsed.name, fullBodyReference.base64);
+          if (parsed.name && ch.avatarPath) addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
+          const appearanceText = extractCharacterAppearanceText(parsed);
+          if (parsed.name && appearanceText) addNameLookupEntry(charDescriptionByName, parsed.name, appearanceText);
+        } catch {
+          /* skip malformed character data */
+        }
+      }
+
+      let videoRuntime: {
+        source: string;
+        serviceHint: string;
+        baseUrl: string;
+        apiKey: string;
+        model: string;
+        resolution?: "480p" | "720p" | "1080p";
+        maxDurationSeconds: number;
+        promptLimit: number;
+      } | null = null;
+      if (input.generateVideos) {
+        const videoConnectionId = await resolveGameVideoConnectionId(meta, connections);
+        const videoConn = videoConnectionId ? await connections.getWithKey(videoConnectionId) : null;
+        if (videoConn?.provider === "video_generation") {
+          const videoDefaults = videoConn.defaultParameters
+            ? getStoredVideoDefaults(videoConn.defaultParameters)
+            : createDefaultVideoGenerationProfile();
+          const explicitVideoSource = videoConn.videoGenerationSource || videoConn.videoService || "";
+          const source =
+            explicitVideoSource ||
+            (videoDefaults.service === "xai"
+              ? "xai"
+              : inferVideoSource(videoConn.model || "", videoConn.baseUrl || ""));
+          const serviceHint = videoConn.videoService || source;
+          const isXaiVideo = source === "xai" || serviceHint === "xai";
+          const promptLimits = getSceneVideoPromptLimits(isXaiVideo);
+          videoRuntime = {
+            source,
+            serviceHint,
+            baseUrl: videoConn.baseUrl || (isXaiVideo ? DEFAULT_XAI_VIDEO_BASE_URL : DEFAULT_GEMINI_OMNI_BASE_URL),
+            apiKey: videoConn.apiKey || "",
+            model: videoConn.model || (isXaiVideo ? DEFAULT_XAI_VIDEO_MODEL : DEFAULT_GEMINI_OMNI_MODEL),
+            resolution: isXaiVideo ? videoDefaults.xai.resolution : undefined,
+            maxDurationSeconds: isXaiVideo ? 15 : 60,
+            promptLimit: promptLimits.finalPrompt ?? 6500,
+          };
+        }
+      }
+
+      let imageFailures = 0;
+      let generatedImages = 0;
+      let videoFailures = 0;
+      let generatedVideos = 0;
+      for (const frame of await storyboards.listKeyframes(storyboardRow.id)) {
+        if (storyboardAbortSignal.aborted) break;
+        await storyboards.updateKeyframe(frame.id, { status: "rendering_image", error: null });
+        const plannedFrame = plan.keyframes[frame.index] ?? plan.keyframes[0]!;
+        const illustration: SceneIllustrationRequest = {
+          title: plannedFrame.title,
+          prompt: plannedFrame.imagePrompt || plannedFrame.mangaPanelPrompt || plannedFrame.narrationBeat,
+          reason: plannedFrame.narrationBeat || `Storyboard keyframe ${frame.index + 1}`,
+          characters: plannedFrame.characters,
+          slug: storyboardSlug(
+            `${storyboardRow.id.slice(0, 8)}-${frame.index + 1}-${plannedFrame.title}`,
+            `storyboard-${frame.index + 1}`,
+          ),
+        };
+        const illustrationAssets = collectIllustrationCharacterAssets({
+          illustration,
+          characterNames: plannedFrame.characters,
+          trackedNpcs: [],
+          gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
+          charReferenceByName,
+          charAvatarByName,
+          charDescriptionByName,
+          includeReferenceImages: useAvatarReferences,
+          includeCharacterDescriptions: includeCharacterAppearance,
+        });
+        let sentIllustrationPrompt: string | null = null;
+        try {
+          const tag = await generateSceneIllustration({
+            chatId: input.chatId,
+            title: illustration.title,
+            prompt: illustration.prompt,
+            reason: illustration.reason,
+            characters: illustration.characters,
+            characterDescriptions: illustrationAssets.characterDescriptions,
+            slug: illustration.slug,
+            genre,
+            setting,
+            artStyle,
+            imagePromptInstructions,
+            referenceImages: illustrationAssets.referenceImages,
+            imgSource,
+            imgModel,
+            imgBaseUrl,
+            imgApiKey,
+            imgService: imgServiceHint,
+            imgEndpointId,
+            imgComfyWorkflow,
+            imgDefaults,
+            styleProfiles,
+            styleProfileId,
+            debugLog: debugLogsEnabled ? debugLog : undefined,
+            promptOverridesStorage,
+            size: backgroundSize,
+            onCompiledPrompt: (compiled) => {
+              sentIllustrationPrompt = compiled.prompt;
+            },
+            signal: storyboardAbortSignal,
+          });
+          if (!tag) throw new Error("Image provider did not return a storyboard keyframe.");
+          const galleryImage = await addGeneratedIllustrationToGallery({
+            app,
+            chatId: input.chatId,
+            tag,
+            illustration,
+            model: imgModel,
+            prompt: sentIllustrationPrompt,
+          });
+          if (!galleryImage) throw new Error("Storyboard keyframe image could not be saved to gallery.");
+          generatedImages += 1;
+          await storyboards.updateKeyframe(frame.id, { chatImageId: galleryImage.id, status: "image_complete" });
+
+          if (videoRuntime) {
+            await storyboards.update(storyboardRow.id, { status: "rendering_videos" });
+            await storyboards.updateKeyframe(frame.id, { status: "rendering_video" });
+            try {
+              const galleryImagePath = resolveGalleryImagePath(galleryImage);
+              if (!galleryImagePath) throw new Error("Storyboard keyframe image file could not be found.");
+              const referenceImage = readOmniReferenceImage(galleryImagePath);
+              const prompt = limitSceneVideoPromptForProvider(plannedFrame.videoPrompt, videoRuntime.promptLimit);
+              if (debugLogsEnabled) {
+                debugLog("[debug/game/storyboard-video] frame=%d prompt:\n%s", frame.index + 1, prompt);
+              }
+              const generated = await generateVideo(
+                videoRuntime.source,
+                videoRuntime.baseUrl,
+                videoRuntime.apiKey,
+                videoRuntime.serviceHint,
+                {
+                  prompt,
+                  model: videoRuntime.model,
+                  durationSeconds: Math.min(videoRuntime.maxDurationSeconds, plannedFrame.durationSeconds),
+                  aspectRatio: plannedFrame.aspectRatio,
+                  resolution: videoRuntime.resolution,
+                  referenceImage,
+                  signal: storyboardAbortSignal,
+                },
+              );
+              const filePath = saveVideoToDisk(input.chatId, generated.base64);
+              const videoRow = await sceneVideos.create({
+                chatId: input.chatId,
+                filePath,
+                sourceIllustrationTag: `storyboard:${storyboardRow.id}:${frame.index}`,
+                sourceIllustrationPath: sourceGalleryImagePathForMetadata(galleryImage),
+                prompt,
+                provider: videoRuntime.source,
+                model: videoRuntime.model,
+                durationSeconds: Math.min(videoRuntime.maxDurationSeconds, plannedFrame.durationSeconds),
+                aspectRatio: plannedFrame.aspectRatio,
+              });
+              if (!videoRow) throw new Error("Storyboard video metadata could not be saved.");
+              generatedVideos += 1;
+              await storyboards.updateKeyframe(frame.id, { sceneVideoId: videoRow.id, status: "complete" });
+            } catch (err) {
+              videoFailures += 1;
+              const message = err instanceof Error ? err.message : "Storyboard keyframe video generation failed";
+              logger.warn(err, "[game/storyboard] video generation failed for frame %s", frame.id);
+              await storyboards.updateKeyframe(frame.id, { status: "image_complete", error: message });
+            }
+          }
+        } catch (err) {
+          imageFailures += 1;
+          const message = err instanceof Error ? err.message : "Storyboard keyframe image generation failed";
+          logger.warn(err, "[game/storyboard] image generation failed for frame %s", frame.id);
+          await storyboards.updateKeyframe(frame.id, { status: "failed", error: message });
+        }
+      }
+
+      const finalStatus: GameStoryboardStatus =
+        generatedImages === 0
+          ? "failed"
+          : imageFailures > 0 ||
+              generatedImages < plan.keyframes.length ||
+              videoFailures > 0 ||
+              (videoRuntime && generatedVideos < plan.keyframes.length)
+            ? "partial"
+            : "complete";
+      const updatedStoryboard = await storyboards.update(storyboardRow.id, { status: finalStatus });
+      if (!updatedStoryboard) throw new Error("Storyboard metadata could not be reloaded");
+      return {
+        storyboard: await serializeGameTurnStoryboard({ storyboards, gallery, sceneVideos, row: updatedStoryboard }),
+      };
+    } catch (err) {
+      logger.warn(err, "[game/storyboard] Storyboard generation failed for chat %s", input.chatId);
+      const message = err instanceof Error ? err.message : "Storyboard generation failed";
+      return reply.status(502).send({ error: message });
+    } finally {
+      releaseStoryboardLock();
+    }
   });
 
   app.get<{ Params: { chatId: string } }>("/scene-videos/:chatId", async (req, reply) => {

@@ -603,3 +603,74 @@ export interface GeneratedSceneVideo {
   aspectRatio: GameSceneVideoAspectRatio;
   createdAt: string;
 }
+
+export type GameStoryboardStatus =
+  | "planning"
+  | "rendering_images"
+  | "rendering_videos"
+  | "complete"
+  | "partial"
+  | "failed";
+
+export type GameStoryboardKeyframeStatus =
+  | "planned"
+  | "rendering_image"
+  | "image_complete"
+  | "rendering_video"
+  | "complete"
+  | "failed";
+
+export interface GameStoryboardMediaRef {
+  id: string;
+  url: string;
+  prompt: string;
+  provider: string;
+  model: string;
+  createdAt: string;
+}
+
+export interface GameTurnStoryboardKeyframe {
+  id: string;
+  storyboardId: string;
+  index: number;
+  title: string;
+  narrationBeat: string;
+  mangaPanelPrompt: string;
+  imagePrompt: string;
+  videoPrompt: string;
+  characters: string[];
+  continuityNotes: string;
+  cameraMotion: string;
+  transitionHint: string;
+  durationSeconds: number;
+  aspectRatio: GameSceneVideoAspectRatio;
+  chatImageId: string | null;
+  sceneVideoId: string | null;
+  image: GameStoryboardMediaRef | null;
+  video: GeneratedSceneVideo | null;
+  status: GameStoryboardKeyframeStatus;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GameTurnStoryboard {
+  id: string;
+  chatId: string;
+  messageId: string;
+  swipeIndex: number;
+  snapshotId: string | null;
+  sessionNumber: number | null;
+  turnNumber: number | null;
+  title: string;
+  sourceNarration: string;
+  sourceNarrationHash: string;
+  status: GameStoryboardStatus;
+  provider: string;
+  model: string;
+  directorPrompt: string;
+  error: string | null;
+  keyframes: GameTurnStoryboardKeyframe[];
+  createdAt: string;
+  updatedAt: string;
+}

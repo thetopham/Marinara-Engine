@@ -124,8 +124,8 @@ export function withTTSVoiceRequestCacheKeys(
     const messageHash = hashTTSCacheKey(`${messageId}\n${index}\n${requestSignature}`);
     return {
       ...request,
-      cacheKey: `chat-voice-line-v1:${messageId}:${index}:${messageHash}`,
-      cacheAliases: [`chat-voice-line-text-v1:${textHash}`],
+      cacheKey: `chat-voice-line-v2:${messageId}:${index}:${messageHash}`,
+      cacheAliases: [`chat-voice-line-text-v2:${textHash}`],
     };
   });
 }

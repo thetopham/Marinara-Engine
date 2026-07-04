@@ -258,10 +258,22 @@ export function ConversationMessageGrouped({
                   </div>
                   </div>
                 </div>
-                {segReactionRow && <div className="mari-message-reactions-row ml-10 mt-1">{segReactionRow}</div>}
+                {segReactionRow && (
+                  <div className="mari-message-reactions-row ml-10 mt-1 max-w-[min(32rem,calc(100%-2.5rem))]">
+                    {segReactionRow}
+                  </div>
+                )}
               </Fragment>
             );
           }
+
+          const paragraphs = combinedText
+            .split(/\n{2,}/)
+            .map((p) => p.trim())
+            .filter(Boolean);
+          // Whitespace-only segment: render nothing — an empty [data-card-css]
+          // wrapper would let container-styling themes paint a phantom box.
+          if (paragraphs.length === 0) return null;
 
           return (
             <Fragment key={i}>
@@ -269,14 +281,6 @@ export function ConversationMessageGrouped({
                 {...cardCssProps}
                 className={["animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-3"].filter(Boolean).join(" ")}
               >
-              {(() => {
-                const paragraphs = combinedText
-                  .split(/\n{2,}/)
-                  .map((p) => p.trim())
-                  .filter(Boolean);
-                if (paragraphs.length === 0) return null;
-                return (
-                  <>
                     <div className="flex gap-4">
                       <div className="w-10 flex-shrink-0">
                         <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
@@ -344,9 +348,6 @@ export function ConversationMessageGrouped({
                         />
                       </div>
                     ))}
-                  </>
-                );
-              })()}
               </div>
               {segReactionRow && <div className="mari-message-reactions-row pl-14 mt-1">{segReactionRow}</div>}
             </Fragment>
@@ -354,45 +355,52 @@ export function ConversationMessageGrouped({
         })
       )}
 
-      {/* Trailing chrome (cursor, translation, attachments, swipes, action bar):
-          kept inside a [data-card-css] wrapper so themes retain the reach they
-          had when the attribute lived on the block root. */}
-      <div {...cardCssProps}>
-      {/* Streaming cursor */}
-      {isStreaming && (
-        <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
-      )}
+      {/* Trailing content (cursor, translation, attachments, swipes): kept in a
+          [data-card-css] wrapper so themes retain the reach they had when the
+          attribute lived on the block root — but only rendered when it has
+          content, so container-styling themes can't paint an empty box. The
+          hover action bar stays OUTSIDE the wrapper: it's chrome (like the chip
+          rows), and its absolute positioning must keep resolving against the
+          relative block root even if a theme makes the wrapper positioned. */}
+      {(isStreaming || !isHiddenCollapsed) && (
+        <div {...cardCssProps}>
+          {/* Streaming cursor */}
+          {isStreaming && (
+            <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
+          )}
 
-      {!isHiddenCollapsed && (
-        <div className="ml-14">
-          <ConversationMessageTranslation translatedText={translatedText} isTranslating={isTranslating} />
-        </div>
-      )}
-
-      {!isHiddenCollapsed && (
-        <>
-          {/* Image attachments */}
-          <div className="ml-14">
-            <ConversationMessageAttachments
-              attachments={extra.attachments ?? []}
-              renderedContent={renderedContent}
-              onImageOpen={onImageOpen}
-              onRemove={onRemoveAttachment}
-            />
-          </div>
-
-          {!hideActions && (hasSwipes || (canRegenerate && onRegenerate)) && (
-            <div className="ml-14 mt-1.5">
-              <ConversationMessageSwipes
-                messageId={message.id}
-                activeSwipeIndex={message.activeSwipeIndex}
-                swipeCount={swipeCount}
-                onSetActiveSwipe={(idx) => onSetActiveSwipe?.(message.id, idx)}
-                onCreateNextSwipe={canRegenerate && onRegenerate ? () => onRegenerate(message.id) : undefined}
-              />
+          {!isHiddenCollapsed && (
+            <div className="ml-14">
+              <ConversationMessageTranslation translatedText={translatedText} isTranslating={isTranslating} />
             </div>
           )}
-        </>
+
+          {!isHiddenCollapsed && (
+            <>
+              {/* Image attachments */}
+              <div className="ml-14">
+                <ConversationMessageAttachments
+                  attachments={extra.attachments ?? []}
+                  renderedContent={renderedContent}
+                  onImageOpen={onImageOpen}
+                  onRemove={onRemoveAttachment}
+                />
+              </div>
+
+              {!hideActions && (hasSwipes || (canRegenerate && onRegenerate)) && (
+                <div className="ml-14 mt-1.5">
+                  <ConversationMessageSwipes
+                    messageId={message.id}
+                    activeSwipeIndex={message.activeSwipeIndex}
+                    swipeCount={swipeCount}
+                    onSetActiveSwipe={(idx) => onSetActiveSwipe?.(message.id, idx)}
+                    onCreateNextSwipe={canRegenerate && onRegenerate ? () => onRegenerate(message.id) : undefined}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {/* Action bar */}
@@ -426,7 +434,6 @@ export function ConversationMessageGrouped({
           onPickReaction={onPickReaction}
         />
       )}
-      </div>
     </div>
   );
 }

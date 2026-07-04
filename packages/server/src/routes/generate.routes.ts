@@ -1330,11 +1330,18 @@ function buildCustomStickerAdvertisement(
 function contentHasSpeakerPart(content: string, speaker: string): boolean {
   const wanted = normalizeTextForMatch(speaker);
   if (!wanted) return false;
-  const tagRe = /<speaker="([^"]*)">/g;
+  // Complete <speaker="Name">...</speaker> pairs take precedence and, when any
+  // exist, are consulted exclusively — the client's parseSpeakerTags wins over
+  // its Name:-prefix fallback the same way, so a "Name:" line quoted inside
+  // another speaker's tagged part never counts as that speaker's own part.
+  const tagRe = /<speaker="([^"]*)">[\s\S]*?<\/speaker>/g;
+  let sawTag = false;
   let match: RegExpExecArray | null;
   while ((match = tagRe.exec(content)) !== null) {
+    sawTag = true;
     if (normalizeTextForMatch(match[1]!.trim()) === wanted) return true;
   }
+  if (sawTag) return false;
   for (const line of content.split("\n")) {
     const colonIdx = line.indexOf(": ");
     if (colonIdx > 0 && normalizeTextForMatch(line.slice(0, colonIdx).trim()) === wanted) return true;

@@ -416,7 +416,11 @@ export function DocsViewerModal({
                   <p className="py-2 text-xs text-[var(--muted-foreground)]">Could not load this guide.</p>
                 ) : (
                   <div
-                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)]"
+                    // Code blocks wrap instead of scrolling horizontally: the shared
+                    // .mari-md-codeblock rule is unlayered CSS (beats the utilities
+                    // layer, hence the !), and the corner-anchored lang tag + Copy
+                    // button would float over the text of a scrolled block.
+                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)] [&_.mari-md-codeblock]:whitespace-pre-wrap! [&_.mari-md-codeblock]:[overflow-wrap:anywhere]! [&_.mari-md-codeblock]:pb-9!"
                     onClick={handleContentClick}
                   >
                     {rendered}

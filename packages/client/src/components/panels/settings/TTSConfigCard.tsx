@@ -342,6 +342,7 @@ export function TTSConfigCard() {
   const [callAudioEnabled, setCallAudioEnabled] = useState(false);
   const [callAudioInputMode, setCallAudioInputMode] = useState<TTSConversationCallAudioInputMode>("local_whisper");
   const [callVideoInputEnabled, setCallVideoInputEnabled] = useState(false);
+  const [callCharacterVideoEnabled, setCallCharacterVideoEnabled] = useState(false);
   const [callSoundboardEnabled, setCallSoundboardEnabled] = useState(true);
 
   const [expanded, setExpanded] = useState(false);
@@ -392,6 +393,7 @@ export function TTSConfigCard() {
     setCallAudioEnabled(savedConfig.callAudioEnabled ?? false);
     setCallAudioInputMode(savedConfig.callAudioInputMode ?? "local_whisper");
     setCallVideoInputEnabled(savedConfig.callVideoInputEnabled ?? false);
+    setCallCharacterVideoEnabled(savedConfig.callCharacterVideoEnabled ?? false);
     setCallSoundboardEnabled(savedConfig.callSoundboardEnabled ?? true);
     setSaveStatus("idle");
   }, [savedConfig]);
@@ -447,6 +449,7 @@ export function TTSConfigCard() {
     callSttModel: "",
     callAudioInputMode,
     callVideoInputEnabled,
+    callCharacterVideoEnabled,
     callSoundboardEnabled,
     ...overrides,
   });

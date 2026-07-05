@@ -864,6 +864,7 @@ export function ChatSettingsDrawer({
   const callAudioEnabled = ttsConfig?.callAudioEnabled === true;
   const callAudioInputMode = ttsConfig?.callAudioInputMode ?? "local_whisper";
   const callVideoInputEnabled = ttsConfig?.callVideoInputEnabled === true;
+  const callCharacterVideoEnabled = ttsConfig?.callCharacterVideoEnabled === true;
   const callSoundboardEnabled = ttsConfig?.callSoundboardEnabled ?? true;
   const callSettingsDisabled = !ttsConfig || updateTtsConfig.isPending;
   const selfieConnectionId = typeof metadata.imageGenConnectionId === "string" ? metadata.imageGenConnectionId : "";
@@ -4882,7 +4883,7 @@ export function ChatSettingsDrawer({
                         </span>
                       </label>
 
-                      <div className="grid gap-1.5 sm:grid-cols-2">
+                      <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
                         <button
                           type="button"
                           disabled={callSettingsDisabled}
@@ -4916,6 +4917,37 @@ export function ChatSettingsDrawer({
                           type="button"
                           disabled={callSettingsDisabled}
                           onClick={() =>
+                            patchConversationCallTtsConfig({
+                              callCharacterVideoEnabled: !callCharacterVideoEnabled,
+                            })
+                          }
+                          className={cn(
+                            "mari-chat-option-field flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-all",
+                            callCharacterVideoEnabled && "mari-chat-option-field--active",
+                            callSettingsDisabled && "cursor-not-allowed opacity-60",
+                          )}
+                        >
+                          <span className="text-[0.625rem] font-medium text-[var(--foreground)]">
+                            Character video presence
+                          </span>
+                          <div
+                            className={cn(
+                              "mari-chat-option-switch h-4 w-7 shrink-0 rounded-full p-0.5 transition-colors",
+                              callCharacterVideoEnabled && "mari-chat-option-switch--active",
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "h-3 w-3 rounded-full bg-white shadow-sm transition-transform",
+                                callCharacterVideoEnabled && "translate-x-3",
+                              )}
+                            />
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={callSettingsDisabled}
+                          onClick={() =>
                             patchConversationCallTtsConfig({ callSoundboardEnabled: !callSoundboardEnabled })
                           }
                           className={cn(
@@ -4940,6 +4972,12 @@ export function ChatSettingsDrawer({
                           </div>
                         </button>
                       </div>
+                      {callCharacterVideoEnabled && (
+                        <p className="text-[0.55rem] leading-snug text-[var(--muted-foreground)]">
+                          Character video presence uses the Default for Videos connection to generate cached idle,
+                          talking, laughing, angry, crying, and sighing clips from character avatars.
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <p className="rounded-lg border border-dashed border-[var(--border)] px-2.5 py-2 text-[0.59375rem] leading-snug text-[var(--muted-foreground)]">

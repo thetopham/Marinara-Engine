@@ -7,12 +7,14 @@ import { createWriteStream } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
+  CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS,
   conversationCallIdleSchema,
   conversationCallInterruptionSchema,
   conversationCallModelResponseSchema,
   normalizeTextForMatch,
   sendConversationCallMessageSchema,
   startConversationCallSchema,
+  type ConversationCallCharacterVideoClipKind,
   type ConversationCommandKey,
   type ConversationCallMessage,
   type ConversationCallSession,
@@ -70,6 +72,11 @@ import {
   isSilentConversationSpotifyCommandError,
   playConversationSpotifyCommand,
 } from "../services/spotify/conversation-spotify-command.service.js";
+import {
+  getConversationCallCharacterVideoFile,
+  getConversationCallCharacterVideoManifest,
+  startConversationCallCharacterVideoGeneration,
+} from "../services/conversation/call-character-videos.service.js";
 import { resolveBaseUrl } from "./generate/generate-route-utils.js";
 import { DATA_DIR } from "../utils/data-dir.js";
 import { assertInsideDir } from "../utils/security.js";
@@ -1768,6 +1775,7 @@ export async function conversationCallsRoutes(app: FastifyInstance) {
   const chats = createChatsStorage(app.db);
   const calls = createConversationCallsStorage(app.db);
   const connections = createConnectionsStorage(app.db);
+  const characters = createCharactersStorage(app.db);
 
   app.get<{ Params: { chatId: string } }>("/chat/:chatId/status", async (req) => {
     const [activeCall, ringingCall] = await Promise.all([
@@ -1776,6 +1784,51 @@ export async function conversationCallsRoutes(app: FastifyInstance) {
     ]);
     return { activeCall, ringingCall };
   });
+
+  app.get<{ Params: { characterId: string } }>("/character-videos/:characterId", async (req, reply) => {
+    const character = await characters.getById(req.params.characterId);
+    if (!character) return reply.status(404).send({ error: "Character not found" });
+    const data = parseCharacterData(character);
+    return getConversationCallCharacterVideoManifest({
+      characterId: character.id,
+      characterName: readName(data, "Character"),
+      avatarPath: character.avatarPath ?? null,
+    });
+  });
+
+  app.post<{ Params: { characterId: string } }>("/character-videos/:characterId/generate", async (req, reply) => {
+    const character = await characters.getById(req.params.characterId);
+    if (!character) return reply.status(404).send({ error: "Character not found" });
+    const data = parseCharacterData(character);
+    const videoConnection = await connections.getDefaultForVideoGeneration();
+    if (!videoConnection) {
+      return reply.status(400).send({ error: "No Default for Videos connection is configured." });
+    }
+    const body = parseJsonRecord(req.body);
+    return startConversationCallCharacterVideoGeneration({
+      characterId: character.id,
+      characterName: readName(data, "Character"),
+      avatarPath: character.avatarPath ?? null,
+      connection: videoConnection,
+      debugMode: body.debugMode === true,
+    });
+  });
+
+  app.get<{ Params: { characterId: string; kind: string } }>(
+    "/character-videos/:characterId/file/:kind",
+    async (req, reply) => {
+      const kind = req.params.kind as ConversationCallCharacterVideoClipKind;
+      if (!CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS.includes(kind)) {
+        return reply.status(400).send({ error: "Invalid call video clip kind" });
+      }
+      const file = getConversationCallCharacterVideoFile(req.params.characterId, kind);
+      if (!file) return reply.status(404).send({ error: "Call video clip not found" });
+      return reply
+        .header("Content-Type", "video/mp4")
+        .header("Cache-Control", "public, max-age=31536000, immutable")
+        .send(createReadStream(file));
+    },
+  );
 
   app.post("/start", async (req, reply) => {
     const input = startConversationCallSchema.parse(req.body);

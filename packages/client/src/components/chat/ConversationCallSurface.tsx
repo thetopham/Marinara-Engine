@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
+  ConversationCallCharacterVideoClipKind,
+  ConversationCallCharacterVideoManifest,
   ConversationCallMessage,
   ConversationCallSession,
   ConversationCallSound,
@@ -42,8 +44,10 @@ import type { CharacterMap, PersonaInfo } from "./chat-area.types";
 import {
   useConversationCallMessages,
   useConversationCallSoundboard,
+  useConversationCallCharacterVideos,
   useDeleteConversationCallSound,
   useEndConversationCall,
+  useGenerateConversationCallCharacterVideos,
   useSendConversationCallMedia,
   useSendConversationCallIdle,
   useSendConversationCallMessage,
@@ -111,6 +115,12 @@ type ActiveCallVoice = {
   characterId: string | null;
   speakerName: string;
   spokenText: string;
+};
+type CharacterVideoPlaybackState = {
+  kind: ConversationCallCharacterVideoClipKind;
+  followKind?: ConversationCallCharacterVideoClipKind;
+  voiceKey: string;
+  nonce: number;
 };
 
 type ParticipantGridLayout = {
@@ -337,6 +347,29 @@ function getCommandStringParam(value: string | null | undefined, name: string) {
   return bare?.[1]?.trim() ?? "";
 }
 
+function getReadyCallVideoUrl(
+  manifest: ConversationCallCharacterVideoManifest | undefined,
+  kind: ConversationCallCharacterVideoClipKind,
+) {
+  return manifest?.clips.find((clip) => clip.kind === kind && clip.status === "ready")?.url ?? null;
+}
+
+function detectCallVideoEmotionKind(
+  content: string,
+  tone: string | null | undefined,
+): Exclude<ConversationCallCharacterVideoClipKind, "idle" | "talking"> | null {
+  const bracketCues = content.match(/\[[^\]]+\]/g)?.join(" ") ?? "";
+  const searchable = `${bracketCues} ${tone ?? ""}`.toLowerCase();
+  if (!searchable.trim()) return null;
+  if (/\b(laugh|laughs|laughing|chuckle|chuckles|chuckling|giggle|giggles|giggling)\b/.test(searchable)) {
+    return "laughing";
+  }
+  if (/\b(cry|cries|crying|sob|sobs|sobbing|tearful|tears)\b/.test(searchable)) return "crying";
+  if (/\b(angry|anger|furious|irritated|irritation|snarl|snarls|seething)\b/.test(searchable)) return "angry";
+  if (/\b(sigh|sighs|sighing|exhale|exhales|exhaling)\b/.test(searchable)) return "sighing";
+  return null;
+}
+
 function readCallMessageAttachments(message: ConversationCallMessage): MessageAttachment[] {
   const raw = message.extra?.attachments;
   if (!Array.isArray(raw)) return [];
@@ -544,20 +577,74 @@ function ParticipantTile({
   active,
   cameraStream,
   density,
+  characterVideoEnabled,
+  videoPlayback,
+  onVideoEmotionEnded,
 }: {
   participant: Participant;
   active: boolean;
   cameraStream?: MediaStream | null;
   density: ParticipantTileDensity;
+  characterVideoEnabled: boolean;
+  videoPlayback?: CharacterVideoPlaybackState;
+  onVideoEmotionEnded: (participantId: string, voiceKey: string) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const requestedGenerationRef = useRef(false);
   const densityClasses = PARTICIPANT_TILE_CLASSES[density];
+  const characterId = participant.kind === "character" ? participant.characterId : null;
+  const { data: characterVideoManifest } = useConversationCallCharacterVideos(
+    characterId,
+    characterVideoEnabled && Boolean(characterId),
+  );
+  const generateCharacterVideos = useGenerateConversationCallCharacterVideos();
 
   useEffect(() => {
     if (videoRef.current && cameraStream) {
       videoRef.current.srcObject = cameraStream;
     }
   }, [cameraStream]);
+
+  useEffect(() => {
+    if (!characterVideoEnabled || !characterId || !characterVideoManifest || requestedGenerationRef.current) return;
+    if (characterVideoManifest.generating) return;
+    const hasMissingClips = characterVideoManifest.clips.some((clip) => clip.status === "missing");
+    if (!hasMissingClips) return;
+    requestedGenerationRef.current = true;
+    generateCharacterVideos.mutate(
+      { characterId },
+      {
+        onError: (error) => {
+          console.warn("[conversation-call] Failed to start character video generation", error);
+          requestedGenerationRef.current = false;
+        },
+      },
+    );
+  }, [characterId, characterVideoEnabled, characterVideoManifest, generateCharacterVideos]);
+
+  const requestedVideoKind = videoPlayback?.kind ?? "idle";
+  const preferredVideoUrl = getReadyCallVideoUrl(characterVideoManifest, requestedVideoKind);
+  const fallbackVideoUrl =
+    requestedVideoKind !== "talking" ? getReadyCallVideoUrl(characterVideoManifest, "talking") : null;
+  const idleVideoUrl = requestedVideoKind !== "idle" ? getReadyCallVideoUrl(characterVideoManifest, "idle") : null;
+  const characterVideoUrl = characterVideoEnabled
+    ? (preferredVideoUrl ?? fallbackVideoUrl ?? idleVideoUrl)
+    : null;
+  const activeVideoKind =
+    characterVideoUrl === preferredVideoUrl
+      ? requestedVideoKind
+      : characterVideoUrl === fallbackVideoUrl
+        ? "talking"
+        : characterVideoUrl
+          ? "idle"
+          : null;
+  const videoLoops = activeVideoKind === "idle" || activeVideoKind === "talking";
+  const videoKey = [
+    participant.id,
+    activeVideoKind ?? "avatar",
+    videoPlayback?.voiceKey ?? "idle",
+    videoPlayback?.nonce ?? 0,
+  ].join(":");
 
   return (
     <div
@@ -571,12 +658,33 @@ function ParticipantTile({
     >
       {cameraStream ? (
         <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
+      ) : characterVideoUrl ? (
+        <video
+          key={videoKey}
+          src={characterVideoUrl}
+          autoPlay
+          muted
+          playsInline
+          loop={videoLoops}
+          className="absolute inset-0 h-full w-full object-cover"
+          onEnded={() => {
+            if (videoPlayback?.followKind && videoPlayback.voiceKey) {
+              onVideoEmotionEnded(participant.id, videoPlayback.voiceKey);
+            }
+          }}
+        />
       ) : (
         <CallAvatar
           participant={participant}
           className={cn("max-h-[55%] max-w-[55%]", densityClasses.avatar)}
           fallbackClassName={densityClasses.fallback}
         />
+      )}
+      {characterVideoEnabled && participant.kind === "character" && characterVideoManifest?.generating && (
+        <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-[var(--marinara-chat-chrome-panel-bg)] px-2 py-1 text-[0.6rem] font-medium text-[var(--marinara-chat-chrome-panel-muted)] shadow ring-1 ring-[var(--marinara-chat-chrome-panel-border)]">
+          <Loader2 size="0.65rem" className="animate-spin" />
+          Video
+        </div>
       )}
       <div
         className={cn(
@@ -629,6 +737,9 @@ export function ConversationCallSurface({
   const [recording, setRecording] = useState(false);
   const [browserSpeechSupported, setBrowserSpeechSupported] = useState(false);
   const [optimisticCallMessages, setOptimisticCallMessages] = useState<ConversationCallMessage[]>([]);
+  const [characterVideoPlayback, setCharacterVideoPlayback] = useState<Record<string, CharacterVideoPlaybackState>>(
+    {},
+  );
   const mobileCallLayout = useMobileCallLayout();
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [joinedParticipantIds, setJoinedParticipantIds] = useState<Set<string>>(() => new Set(["user"]));
@@ -672,6 +783,7 @@ export function ConversationCallSurface({
   const localWhisperInputMode = audioInputMode === "local_whisper";
   const browserSpeechInputMode = audioInputMode === "transcribe";
   const videoControlsEnabled = ttsConfig?.callVideoInputEnabled === true && nativeInputMode;
+  const characterVideoEnabled = ttsConfig?.callCharacterVideoEnabled === true;
   const soundboardEnabled = ttsConfig?.callSoundboardEnabled !== false;
   const characterVoicesMuted = conversationCallVoiceMuted || conversationCallVoiceVolume <= 0;
   const characterVoicePlaybackVolume = characterVoicesMuted ? 0 : conversationCallVoiceVolume / 100;
@@ -1004,6 +1116,48 @@ export function ConversationCallSurface({
     setConversationCallVoiceVolume,
   ]);
 
+  const setParticipantVideoTalking = useCallback(
+    (participantId: string, voiceKey: string, kind: ConversationCallCharacterVideoClipKind, followKind?: "talking") => {
+      setCharacterVideoPlayback((current) => ({
+        ...current,
+        [participantId]: {
+          kind,
+          followKind,
+          voiceKey,
+          nonce: Date.now(),
+        },
+      }));
+    },
+    [],
+  );
+
+  const clearParticipantVideoTalking = useCallback((participantId: string | null | undefined, voiceKey: string) => {
+    if (!participantId) return;
+    setCharacterVideoPlayback((current) => {
+      const existing = current[participantId];
+      if (!existing || existing.voiceKey !== voiceKey) return current;
+      const next = { ...current };
+      delete next[participantId];
+      return next;
+    });
+  }, []);
+
+  const handleVideoEmotionEnded = useCallback((participantId: string, voiceKey: string) => {
+    setCharacterVideoPlayback((current) => {
+      const existing = current[participantId];
+      if (!existing || existing.voiceKey !== voiceKey || !existing.followKind) return current;
+      return {
+        ...current,
+        [participantId]: {
+          ...existing,
+          kind: existing.followKind,
+          followKind: undefined,
+          nonce: Date.now(),
+        },
+      };
+    });
+  }, []);
+
   const playSoundById = useCallback(
     async (soundId: string) => {
       if (!soundboardEnabled) return;
@@ -1176,20 +1330,34 @@ export function ConversationCallSurface({
                 spokenText,
               };
               userInterruptionVoicedMsRef.current = 0;
-              await ttsService.speakSequence(
-                spokenChunks.map((chunk) => ({
-                  text: chunk,
-                  speaker: turn.speakerName,
-                  tone: tone || undefined,
-                  voice,
-                })),
-                participant?.id ?? `${session.id}:${turn.id ?? turn.content.slice(0, 12)}`,
-                {
-                  progressive: ttsConfig.progressivePlayback,
-                  volume: characterVoicePlaybackVolume,
-                  muted: characterVoicesMuted,
-                },
-              );
+              const participantId = participant?.id ?? null;
+              if (characterVideoEnabled && participantId) {
+                const emotionKind = detectCallVideoEmotionKind(spokenText, tone);
+                setParticipantVideoTalking(
+                  participantId,
+                  voiceKey,
+                  emotionKind ?? "talking",
+                  emotionKind ? "talking" : undefined,
+                );
+              }
+              try {
+                await ttsService.speakSequence(
+                  spokenChunks.map((chunk) => ({
+                    text: chunk,
+                    speaker: turn.speakerName,
+                    tone: tone || undefined,
+                    voice,
+                  })),
+                  participant?.id ?? `${session.id}:${turn.id ?? turn.content.slice(0, 12)}`,
+                  {
+                    progressive: ttsConfig.progressivePlayback,
+                    volume: characterVoicePlaybackVolume,
+                    muted: characterVoicesMuted,
+                  },
+                );
+              } finally {
+                clearParticipantVideoTalking(participantId, voiceKey);
+              }
               if (activeCallVoiceRef.current?.key === voiceKey) {
                 activeCallVoiceRef.current = null;
                 userInterruptionVoicedMsRef.current = 0;
@@ -1214,13 +1382,16 @@ export function ConversationCallSurface({
       }
     },
     [
+      characterVideoEnabled,
       characterVoicePlaybackVolume,
       characterVoicesMuted,
+      clearParticipantVideoTalking,
       handleCallEndedByCharacter,
       handleCharacterLeftCall,
       participants,
       playSoundByName,
       session.id,
+      setParticipantVideoTalking,
       setYoutubePlay,
       ttsConfig,
     ],
@@ -1977,6 +2148,9 @@ export function ConversationCallSurface({
                 active={speakingId === participant.id || (participant.kind === "user" && userSpeaking)}
                 cameraStream={participant.kind === "user" ? cameraStream : null}
                 density={participantGridLayout.density}
+                characterVideoEnabled={characterVideoEnabled}
+                videoPlayback={characterVideoPlayback[participant.id]}
+                onVideoEmotionEnded={handleVideoEmotionEnded}
               />
             ))}
           </div>

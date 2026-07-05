@@ -142,6 +142,8 @@ export const ttsConfigSchema = z.object({
   callAudioInputMode: ttsConversationCallAudioInputModeSchema.default("local_whisper"),
   /** UI gate for camera/screen controls. Provider-native video input remains capability-gated by the call pipeline. */
   callVideoInputEnabled: z.boolean().default(false),
+  /** Generate and play cached character presence videos during Conversation Calls. */
+  callCharacterVideoEnabled: z.boolean().default(false),
   /** Enable the call soundboard panel and model soundboard command. */
   callSoundboardEnabled: z.boolean().default(true),
 });

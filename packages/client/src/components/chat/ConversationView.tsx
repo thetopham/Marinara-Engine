@@ -327,14 +327,19 @@ export function ConversationView({
   const delayedCharacterInfo = useChatStore((s) => s.delayedCharacterInfo);
   const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
   const hasDraftInput = useChatStore((s) => s.currentInput.trim().length > 0);
+  const isGroupConversation = chatCharIds.length > 1;
   const liveTypingName = useMemo(() => {
+    if (isGroupConversation) return "Multiple people";
     if (typingCharacterName) return typingCharacterName;
     if (streamingCharacterId) return characterMap.get(streamingCharacterId)?.name ?? "Character";
     if (chatCharIds.length === 1) return characterMap.get(chatCharIds[0]!)?.name ?? "Character";
     if (characterNames.length > 0) return characterNames.join(", ");
     return "Character";
-  }, [characterMap, characterNames, chatCharIds, streamingCharacterId, typingCharacterName]);
-  const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
+  }, [characterMap, characterNames, chatCharIds, isGroupConversation, streamingCharacterId, typingCharacterName]);
+  const liveTypingVerb =
+    isGroupConversation || liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
+  const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing`;
+  const liveTypingText = `${liveTypingName} ${liveTypingVerb} typing...`;
   const delayedDisplayName = useMemo(() => {
     if (!delayedCharacterInfo) return "";
     const ids = delayedCharacterInfo.characterIds ?? [];
@@ -362,7 +367,9 @@ export function ConversationView({
   const delayedDisplayVerb = delayedDisplayName.includes(",") || delayedDisplayName.includes(" & ") ? "are" : "is";
   // Single typer → tag the typing row so exclusive-mode card CSS can target it via
   // `[data-card-css="<id>"] .mari-typing-*`. Multiple/unknown typers stay untagged.
-  const typingCardCssId = streamingCharacterId ?? (chatCharIds.length === 1 ? chatCharIds[0] : undefined);
+  const typingCardCssId = isGroupConversation
+    ? undefined
+    : (streamingCharacterId ?? (chatCharIds.length === 1 ? chatCharIds[0] : undefined));
 
   // Track whether the current generation has produced any content. When the stream
   // buffer clears (stream finished) but isStreaming hasn't cleared yet, this ref lets
@@ -1441,12 +1448,10 @@ export function ConversationView({
             <PendingTypingDots
               className="mari-typing-dots gap-0.5"
               dotClassName="bg-[var(--text-secondary)]"
-              label={`${liveTypingName} ${liveTypingVerb} typing`}
+              label={liveTypingLabel}
               small
             />
-            <span className="mari-typing-text italic">
-              {liveTypingName} {liveTypingVerb} typing...
-            </span>
+            <span className="mari-typing-text italic">{liveTypingText}</span>
           </div>
         )}
 

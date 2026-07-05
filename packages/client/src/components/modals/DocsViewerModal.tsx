@@ -250,8 +250,8 @@ export function DocsViewerModal({
   const searchResults = search?.results ?? [];
 
   return (
-    <Modal open={open} onClose={onClose} title="Documentation" width="max-w-6xl">
-      <div className="flex h-[calc(100dvh-5.5rem-max(0.75rem,env(safe-area-inset-top))-max(0.75rem,env(safe-area-inset-bottom)))] min-h-0 gap-3 sm:h-[min(46rem,calc(90dvh-6.5rem))]">
+    <Modal open={open} onClose={onClose} title="Documentation" width="max-w-6xl" mobileFullscreen>
+      <div className="flex h-full min-h-0 gap-3 sm:h-[min(46rem,calc(90dvh-6.5rem))]">
         {/* Guide list / search */}
         <aside
           className={cn("flex w-full min-w-0 flex-col sm:w-64 sm:shrink-0", selected !== null && "hidden sm:flex")}

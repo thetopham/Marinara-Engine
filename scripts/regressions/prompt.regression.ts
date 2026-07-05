@@ -53,8 +53,8 @@ import { assemblePrompt, type AssemblerInput } from "../../packages/server/src/s
 import { executeToolCalls } from "../../packages/server/src/services/tools/tool-executor.js";
 import { parseRouterResponse } from "../../packages/server/src/services/agents/knowledge-router.js";
 import {
-  GAME_STORYBOARD_DIRECTOR,
   GAME_STORYBOARD_ILLUSTRATION_DIRECTOR,
+  listPromptOverrideKeys,
 } from "../../packages/server/src/services/prompt-overrides/index.js";
 import { buildElevenLabsTextInput } from "../../packages/server/src/routes/tts.routes.js";
 import type { LLMToolCall } from "../../packages/server/src/services/llm/base-provider.js";
@@ -558,7 +558,7 @@ const cases: RegressionCase[] = [
     },
   },
   {
-    name: "game storyboard directors split illustration and animation prompt contracts",
+    name: "game storyboard illustrator remains the active storyboard prompt contract",
     run() {
       const ctx = {
         gameContextBlock: "<game_context>\nMode: exploration\n</game_context>",
@@ -570,16 +570,15 @@ const cases: RegressionCase[] = [
       };
 
       const illustrationPrompt = GAME_STORYBOARD_ILLUSTRATION_DIRECTOR.defaultBuilder(ctx);
-      const animationPrompt = GAME_STORYBOARD_DIRECTOR.defaultBuilder(ctx);
+      const promptKeys = listPromptOverrideKeys();
 
-      assert.match(illustrationPrompt, /image-only anime storyboard/);
+      assert.match(illustrationPrompt, /Storyboard Illustrator/);
       assert.match(illustrationPrompt, /"imagePrompt"/);
       assert.doesNotMatch(illustrationPrompt, /"videoPrompt"/);
       assert.doesNotMatch(illustrationPrompt, /"cameraMotion"/);
       assert.doesNotMatch(illustrationPrompt, /"transitionHint"/);
-      assert.match(animationPrompt, /"videoPrompt"/);
-      assert.match(animationPrompt, /"cameraMotion"/);
-      assert.match(animationPrompt, /"transitionHint"/);
+      assert.equal(promptKeys.includes("game.storyboardIllustrationDirector"), true);
+      assert.equal(promptKeys.includes("game.storyboardDirector"), false);
     },
   },
   {

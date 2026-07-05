@@ -176,7 +176,6 @@ import { createAppSettingsStorage } from "../services/storage/app-settings.stora
 import {
   GAME_NARRATION_SUMMARIZER,
   GAME_IMAGE_PROMPT_DIRECTOR,
-  GAME_STORYBOARD_DIRECTOR,
   GAME_STORYBOARD_ILLUSTRATION_DIRECTOR,
   GAME_VIDEO,
   loadPrompt,
@@ -2655,7 +2654,7 @@ const GAME_ASSET_GENERATION_TIMEOUT_MS = 45 * 60 * 1000;
 const GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS = 31 * 60 * 1000;
 const GAME_ILLUSTRATION_SUMMARY_TIMEOUT_MS = 60 * 1000;
 const GAME_DYNAMIC_IMAGE_PROMPT_TIMEOUT_MS = 45 * 1000;
-const GAME_STORYBOARD_DIRECTOR_TIMEOUT_MS = 3 * 60 * 1000;
+const GAME_STORYBOARD_ILLUSTRATOR_TIMEOUT_MS = 3 * 60 * 1000;
 const GAME_ASSET_PORTRAIT_CONCURRENCY = 2;
 const GAME_STORYBOARD_IMAGE_FRAME_CONCURRENCY = 4;
 const GAME_STORYBOARD_VIDEO_FRAME_CONCURRENCY = 2;
@@ -4480,7 +4479,6 @@ function fallbackStoryboardPlan(args: {
   keyframeCount: number;
   durationSeconds: number;
   aspectRatio: GameSceneVideoAspectRatio;
-  includeVideoPrompts?: boolean;
 }): PlannedStoryboard {
   const cleanNarration = compactStoryboardText(args.sourceNarration, 2000);
   const frameCount = Math.min(6, Math.max(2, args.keyframeCount));
@@ -4518,19 +4516,11 @@ function fallbackStoryboardPlan(args: {
         narrationBeat: beat,
         mangaPanelPrompt: `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${beat}`,
         imagePrompt: `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${beat}`,
-        videoPrompt: args.includeVideoPrompts
-          ? `Animate this manga keyframe as a short anime shot: subtle camera drift, atmospheric motion, character expression shift, and continuity-preserving movement. Story beat: ${beat}`
-          : "",
+        videoPrompt: "",
         characters: [],
-        continuityNotes: args.includeVideoPrompts
-          ? "Preserve character designs, props, setting, lighting, and emotional continuity from the GM narration."
-          : "",
-        cameraMotion: args.includeVideoPrompts ? "subtle cinematic camera drift" : "",
-        transitionHint: args.includeVideoPrompts
-          ? index === frameCount - 1
-            ? "hold on the result of the turn"
-            : "continue into the next beat"
-          : "",
+        continuityNotes: "",
+        cameraMotion: "",
+        transitionHint: "",
         durationSeconds: args.durationSeconds,
         aspectRatio: args.aspectRatio,
       };
@@ -4546,7 +4536,6 @@ function sanitizeStoryboardPlan(
     keyframeCount: number;
     durationSeconds: number;
     aspectRatio: GameSceneVideoAspectRatio;
-    includeVideoPrompts?: boolean;
   },
 ): PlannedStoryboard {
   const root = asStoryboardRecord(raw);
@@ -4560,10 +4549,7 @@ function sanitizeStoryboardPlan(
       const narrationBeat = compactStoryboardText(frame.narrationBeat, 1200);
       const mangaPanelPrompt = compactStoryboardText(frame.mangaPanelPrompt, 5000);
       const imagePrompt = compactStoryboardText(frame.imagePrompt, 6500) || mangaPanelPrompt || narrationBeat;
-      const videoPrompt = args.includeVideoPrompts
-        ? compactStoryboardText(frame.videoPrompt, 6500) || narrationBeat || imagePrompt
-        : "";
-      if (!narrationBeat && !imagePrompt && !videoPrompt) return null;
+      if (!narrationBeat && !imagePrompt) return null;
       let sectionStartIndex = normalizeStoryboardSectionIndex(frame.sectionStartIndex, args.sections);
       let sectionEndIndex = normalizeStoryboardSectionIndex(frame.sectionEndIndex, args.sections);
       if (sectionStartIndex == null && sectionEndIndex != null) sectionStartIndex = sectionEndIndex;
@@ -4593,11 +4579,11 @@ function sanitizeStoryboardPlan(
         narrationBeat,
         mangaPanelPrompt: mangaPanelPrompt || imagePrompt,
         imagePrompt,
-        videoPrompt,
+        videoPrompt: "",
         characters: parseStoryboardCharacters(frame.characters),
-        continuityNotes: args.includeVideoPrompts ? compactStoryboardText(frame.continuityNotes, 1200) : "",
-        cameraMotion: args.includeVideoPrompts ? compactStoryboardText(frame.cameraMotion, 400) : "",
-        transitionHint: args.includeVideoPrompts ? compactStoryboardText(frame.transitionHint, 400) : "",
+        continuityNotes: "",
+        cameraMotion: "",
+        transitionHint: "",
         durationSeconds: normalizeStoryboardDuration(frame.durationSeconds, args.durationSeconds),
         aspectRatio: normalizeStoryboardAspectRatio(frame.aspectRatio, args.aspectRatio),
       };
@@ -4678,7 +4664,7 @@ function buildStoryboardGameContextBlock(args: {
   return `<game_context>\n${lines.join("\n")}\n</game_context>`;
 }
 
-async function buildStoryboardDirectorMessages(args: {
+async function buildStoryboardIllustratorMessages(args: {
   promptOverridesStorage: PromptOverridesStorage;
   meta: Record<string, unknown>;
   setupConfig: Record<string, unknown> | null;
@@ -4688,7 +4674,6 @@ async function buildStoryboardDirectorMessages(args: {
   keyframeCount: number;
   durationSeconds: number;
   aspectRatio: GameSceneVideoAspectRatio;
-  includeVideoPrompts: boolean;
 }): Promise<{ systemPrompt: string; messages: ChatMessage[] }> {
   const gameContextBlock = buildStoryboardGameContextBlock({
     meta: args.meta,
@@ -4700,8 +4685,7 @@ async function buildStoryboardDirectorMessages(args: {
     args.sections.length > 0
       ? "<gm_turn_narration>\nUse the ordered <turn_sections> block above as the full GM turn narration source.\n</gm_turn_narration>"
       : `<gm_turn_narration>\n${args.sourceNarration}\n</gm_turn_narration>`;
-  const promptKey = args.includeVideoPrompts ? GAME_STORYBOARD_DIRECTOR : GAME_STORYBOARD_ILLUSTRATION_DIRECTOR;
-  const systemPrompt = await loadPrompt(args.promptOverridesStorage, promptKey, {
+  const systemPrompt = await loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, {
     gameContextBlock,
     sourceSectionsBlock,
     sourceNarration: args.sourceNarration,
@@ -4719,22 +4703,13 @@ async function buildStoryboardDirectorMessages(args: {
           gameContextBlock,
           sourceSectionsBlock,
           sourceNarrationBlock,
-          args.includeVideoPrompts
-            ? [
-                "Create the animation storyboard JSON now.",
-                `Target keyframes: ${args.keyframeCount}.`,
-                `Default clip duration: ${args.durationSeconds} seconds.`,
-                `Default aspect ratio: ${args.aspectRatio}.`,
-                "Include imagePrompt and videoPrompt fields for every keyframe.",
-                "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
-              ].join("\n")
-            : [
-                "Create the illustration storyboard JSON now.",
-                `Target keyframes: ${args.keyframeCount}.`,
-                `Aspect ratio: ${args.aspectRatio}.`,
-                "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
-                "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
-              ].join("\n"),
+          [
+            "Create the illustration storyboard JSON now.",
+            `Target keyframes: ${args.keyframeCount}.`,
+            `Aspect ratio: ${args.aspectRatio}.`,
+            "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
+            "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
+          ].join("\n"),
         ].join("\n\n"),
       },
     ],
@@ -9551,8 +9526,7 @@ export async function gameRoutes(app: FastifyInstance) {
         (await createGameStateStorage(app.db)
           .getLatest(input.chatId)
           .catch(() => null));
-      const includeDirectorVideoPrompts = false;
-      const directorMessages = await buildStoryboardDirectorMessages({
+      const illustratorMessages = await buildStoryboardIllustratorMessages({
         promptOverridesStorage,
         meta,
         setupConfig: setupCfg,
@@ -9562,57 +9536,56 @@ export async function gameRoutes(app: FastifyInstance) {
         keyframeCount: input.keyframeCount,
         durationSeconds: storyboardDurationSeconds,
         aspectRatio: input.aspectRatio,
-        includeVideoPrompts: includeDirectorVideoPrompts,
       });
       if (debugLogsEnabled) {
-        debugLog("[debug/game/storyboard-director] messages:\n%s", JSON.stringify(directorMessages.messages, null, 2));
+        debugLog(
+          "[debug/game/storyboard-illustrator] messages:\n%s",
+          JSON.stringify(illustratorMessages.messages, null, 2),
+        );
       }
 
-      let directorErrorMessage: string | null = null;
+      let illustratorErrorMessage: string | null = null;
       let plan: PlannedStoryboard;
       try {
-        const storyboardDirectorMaxTokens = includeDirectorVideoPrompts ? 4000 : 2200;
         const directorResult = await runGameChatComplete(
           provider,
-          directorMessages.messages,
+          illustratorMessages.messages,
           gameGenOptions(
             conn.model ?? "",
             {
               stream: false,
-              maxTokens: storyboardDirectorMaxTokens,
+              maxTokens: 2200,
               responseFormat: { type: "json_object" },
               signal: storyboardAbortSignal,
             },
             parameters,
             conn.provider,
           ),
-          "Game storyboard director",
-          GAME_STORYBOARD_DIRECTOR_TIMEOUT_MS,
+          "Game storyboard illustrator",
+          GAME_STORYBOARD_ILLUSTRATOR_TIMEOUT_MS,
         );
         const extraction = extractLeadingThinkingBlocks(directorResult.content || "", parameters?.customThinkingTags);
         const rawPlan = extraction.content.trim();
-        if (debugLogsEnabled) debugLog("[debug/game/storyboard-director] raw response:\n%s", rawPlan);
+        if (debugLogsEnabled) debugLog("[debug/game/storyboard-illustrator] raw response:\n%s", rawPlan);
         plan = sanitizeStoryboardPlan(parseJSON(rawPlan), {
           sourceNarration,
           sections: sourceSections,
           keyframeCount: input.keyframeCount,
           durationSeconds: storyboardDurationSeconds,
           aspectRatio: input.aspectRatio,
-          includeVideoPrompts: includeDirectorVideoPrompts,
         });
       } catch (err) {
-        directorErrorMessage =
+        illustratorErrorMessage =
           err instanceof Error
             ? `${err.message}; used fallback storyboard planner.`
             : "Used fallback storyboard planner.";
-        logger.warn(err, "[game/storyboard] Prompt Director failed; using fallback storyboard planner");
+        logger.warn(err, "[game/storyboard] Storyboard Illustrator failed; using fallback storyboard planner");
         plan = fallbackStoryboardPlan({
           sourceNarration,
           sections: sourceSections,
           keyframeCount: input.keyframeCount,
           durationSeconds: storyboardDurationSeconds,
           aspectRatio: input.aspectRatio,
-          includeVideoPrompts: includeDirectorVideoPrompts,
         });
       }
 
@@ -9633,8 +9606,8 @@ export async function gameRoutes(app: FastifyInstance) {
         status: "rendering_images",
         provider: conn.provider,
         model: conn.model ?? "",
-        directorPrompt: directorMessages.systemPrompt,
-        error: directorErrorMessage,
+        directorPrompt: illustratorMessages.systemPrompt,
+        error: illustratorErrorMessage,
       });
       if (!storyboardRow) throw new Error("Storyboard metadata could not be saved");
       await storyboards.replaceKeyframes(

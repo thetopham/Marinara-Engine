@@ -200,7 +200,7 @@ export function DocsViewerModal({
       button.type = "button";
       button.textContent = "Copy";
       button.className =
-        "docs-copy-button absolute right-1.5 top-1.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1.5 py-0.5 font-sans text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]";
+        "docs-copy-button absolute bottom-1.5 right-1.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1.5 py-0.5 font-sans text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]";
       let resetTimer: ReturnType<typeof setTimeout> | undefined;
       const onClick = () => {
         const code = block.querySelector("code")?.textContent ?? "";
@@ -416,7 +416,7 @@ export function DocsViewerModal({
                   <p className="py-2 text-xs text-[var(--muted-foreground)]">Could not load this guide.</p>
                 ) : (
                   <div
-                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)] [&_.mari-md-codeblock-lang]:right-14"
+                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)]"
                     onClick={handleContentClick}
                   >
                     {rendered}

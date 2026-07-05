@@ -778,16 +778,16 @@ function DefaultVideoConnectionCard({ connectionsList }: { connectionsList: Conn
           <Film size="1rem" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">Default for Scene Videos</div>
+          <div className="text-sm font-medium">Default for Videos</div>
           <select
             value={defaultConnection?.id ?? ""}
             onChange={handleDefaultChange}
             disabled={updateConnection.isPending || (!hasConnections && !defaultConnection)}
             className="mt-1 w-full rounded-lg bg-[var(--secondary)] px-2 py-1.5 text-[0.75rem] text-[var(--foreground)] ring-1 ring-[var(--border)] transition focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-60"
-            aria-label="Default scene video connection"
+            aria-label="Default video connection"
           >
             <option value="">
-              {hasConnections ? "No default scene video connection" : "No video connections available"}
+              {hasConnections ? "No default video connection" : "No video connections available"}
             </option>
             {videoConnections.map((connection) => (
               <option key={connection.id} value={connection.id}>
@@ -801,7 +801,7 @@ function DefaultVideoConnectionCard({ connectionsList }: { connectionsList: Conn
             type="button"
             onClick={() => openFreshConnectionDetail(defaultConnection.id)}
             className="mari-chrome-control mari-chrome-control--small p-1.5"
-            title="Open default scene video connection"
+            title="Open default video connection"
           >
             <Settings2 size="0.8125rem" />
           </button>

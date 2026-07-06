@@ -1,7 +1,5 @@
 import { mkdir, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
-import { File } from "node:buffer";
-import { FormData } from "undici";
 import { DATA_DIR } from "../../utils/data-dir.js";
 import { newId } from "../../utils/id-generator.js";
 import { logger } from "../../lib/logger.js";
@@ -1017,10 +1015,18 @@ async function maybeUploadSeedanceReferenceImage(
   }
 
   const filename = `marinara-seedance-${label.replace(/\s+/g, "-")}-${Date.now()}${imageExtension(image.mimeType)}`;
-  const form = new FormData();
-  form.set("reqtype", "fileupload");
-  form.set("time", expiry);
-  form.set("fileToUpload", new File([new Uint8Array(buffer)], filename, { type: image.mimeType }));
+  const upload = buildMultipartFormDataBody({
+    fields: {
+      reqtype: "fileupload",
+      time: expiry,
+    },
+    file: {
+      fieldName: "fileToUpload",
+      filename,
+      contentType: image.mimeType,
+      data: buffer,
+    },
+  });
 
   logger.warn(
     "[video-gen/seedance] Uploading %s reference image to a temporary public URL for %s",
@@ -1029,7 +1035,8 @@ async function maybeUploadSeedanceReferenceImage(
   );
   const res = await safeFetch(LITTERBOX_UPLOAD_URL, {
     method: "POST",
-    body: form,
+    headers: upload.headers,
+    body: upload.body,
     signal,
     policy: {
       allowLocal: false,
@@ -1048,6 +1055,47 @@ async function maybeUploadSeedanceReferenceImage(
     throw new Error(`Temporary Seedance reference upload did not return an HTTPS URL: ${formatProviderError(text)}`);
   }
   return text;
+}
+
+function buildMultipartFormDataBody(input: {
+  fields: Record<string, string>;
+  file: {
+    fieldName: string;
+    filename: string;
+    contentType: string;
+    data: Buffer;
+  };
+}): { body: Buffer; headers: Record<string, string> } {
+  const boundary = `----MarinaraEngine${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const chunks: Buffer[] = [];
+  const appendText = (value: string) => chunks.push(Buffer.from(value, "utf8"));
+
+  for (const [name, value] of Object.entries(input.fields)) {
+    appendText(`--${boundary}\r\n`);
+    appendText(`Content-Disposition: form-data; name="${escapeMultipartToken(name)}"\r\n\r\n`);
+    appendText(`${value}\r\n`);
+  }
+
+  appendText(`--${boundary}\r\n`);
+  appendText(
+    `Content-Disposition: form-data; name="${escapeMultipartToken(input.file.fieldName)}"; filename="${escapeMultipartToken(input.file.filename)}"\r\n`,
+  );
+  appendText(`Content-Type: ${input.file.contentType}\r\n\r\n`);
+  chunks.push(input.file.data);
+  appendText(`\r\n--${boundary}--\r\n`);
+
+  const body = Buffer.concat(chunks);
+  return {
+    body,
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      "Content-Length": String(body.length),
+    },
+  };
+}
+
+function escapeMultipartToken(value: string): string {
+  return value.replace(/[\r\n"]/g, "_");
 }
 
 function normalizeReferenceUploadExpiry(value: VideoReferencePublicUploadOptions["expiry"]): VideoReferencePublicUploadExpiry {

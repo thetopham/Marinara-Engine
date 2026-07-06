@@ -40,7 +40,7 @@ const CLIP_PROMPT_SEEDS: ClipPromptSeed[] = [
     kind: "laughing",
     label: "laughing reaction",
     instruction:
-      "The character laughs naturally for a moment with smooth restrained motion: gentle head and shoulder movement, visible breathing, expression changes, and slight hair or clothing motion if present. Keep the motion video-call-like and fluid, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character laughs naturally for one continuous acted beat with smooth restrained motion: gentle head and shoulder movement, visible breathing, expression changes, and slight hair or clothing motion if present. Avoid rapid shaking, twitchy bobbing, or repeated jerky head snaps. Keep the motion video-call-like and fluid, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
   {
     kind: "angry",
@@ -69,6 +69,7 @@ function buildDefaultPrompt(ctx: ConversationCallVideoClipCtx) {
     "Preserve the reference image's crop, especially the top/head framing. If any framing must be lost, crop lower body or lower clothing instead of hair, head, mask, or face.",
     "Preserve the reference image's background, lighting, colors, face shape, hair, clothing, mask or eyewear, accessories, and art style.",
     `Action: ${ctx.clipInstruction}`,
+    "Motion quality: animate as one continuous smooth movement with gradual easing; no choppy frame jumps, jitter, flicker, stop-motion effect, or stuttering.",
     "Lighting and background: keep them from the reference image; do not invent a new ambience or setting.",
     "Camera: locked-off still camera, no zoom, pan, tilt, dolly, crop change, reframing, handheld shake, or scene cut.",
     "Looping: begin and finish on the same pose, scale, framing, lighting, outfit, and background for a seamless loop.",

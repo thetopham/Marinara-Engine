@@ -642,7 +642,7 @@ async function generateSeedanceVideo(
     }
     const status = readSeedanceStatus(pollJson);
     if (status && ["completed", "succeeded", "success", "done"].includes(status)) {
-      const url = findVideoUri(asRecord(pollJson).data ?? pollJson);
+      const url = findVideoUri(pollJson);
       if (!url) {
         logger.warn("[video-gen/seedance] completed response without video URL: %s", pollText.slice(0, 2000));
         throw new Error("Seedance response did not include a downloadable video");
@@ -1077,7 +1077,21 @@ function findVideoUri(value: unknown, depth = 0): string | null {
     readString(record.fileUri) ??
     readString(record.file_uri);
   if (uri) return uri;
-  for (const key of ["response", "generateVideoResponse", "generatedSamples", "generatedVideos", "video", "file"]) {
+  for (const key of [
+    "response",
+    "data",
+    "results",
+    "output",
+    "outputs",
+    "videos",
+    "videoUrls",
+    "video_urls",
+    "generateVideoResponse",
+    "generatedSamples",
+    "generatedVideos",
+    "video",
+    "file",
+  ]) {
     const found = findVideoUri(record[key], depth + 1);
     if (found) return found;
   }

@@ -4735,15 +4735,12 @@ async function loadStoryboardIllustratorSystemPrompt(args: {
     generateVideos: args.generateVideos,
     options,
   });
-  if (templateId === GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID) {
-    return loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, args.ctx);
-  }
-
+  const fallbackTemplateId = args.generateVideos
+    ? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID
+    : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID;
   const selectedTemplate =
     options.find((template) => template.id === templateId) ??
-    GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find(
-      (template) => template.id === GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
-    );
+    GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find((template) => template.id === fallbackTemplateId);
   if (!selectedTemplate?.promptTemplate.trim()) {
     return loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, args.ctx);
   }
@@ -9511,7 +9508,7 @@ export async function gameRoutes(app: FastifyInstance) {
     keyframeCount: z.number().int().min(2).max(6).optional().default(4),
     durationSeconds: z.number().int().min(1).max(15).optional(),
     aspectRatio: z.enum(["16:9", "9:16"]).optional().default("16:9"),
-    generateVideos: z.boolean().optional().default(false),
+    generateVideos: z.boolean().optional(),
     debugMode: z.boolean().optional().default(false),
   });
 
@@ -9588,6 +9585,7 @@ export async function gameRoutes(app: FastifyInstance) {
       const sourceSections = normalizeStoryboardSections(input.sections, sourceNarration);
 
       const meta = parseMeta(chat.metadata);
+      const generateStoryboardVideos = input.generateVideos ?? (meta.gameStoryboardAutoGenerationEnabled === true);
       const enableGen = !!meta.enableSpriteGeneration;
       const imgConnId = await resolveGameImageConnectionId(meta, agents);
       if (!enableGen || !imgConnId) {
@@ -9633,7 +9631,7 @@ export async function gameRoutes(app: FastifyInstance) {
         keyframeCount: input.keyframeCount,
         durationSeconds: storyboardDurationSeconds,
         aspectRatio: input.aspectRatio,
-        generateVideos: input.generateVideos,
+        generateVideos: generateStoryboardVideos,
       });
       if (debugLogsEnabled) {
         debugLog(
@@ -9783,7 +9781,7 @@ export async function gameRoutes(app: FastifyInstance) {
         maxDurationSeconds: number;
         promptLimits: SceneVideoPromptLimits;
       } | null = null;
-      if (input.generateVideos) {
+      if (generateStoryboardVideos) {
         const videoConnectionId = await resolveGameVideoConnectionId(meta, connections);
         const videoConn = videoConnectionId ? await connections.getWithKey(videoConnectionId) : null;
         if (videoConn?.provider === "video_generation") {

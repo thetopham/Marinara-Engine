@@ -358,6 +358,7 @@ export const chessEngine: TurnGameEngine<ChessState, ChessMove, ChessConfig, Che
   label: "Chess",
   minPlayers: CHESS_MIN_PLAYERS,
   maxPlayers: CHESS_MAX_PLAYERS,
+  hiddenInformation: false,
 
   defaultConfig() {
     return { ...DEFAULT_CHESS_CONFIG };

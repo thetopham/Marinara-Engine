@@ -846,6 +846,7 @@ export const unoEngine: TurnGameEngine<UnoState, UnoMove, UnoConfig, UnoPublicVi
   label: "UNO",
   minPlayers: UNO_MIN_PLAYERS,
   maxPlayers: UNO_MAX_PLAYERS,
+  hiddenInformation: true,
 
   defaultConfig() {
     return { ...DEFAULT_UNO_CONFIG };

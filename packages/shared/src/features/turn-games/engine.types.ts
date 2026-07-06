@@ -92,6 +92,12 @@ export interface TurnGameEngine<TState, TMove, TConfig, TPublic = unknown> {
   readonly label: string;
   readonly minPlayers: number;
   readonly maxPlayers: number;
+  /**
+   * True when seats hold private information other players must not learn
+   * (e.g. UNO hands); false for open-information games (e.g. chess). Drives
+   * how freely a seated character may talk about their own position in chat.
+   */
+  readonly hiddenInformation: boolean;
 
   /** The default house-rule config (used when the UI sends nothing). */
   defaultConfig(): TConfig;

@@ -281,7 +281,7 @@ import { sendSseEvent, startSseKeepalive, startSseReply, trySendSseEvent } from 
 import { runTurnGameBotTurns } from "../services/turn-games/turn-game-bot-runner.service.js";
 import {
   getActiveTurnGame,
-  getTurnGameContextText,
+  getTurnGameContextBuilder,
   startTurnGame,
 } from "../services/turn-games/turn-game-runner.service.js";
 import { normalizeContextInjections } from "./generate/agent-normalizers.js";
@@ -6722,6 +6722,10 @@ export async function generateRoutes(app: FastifyInstance) {
         // Turn-game board awareness is injected per responding character inside
         // generateForCharacter (seat-aware: a seated character sees their own
         // hand / color / last move; everyone else gets the spectator view).
+        // The game itself is loaded ONCE here — the builder closes over the
+        // loaded state so each character only pays for its own summary text.
+        const turnGameContextForSeat =
+          chatMode === "conversation" ? await getTurnGameContextBuilder(app.db, input.chatId) : null;
 
         // Manual mode with forCharacterId: only generate for the specified character
         // Sequential: all characters respond. Smart: generate the first queued character only.
@@ -6761,13 +6765,13 @@ export async function generateRoutes(app: FastifyInstance) {
           // and a merged generation that may voice several characters at once
           // stays on the hand-free spectator view.
           let gameAwareMessagesForGen = messagesForGen;
-          if (chatMode === "conversation") {
+          if (turnGameContextForSeat) {
             const viewerSeatId = input.impersonate
               ? chat.personaId || "human"
               : speaksOnlyTargetCharacter
                 ? targetCharId
                 : null;
-            const turnGameContext = await getTurnGameContextText(app.db, input.chatId, viewerSeatId);
+            const turnGameContext = turnGameContextForSeat(viewerSeatId);
             if (turnGameContext) {
               gameAwareMessagesForGen = injectAtDepth(gameAwareMessagesForGen, [
                 { content: turnGameContext, role: "system", depth: 0 },

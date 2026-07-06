@@ -178,7 +178,9 @@ import {
   DEFAULT_AGENT_MAX_TOKENS,
   DEFAULT_AGENT_PROMPTS,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
+  GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
   getChatModeCapabilities,
   LIMITS,
@@ -7356,6 +7358,10 @@ export function ChatSettingsDrawer({
                       onRemoveTemplate={removeGameStoryboardPromptTemplate}
                     />
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                      These prompt presets are specific to Game Mode storyboards; the roleplay Illustrator presets stay
+                      separate.
+                    </p>
+                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
                       Still keyframes avoid comic text so normal storyboards do not reveal later panels. Comic page
                       keyframes are meant for the animation path.
                     </p>
@@ -8973,7 +8979,7 @@ function GameStoryboardPromptLibrary({
       >
         <FileText size="0.75rem" className="shrink-0 text-[var(--primary)]" />
         <span className="min-w-0 flex-1 text-[0.6875rem] font-semibold text-[var(--foreground)]">
-          Prompt Library
+          Edit Storyboard Presets
         </span>
         <span className="rounded-md bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
           {customTemplates.length} custom
@@ -8985,6 +8991,10 @@ function GameStoryboardPromptLibrary({
       </button>
       {open && (
         <div className="space-y-2 border-t border-[var(--border)] px-2.5 py-2.5">
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            Built-in Game Mode presets are read-only. Add a copy here to edit its name, description, and prompt body for
+            this chat.
+          </p>
           <div className="flex flex-wrap gap-1.5">
             <button
               type="button"
@@ -9001,6 +9011,22 @@ function GameStoryboardPromptLibrary({
             >
               <FilePlus2 size="0.6875rem" />
               Add Comic Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => onAddTemplate(GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE_ID)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+            >
+              <FilePlus2 size="0.6875rem" />
+              Add Colored Manga Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => onAddTemplate(GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE_ID)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+            >
+              <FilePlus2 size="0.6875rem" />
+              Add B&W Manga Copy
             </button>
           </div>
           {customTemplates.length === 0 ? (

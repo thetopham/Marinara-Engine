@@ -474,6 +474,12 @@ export interface ChatMetadata {
   gameStoryboardAutoIllustrationsEnabled?: boolean;
   /** When true, completed Game Mode GM turns automatically create storyboard keyframe videos. */
   gameStoryboardAutoGenerationEnabled?: boolean;
+  /** Selected Game Mode storyboard prompt template for image-only auto storyboards. */
+  gameStoryboardIllustrationPromptTemplateId?: string | null;
+  /** Selected Game Mode storyboard prompt template for animation-ready auto storyboards. */
+  gameStoryboardAnimationPromptTemplateId?: string | null;
+  /** Chat-local storyboard prompt templates, merged with built-in storyboard prompt modes. */
+  gameStoryboardPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
   /** Last generated scene-video record ID for this game. */
   gameLastSceneVideoId?: string | null;
   /** Connection used for roleplay/gallery scene-video generation. */

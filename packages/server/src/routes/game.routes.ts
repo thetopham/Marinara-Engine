@@ -98,10 +98,14 @@ import {
   generationParametersSchema,
   VIDEO_GENERATION_SETTINGS_KEY,
   VIDEO_DEFAULTS_STORAGE_KEY,
+  GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
+  GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
   createDefaultVideoGenerationProfile,
   inferVideoSource,
   normalizeVideoGenerationUserSettings,
   normalizeVideoGenerationProfile,
+  normalizeAgentPromptTemplateOptions,
   isClaudeAdaptiveOnlyNoSamplingModel,
   supportsXhighReasoningEffort,
   scoreMusic,
@@ -141,6 +145,7 @@ import type {
   SessionSummary,
   PartyArc,
   HudWidget,
+  AgentPromptTemplateOption,
 } from "@marinara-engine/shared";
 import { getAssetManifest, GAME_ASSETS_DIR } from "../services/game/asset-manifest.service.js";
 import {
@@ -179,6 +184,8 @@ import {
   GAME_STORYBOARD_ILLUSTRATION_DIRECTOR,
   GAME_VIDEO,
   loadPrompt,
+  renderTemplate,
+  type GameStoryboardIllustratorCtx,
 } from "../services/prompt-overrides/index.js";
 import {
   compactVideoPromptText,
@@ -4664,6 +4671,86 @@ function buildStoryboardGameContextBlock(args: {
   return `<game_context>\n${lines.join("\n")}\n</game_context>`;
 }
 
+const GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATE_IDS = new Set(
+  GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.map((template) => template.id),
+);
+
+function ensureUniqueStoryboardPromptTemplateId(id: string, usedIds: Set<string>): string {
+  const fallback = "custom-storyboard-prompt";
+  const base =
+    id
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/(^-|-$)/g, "") || fallback;
+  let candidate = base;
+  let attempt = 2;
+  while (usedIds.has(candidate)) {
+    candidate = `${base}-${attempt}`;
+    attempt++;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function normalizeGameStoryboardPromptTemplates(value: unknown): AgentPromptTemplateOption[] {
+  const usedIds = new Set(GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATE_IDS);
+  return normalizeAgentPromptTemplateOptions(value)
+    .map((template) => ({
+      ...template,
+      id: ensureUniqueStoryboardPromptTemplateId(template.id, usedIds),
+    }))
+    .slice(0, 20);
+}
+
+function resolveGameStoryboardPromptTemplateId(args: {
+  meta: Record<string, unknown>;
+  generateVideos: boolean;
+  options: AgentPromptTemplateOption[];
+}): string {
+  const defaultId = args.generateVideos
+    ? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID
+    : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID;
+  const selected = readTrimmedString(
+    args.generateVideos
+      ? args.meta.gameStoryboardAnimationPromptTemplateId
+      : args.meta.gameStoryboardIllustrationPromptTemplateId,
+  );
+  if (selected && args.options.some((option) => option.id === selected)) return selected;
+  return defaultId;
+}
+
+async function loadStoryboardIllustratorSystemPrompt(args: {
+  promptOverridesStorage: PromptOverridesStorage;
+  meta: Record<string, unknown>;
+  generateVideos: boolean;
+  ctx: GameStoryboardIllustratorCtx;
+}): Promise<string> {
+  const options = [
+    ...GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
+    ...normalizeGameStoryboardPromptTemplates(args.meta.gameStoryboardPromptTemplates),
+  ];
+  const templateId = resolveGameStoryboardPromptTemplateId({
+    meta: args.meta,
+    generateVideos: args.generateVideos,
+    options,
+  });
+  if (templateId === GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID) {
+    return loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, args.ctx);
+  }
+
+  const selectedTemplate =
+    options.find((template) => template.id === templateId) ??
+    GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find(
+      (template) => template.id === GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+    );
+  if (!selectedTemplate?.promptTemplate.trim()) {
+    return loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, args.ctx);
+  }
+  const declared = GAME_STORYBOARD_ILLUSTRATION_DIRECTOR.variables.map((variable) => variable.name);
+  return renderTemplate(selectedTemplate.promptTemplate, args.ctx, declared);
+}
+
 async function buildStoryboardIllustratorMessages(args: {
   promptOverridesStorage: PromptOverridesStorage;
   meta: Record<string, unknown>;
@@ -4674,6 +4761,7 @@ async function buildStoryboardIllustratorMessages(args: {
   keyframeCount: number;
   durationSeconds: number;
   aspectRatio: GameSceneVideoAspectRatio;
+  generateVideos: boolean;
 }): Promise<{ systemPrompt: string; messages: ChatMessage[] }> {
   const gameContextBlock = buildStoryboardGameContextBlock({
     meta: args.meta,
@@ -4685,14 +4773,23 @@ async function buildStoryboardIllustratorMessages(args: {
     args.sections.length > 0
       ? "<gm_turn_narration>\nUse the ordered <turn_sections> block above as the full GM turn narration source.\n</gm_turn_narration>"
       : `<gm_turn_narration>\n${args.sourceNarration}\n</gm_turn_narration>`;
-  const systemPrompt = await loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, {
+  const promptCtx: GameStoryboardIllustratorCtx = {
     gameContextBlock,
     sourceSectionsBlock,
     sourceNarration: args.sourceNarration,
     keyframeCount: args.keyframeCount,
     durationSeconds: args.durationSeconds,
     aspectRatio: args.aspectRatio,
+  };
+  const systemPrompt = await loadStoryboardIllustratorSystemPrompt({
+    promptOverridesStorage: args.promptOverridesStorage,
+    meta: args.meta,
+    generateVideos: args.generateVideos,
+    ctx: promptCtx,
   });
+  const promptTask = args.generateVideos
+    ? "Create the animation-ready storyboard JSON now."
+    : "Create the illustration storyboard JSON now.";
   return {
     systemPrompt,
     messages: [
@@ -4704,7 +4801,7 @@ async function buildStoryboardIllustratorMessages(args: {
           sourceSectionsBlock,
           sourceNarrationBlock,
           [
-            "Create the illustration storyboard JSON now.",
+            promptTask,
             `Target keyframes: ${args.keyframeCount}.`,
             `Aspect ratio: ${args.aspectRatio}.`,
             "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
@@ -9536,6 +9633,7 @@ export async function gameRoutes(app: FastifyInstance) {
         keyframeCount: input.keyframeCount,
         durationSeconds: storyboardDurationSeconds,
         aspectRatio: input.aspectRatio,
+        generateVideos: input.generateVideos,
       });
       if (debugLogsEnabled) {
         debugLog(

@@ -28,6 +28,8 @@ interface LorebookAssignmentSectionProps {
   slotOccupied?: boolean;
   /** Called after a successful embed so the parent editor can patch its local state. */
   onEmbedded?: (result: { lorebookId: string; characterBook: unknown }) => void;
+  /** Reports embed/refresh progress so the parent editor can block racing saves. */
+  onEmbeddingChange?: (embedding: boolean) => void;
 }
 
 interface AssignmentDraft {
@@ -82,6 +84,7 @@ export function LorebookAssignmentSection({
   embeddedLorebookId,
   slotOccupied,
   onEmbedded,
+  onEmbeddingChange,
 }: LorebookAssignmentSectionProps) {
   const openModal = useUIStore((state) => state.openModal);
   const openLorebookDetail = useUIStore((state) => state.openLorebookDetail);
@@ -92,12 +95,15 @@ export function LorebookAssignmentSection({
 
   const handleEmbed = async (lorebook: Lorebook) => {
     if (!ownerId) return;
+    onEmbeddingChange?.(true);
     try {
       const res = await embedLorebook.mutateAsync({ characterId: ownerId, lorebookId: lorebook.id });
       onEmbedded?.({ lorebookId: lorebook.id, characterBook: res.characterBook });
       toast.success(res.refreshed ? `Refreshed embedded ${lorebook.name}.` : `Embedded ${lorebook.name} into the card.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to embed lorebook.");
+    } finally {
+      onEmbeddingChange?.(false);
     }
   };
   const [draft, setDraft] = useState<AssignmentDraft | null>(null);

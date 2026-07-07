@@ -117,8 +117,8 @@ export function toCharacterBook(lorebook: LorebookRow, entries: LoreEntryRow[]):
 
 function parseCharacterData(data: unknown): Record<string, unknown> {
   try {
-    if (typeof data === "string") return JSON.parse(data) as Record<string, unknown>;
-    return data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+    const parsed = typeof data === "string" ? JSON.parse(data) : data;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
   } catch {
     // A corrupt character row must not abort a lorebook mutation or delete —
     // treat it as having no embedded pointer.

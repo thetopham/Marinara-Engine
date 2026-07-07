@@ -1422,8 +1422,7 @@ export async function charactersRoutes(app: FastifyInstance) {
       // different embedded book or an unpointered baked snapshot.
       const charData = JSON.parse(char.data) as Record<string, unknown>;
       const currentEmbeddedId = getEmbeddedLorebookId(charData);
-      const existingBook = charData.character_book as { entries?: unknown[] } | null | undefined;
-      const hasBook = (Array.isArray(existingBook?.entries) ? existingBook!.entries!.length : 0) > 0;
+      const hasBook = charData.character_book !== null && charData.character_book !== undefined;
       const slotBelongsToThis = currentEmbeddedId === lorebookId;
       const slotEmpty = !currentEmbeddedId && !hasBook;
       if (!slotBelongsToThis && !slotEmpty) {
@@ -1435,13 +1434,26 @@ export async function charactersRoutes(app: FastifyInstance) {
       // Ensure the book is linked to this character so it auto-activates and
       // stays live-syncable — additively (union), never replacing other links.
       const linkedIds = Array.isArray(lorebook.characterIds) ? (lorebook.characterIds as string[]) : [];
-      if (!linkedIds.includes(req.params.id)) {
+      const linkAdded = !linkedIds.includes(req.params.id);
+      if (linkAdded) {
         await lorebooksStorage.update(lorebookId, {
           characterIds: Array.from(new Set([...linkedIds, req.params.id])),
         });
       }
 
-      const result = await embedLorebookIntoCharacter(app.db, req.params.id, lorebookId);
+      let result: Awaited<ReturnType<typeof embedLorebookIntoCharacter>>;
+      try {
+        result = await embedLorebookIntoCharacter(app.db, req.params.id, lorebookId);
+      } catch (err) {
+        if (linkAdded) {
+          try {
+            await lorebooksStorage.update(lorebookId, { characterIds: linkedIds });
+          } catch (rollbackErr) {
+            logger.error(rollbackErr, "Failed to roll back lorebook link after embedded lorebook write failed");
+          }
+        }
+        throw err;
+      }
       return {
         success: true,
         lorebookId,

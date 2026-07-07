@@ -264,9 +264,15 @@ export function CharacterEditor() {
   const dirtyRef = useRef(false);
   const editRevisionRef = useRef(0);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);
+  const lorebookEmbedInFlightRef = useRef(false);
+  const [lorebookEmbedding, setLorebookEmbedding] = useState(false);
   const setDirtyState = useCallback((nextDirty: boolean) => {
     dirtyRef.current = nextDirty;
     setDirty(nextDirty);
+  }, []);
+  const setLorebookEmbedInFlight = useCallback((inFlight: boolean) => {
+    lorebookEmbedInFlightRef.current = inFlight;
+    setLorebookEmbedding(inFlight);
   }, []);
   const markDirty = useCallback(() => {
     editRevisionRef.current += 1;
@@ -397,6 +403,10 @@ export function CharacterEditor() {
     if (!characterId || !formData) return false;
     if (avatarUploadInFlightRef.current) {
       toast.error("Wait for the current avatar upload to finish before saving.");
+      return false;
+    }
+    if (lorebookEmbedInFlightRef.current) {
+      toast.error("Wait for the embedded lorebook update to finish before saving.");
       return false;
     }
     setSaving(true);
@@ -692,22 +702,30 @@ export function CharacterEditor() {
       toast.error("Wait for the current avatar upload to finish.");
       return;
     }
+    if (lorebookEmbedding) {
+      toast.error("Wait for the embedded lorebook update to finish.");
+      return;
+    }
     if (dirty) {
       setShowUnsavedWarning(true);
       return;
     }
     closeDetail();
-  }, [avatarUploading, dirty, closeDetail]);
+  }, [avatarUploading, dirty, closeDetail, lorebookEmbedding]);
 
   const forceClose = useCallback(() => {
     if (avatarUploading) {
       toast.error("Wait for the current avatar upload to finish.");
       return;
     }
+    if (lorebookEmbedding) {
+      toast.error("Wait for the embedded lorebook update to finish.");
+      return;
+    }
     setShowUnsavedWarning(false);
     setDirtyState(false);
     closeDetail();
-  }, [avatarUploading, closeDetail, setDirtyState]);
+  }, [avatarUploading, closeDetail, lorebookEmbedding, setDirtyState]);
 
   const addTag = () => {
     if (!formData) return;
@@ -742,8 +760,8 @@ export function CharacterEditor() {
   }
 
   const headerActionButtonClass = "mari-editor-action inline-flex";
-  const saveDisabled = !dirty || saving || avatarUploading;
-  const saveLabel = avatarUploading ? "Uploading…" : saving ? "Saving…" : "Save";
+  const saveDisabled = !dirty || saving || avatarUploading || lorebookEmbedding;
+  const saveLabel = avatarUploading ? "Uploading…" : lorebookEmbedding ? "Embedding…" : saving ? "Saving…" : "Save";
   const saveButtonClass = cn(
     "mari-editor-action mari-editor-action--primary mari-editor-action--save inline-flex",
     saveDisabled && "cursor-not-allowed opacity-50",
@@ -1014,7 +1032,12 @@ export function CharacterEditor() {
             )}
             {activeTab === "stats" && <StatsTab formData={formData} updateExtension={updateExtension} />}
             {activeTab === "lorebook" && (
-              <LorebookTab characterId={characterId} formData={formData} onEmbedded={handleLorebookEmbedded} />
+              <LorebookTab
+                characterId={characterId}
+                formData={formData}
+                onEmbedded={handleLorebookEmbedded}
+                onEmbeddingChange={setLorebookEmbedInFlight}
+              />
             )}
           </div>
         </div>
@@ -4045,10 +4068,12 @@ function LorebookTab({
   characterId,
   formData,
   onEmbedded,
+  onEmbeddingChange,
 }: {
   characterId: string | null;
   formData: CharacterData;
   onEmbedded?: (lorebookId: string, characterBook: unknown) => void;
+  onEmbeddingChange?: (embedding: boolean) => void;
 }) {
   const book = formData.character_book;
   const entries = book?.entries ?? [];
@@ -4118,6 +4143,7 @@ function LorebookTab({
         embeddedLorebookId={linkedLorebookId}
         slotOccupied={hasEmbeddedLorebook}
         onEmbedded={(result) => onEmbedded?.(result.lorebookId, result.characterBook)}
+        onEmbeddingChange={onEmbeddingChange}
       />
 
       {hasEmbeddedLorebook && (

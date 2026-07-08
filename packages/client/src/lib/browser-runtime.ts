@@ -75,7 +75,10 @@ export function registerPreloadErrorRecovery() {
       sessionStorage.setItem(PRELOAD_RECOVERY_AT_KEY, Date.now().toString());
       // We handle recovery via a full reload; stop Vite from also rethrowing.
       event.preventDefault();
-      void forceRefreshSpa({ queryParamKey: "chunk_reload" });
+      void forceRefreshSpa({ queryParamKey: "chunk_reload" }).catch(() => {
+        // Cache clearing failed; attempt a plain reload as a last resort.
+        window.location.reload();
+      });
     } catch {
       // sessionStorage unavailable or recovery failed → let Vite rethrow the error.
     }

@@ -4,14 +4,20 @@
 // These fields only affect Conversation mode; they are never read in RP/VN/Game.
 // ──────────────────────────────────────────────
 import { useMemo, useRef, useState } from "react";
-import { Loader2, Smile, Wand2 } from "lucide-react";
+import { Loader2, Settings2, Smile, Wand2 } from "lucide-react";
 import { toast } from "sonner";
-import type { ConvoBehaviorConfig, ConvoBehaviorInsertionStrategy } from "@marinara-engine/shared";
+import {
+  resolveAboutMeSources,
+  type AboutMeSourceConfig,
+  type ConvoBehaviorConfig,
+  type ConvoBehaviorInsertionStrategy,
+} from "@marinara-engine/shared";
 import { useConnections } from "../../hooks/use-connections";
 import { useGenerateAboutMe } from "../../hooks/use-characters";
 import { filterLanguageGenerationConnections } from "../../lib/connection-filters";
 import { MacroTextarea } from "../ui/MacroTextarea";
 import { EmojiPicker } from "../ui/EmojiPicker";
+import { AboutMeSourcePicker } from "./AboutMeSourcePicker";
 import { HelpTooltip } from "../ui/HelpTooltip";
 
 const STRATEGY_OPTIONS: Array<{ value: ConvoBehaviorInsertionStrategy; label: string }> = [
@@ -32,6 +38,11 @@ interface ConvoProfileFieldsProps {
   /** When true, the display name is declared on the card in the convo prompt. */
   displayNameInCard?: boolean;
   onDisplayNameInCardChange?: (value: boolean) => void;
+  /** Character id — lets AI-write pull this character's lorebook context. */
+  characterId?: string;
+  /** AI-write source config (character-only). Absent → default (personality). */
+  sources?: AboutMeSourceConfig;
+  onSourcesChange?: (value: AboutMeSourceConfig) => void;
   aboutMe: string;
   onAboutMeChange: (value: string) => void;
   behavior: ConvoBehaviorConfig | null | undefined;
@@ -54,6 +65,9 @@ export function ConvoProfileFields({
   onDisplayNameChange,
   displayNameInCard,
   onDisplayNameInCardChange,
+  characterId,
+  sources,
+  onSourcesChange,
   aboutMe,
   onAboutMeChange,
   behavior,
@@ -66,6 +80,9 @@ export function ConvoProfileFields({
   const aboutMeRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const resolvedSources = resolveAboutMeSources(sources);
+  const showSourcePicker = kind === "character" && !!onSourcesChange;
 
   // Insert an emoji at the caret (or replace the selection), like the chat picker.
   const insertEmoji = (token: string) => {
@@ -104,7 +121,14 @@ export function ConvoProfileFields({
   const handleAiWrite = async () => {
     if (!effectiveConnectionId || generateAboutMe.isPending) return;
     try {
-      const result = await generateAboutMe.mutateAsync({ connectionId: effectiveConnectionId, kind, ...aiSource });
+      const result = await generateAboutMe.mutateAsync({
+        connectionId: effectiveConnectionId,
+        kind,
+        ...aiSource,
+        convoBehavior: behaviorInstruction,
+        sources: showSourcePicker ? resolvedSources : undefined,
+        characterId: showSourcePicker ? characterId : undefined,
+      });
       // The prompt may intentionally return an empty bio. Don't silently wipe an
       // existing about-me — only apply an empty result if the field was already empty.
       if (!result.aboutMe.trim() && aboutMe.trim()) {
@@ -190,17 +214,34 @@ export function ConvoProfileFields({
               </option>
             ))}
           </select>
+          {showSourcePicker && (
+            <button
+              type="button"
+              onClick={() => setSourcesOpen((v) => !v)}
+              aria-label="AI Write sources"
+              title="Choose what AI Write reads from"
+              className={
+                "inline-flex items-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] " +
+                (sourcesOpen ? "bg-[var(--accent)] text-[var(--foreground)]" : "text-[var(--muted-foreground)]")
+              }
+            >
+              <Settings2 size="0.8125rem" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleAiWrite}
             disabled={!effectiveConnectionId || generateAboutMe.isPending}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Draft an in-character about me from the card"
+            title="Draft an in-character about me from the selected sources"
           >
             {generateAboutMe.isPending ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Wand2 size="0.8125rem" />}
             {generateAboutMe.isPending ? "Writing…" : "AI Write"}
           </button>
         </div>
+        {showSourcePicker && sourcesOpen && onSourcesChange && (
+          <AboutMeSourcePicker value={resolvedSources} onChange={onSourcesChange} allowChatContext={false} />
+        )}
       </div>
 
       <div className="mari-editor-panel space-y-3 p-3">

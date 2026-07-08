@@ -19,6 +19,7 @@ import {
 } from "../lib/tracker-card-colors";
 import {
   PROFESSOR_MARI_ID,
+  type AboutMeSourceConfig,
   type CharacterCardVersion,
   type Persona,
   type PersonaCardVersion,
@@ -973,6 +974,10 @@ export function useGenerateAboutMe() {
       scenario?: string;
       backstory?: string;
       appearance?: string;
+      convoBehavior?: string;
+      sources?: AboutMeSourceConfig;
+      characterId?: string;
+      chatId?: string;
       instruction?: string;
     }) => api.post<{ aboutMe: string }>("/characters/generate-about-me", body),
   });

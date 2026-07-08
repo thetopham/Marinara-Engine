@@ -10,6 +10,8 @@ import {
   createPersonaGroupSchema,
   updatePersonaGroupSchema,
   generateAboutMeSchema,
+  resolveAboutMeSources,
+  DEFAULT_ABOUT_ME_CHAT_CONTEXT_LIMIT,
   PROFESSOR_MARI_ID,
   PROVIDERS,
   CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS,
@@ -588,16 +590,75 @@ export async function charactersRoutes(app: FastifyInstance) {
       "If they plausibly wouldn't have a bio, it is correct to return an empty string or a bare placeholder.",
     ].join("\n");
 
-    const cardParts = [
-      input.name && `Name: ${input.name}`,
-      input.description && `Description: ${input.description}`,
-      input.personality && `Personality: ${input.personality}`,
-      input.scenario && `Scenario: ${input.scenario}`,
-      input.backstory && `Backstory: ${input.backstory}`,
-      input.appearance && `Appearance: ${input.appearance}`,
-    ].filter(Boolean);
+    // Draw only from the sources the character opted into (default: personality only).
+    // Different cards store their substance differently — some leave card fields blank
+    // and live entirely in a lorebook — so each source is individually selectable.
+    const sources = resolveAboutMeSources(input.sources);
+    const cardParts: string[] = [];
+    if (input.name) cardParts.push(`Name: ${input.name}`);
+    if (sources.description && input.description) cardParts.push(`Description: ${input.description}`);
+    if (sources.personality && input.personality) cardParts.push(`Personality: ${input.personality}`);
+    if (sources.scenario && input.scenario) cardParts.push(`Scenario: ${input.scenario}`);
+    if (sources.backstory && input.backstory) cardParts.push(`Backstory: ${input.backstory}`);
+    if (sources.appearance && input.appearance) cardParts.push(`Appearance: ${input.appearance}`);
+    if (sources.convoBehavior && input.convoBehavior?.trim())
+      cardParts.push(`How they behave in conversation: ${input.convoBehavior.trim()}`);
+
+    // Lorebook entries (characters only): linked standalone books + the embedded card
+    // book, deduped. Capped so a big lorebook can't blow up this one-shot request.
+    if (sources.lorebook && input.characterId && input.kind === "character") {
+      try {
+        const loreLines: string[] = [];
+        const charRow = await storage.getById(input.characterId);
+        const cdata = charRow
+          ? ((typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data) as Record<string, any>)
+          : null;
+        const embeddedEntries = Array.isArray(cdata?.character_book?.entries) ? cdata!.character_book.entries : [];
+        for (const e of embeddedEntries as Array<Record<string, any>>) {
+          if (e?.enabled === false) continue;
+          const content = typeof e?.content === "string" ? e.content.trim() : "";
+          if (content) loreLines.push(e.comment ? `[${e.comment}] ${content}` : content);
+        }
+        const embeddedLbId = cdata ? getEmbeddedLorebookId(cdata) : null;
+        const books = (await lorebooksStorage.listByCharacter(input.characterId)) as Array<{ id: string }>;
+        const linkedIds = books.map((b) => b.id).filter((id) => id !== embeddedLbId);
+        const linkedEntries = linkedIds.length ? await lorebooksStorage.listEntriesByLorebooks(linkedIds) : [];
+        for (const e of linkedEntries as Array<{ content?: string; name?: string; enabled?: boolean }>) {
+          if (e.enabled === false) continue;
+          const content = typeof e.content === "string" ? e.content.trim() : "";
+          if (content) loreLines.push(e.name ? `[${e.name}] ${content}` : content);
+        }
+        const lore = loreLines.join("\n").slice(0, 8000).trim();
+        if (lore) cardParts.push(`From their lorebook:\n${lore}`);
+      } catch {
+        /* lorebook is best-effort context; ignore fetch/parse errors */
+      }
+    }
+
+    // Chat context — only meaningful for a chat-specific (override) about me.
+    let chatTranscript = "";
+    if (sources.chatContext && input.chatId) {
+      try {
+        const chatsStorage = createChatsStorage(app.db);
+        const limit = Math.max(1, Math.min(200, sources.chatContextLimit ?? DEFAULT_ABOUT_ME_CHAT_CONTEXT_LIMIT));
+        const recent = (await chatsStorage.listMessagesPaginated(input.chatId, limit)) as Array<{
+          role: string;
+          content: string;
+        }>;
+        chatTranscript = recent
+          .map((m) => `${m.role}: ${(m.content ?? "").trim()}`)
+          .filter((line) => line.trim())
+          .join("\n")
+          .slice(-8000)
+          .trim();
+      } catch {
+        /* chat context is best-effort; ignore errors */
+      }
+    }
+
     const userContent =
       `Here is what defines them:\n${cardParts.join("\n\n")}\n\n` +
+      (chatTranscript ? `Recent conversation, for tone and context:\n${chatTranscript}\n\n` : "") +
       (input.instruction?.trim() ? `Extra direction from the user: ${input.instruction.trim()}\n\n` : "") +
       `Write their Conversation-mode "about me" now, staying true to who they are.`;
 

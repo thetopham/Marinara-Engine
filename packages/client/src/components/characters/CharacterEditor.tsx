@@ -108,6 +108,7 @@ import {
   normalizeSpriteExpressionLabel,
   normalizeRpgStatPools,
   syncRpgHpFromPools,
+  type AboutMeSourceConfig,
   type CharacterCardVersion,
   type CharacterData,
   type ConversationCallCharacterVideoClipKind,
@@ -1046,7 +1047,12 @@ export function CharacterEditor() {
               <CharacterCardTab formData={formData} updateField={updateField} updateExtension={updateExtension} />
             )}
             {activeTab === "convo" && (
-              <ConvoTab formData={formData} updateExtension={updateExtension} kind="character" />
+              <ConvoTab
+                formData={formData}
+                updateExtension={updateExtension}
+                kind="character"
+                characterId={characterId ?? undefined}
+              />
             )}
             {activeTab === "advanced" && (
               <AdvancedTab
@@ -1254,10 +1260,12 @@ function ConvoTab({
   formData,
   updateExtension,
   kind,
+  characterId,
 }: {
   formData: CharacterData;
   updateExtension: (key: string, value: unknown) => void;
   kind: "character" | "persona";
+  characterId?: string;
 }) {
   const ext = formData.extensions;
   return (
@@ -1268,6 +1276,9 @@ function ConvoTab({
       onDisplayNameChange={(v) => updateExtension("convoDisplayName", v)}
       displayNameInCard={ext.convoDisplayNameInCard === true}
       onDisplayNameInCardChange={(v) => updateExtension("convoDisplayNameInCard", v)}
+      characterId={characterId}
+      sources={ext.aboutMeSources as AboutMeSourceConfig | undefined}
+      onSourcesChange={(v) => updateExtension("aboutMeSources", v)}
       aboutMe={(ext.aboutMe as string) ?? ""}
       onAboutMeChange={(v) => updateExtension("aboutMe", v)}
       behavior={ext.convoBehavior as ConvoBehaviorConfig | undefined}

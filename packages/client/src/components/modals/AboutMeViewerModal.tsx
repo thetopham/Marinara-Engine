@@ -4,18 +4,21 @@
 // avatar + status, then the effective about-me (per-chat override, else the
 // card/persona default), with set / edit / clear of the chat-specific override.
 // ──────────────────────────────────────────────
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pencil, RotateCcw, Save, Smile, Trash2, User, X } from "lucide-react";
+import { Loader2, Pencil, RotateCcw, Save, Settings2, Smile, Trash2, User, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
-import type { Chat } from "@marinara-engine/shared";
+import { resolveAboutMeSources, type AboutMeSourceConfig, type Chat } from "@marinara-engine/shared";
 import { useChat, useUpdateChatMetadata } from "../../hooks/use-chats";
-import { useCharacter, usePersonas } from "../../hooks/use-characters";
+import { useCharacter, usePersonas, useGenerateAboutMe } from "../../hooks/use-characters";
+import { useConnections } from "../../hooks/use-connections";
 import { useConversationCustomEmojis } from "../../hooks/use-conversation-custom-emojis";
 import { useChatStore } from "../../stores/chat.store";
 import { cn } from "../../lib/utils";
 import { parseChatMetadata } from "../../lib/chat-display";
+import { filterLanguageGenerationConnections } from "../../lib/connection-filters";
 import { renderInlineWithCustomEmojis } from "../../lib/custom-emoji-render";
+import { AboutMeSourcePicker } from "../characters/AboutMeSourcePicker";
 import { EmojiPicker } from "../ui/EmojiPicker";
 import { CustomEmojiTab } from "../chat/CustomEmojiTab";
 
@@ -87,7 +90,17 @@ function nameStyle(nameColor?: string | null) {
   return { color: nameColor } as const;
 }
 
-function parseCharacterConvo(data: unknown): { name: string; displayName: string; aboutMe: string } {
+interface CharacterConvoProfile {
+  name: string;
+  displayName: string;
+  aboutMe: string;
+  /** Card fields used as AI-write source material. */
+  card: { description: string; personality: string; scenario: string; backstory: string; appearance: string };
+  convoBehavior: string;
+  sources?: AboutMeSourceConfig;
+}
+
+function parseCharacterConvo(data: unknown): CharacterConvoProfile {
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = (typeof data === "string" ? JSON.parse(data) : data) as Record<string, unknown>;
@@ -95,9 +108,27 @@ function parseCharacterConvo(data: unknown): { name: string; displayName: string
     parsed = null;
   }
   const ext = (parsed?.extensions ?? {}) as Record<string, unknown>;
-  const name = typeof parsed?.name === "string" ? parsed.name : "";
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const name = str(parsed?.name);
   const displayName = typeof ext.convoDisplayName === "string" && ext.convoDisplayName ? ext.convoDisplayName : name;
-  return { name, displayName, aboutMe: typeof ext.aboutMe === "string" ? ext.aboutMe : "" };
+  const behavior =
+    ext.convoBehavior && typeof ext.convoBehavior === "object"
+      ? (ext.convoBehavior as { instruction?: string })
+      : null;
+  return {
+    name,
+    displayName,
+    aboutMe: str(ext.aboutMe),
+    card: {
+      description: str(parsed?.description),
+      personality: str(parsed?.personality),
+      scenario: str(parsed?.scenario),
+      backstory: str(ext.backstory),
+      appearance: str(ext.appearance),
+    },
+    convoBehavior: str(behavior?.instruction),
+    sources: (ext.aboutMeSources as AboutMeSourceConfig | undefined) ?? undefined,
+  };
 }
 
 export function AboutMeViewerModal({
@@ -119,7 +150,7 @@ export function AboutMeViewerModal({
   const updateMeta = useUpdateChatMetadata();
   const isMobile = useIsMobileViewport();
 
-  const profile =
+  const profile: CharacterConvoProfile =
     kind === "character"
       ? parseCharacterConvo((character as { data?: unknown } | undefined)?.data)
       : (() => {
@@ -127,7 +158,14 @@ export function AboutMeViewerModal({
           const name = typeof persona?.name === "string" ? persona.name : "";
           const dn =
             typeof persona?.convoDisplayName === "string" && persona.convoDisplayName ? persona.convoDisplayName : name;
-          return { name, displayName: dn, aboutMe: typeof persona?.aboutMe === "string" ? persona.aboutMe : "" };
+          return {
+            name,
+            displayName: dn,
+            aboutMe: typeof persona?.aboutMe === "string" ? persona.aboutMe : "",
+            card: { description: "", personality: "", scenario: "", backstory: "", appearance: "" },
+            convoBehavior: "",
+            sources: undefined,
+          };
         })();
 
   const displayName = displayNameProp || profile.displayName || profile.name || "Profile";
@@ -148,17 +186,64 @@ export function AboutMeViewerModal({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceOverride, setSourceOverride] = useState<AboutMeSourceConfig | null>(null);
+  const [connectionId, setConnectionId] = useState("");
   const cardRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const emojiPanelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
+  // AI-write (characters only): draws from the sources configured via the ⚙️. In the
+  // chat popout the chat-context source is available (this writes a chat-specific bio).
+  const generateAboutMe = useGenerateAboutMe();
+  const { data: connectionsList } = useConnections();
+  const connectionOptions = useMemo(
+    () =>
+      filterLanguageGenerationConnections(
+        (connectionsList ?? []) as Array<{ id: string; name: string; model?: string | null }>,
+      ),
+    [connectionsList],
+  );
+  const effectiveConnectionId =
+    connectionId && connectionOptions.some((c) => c.id === connectionId)
+      ? connectionId
+      : (connectionOptions[0]?.id ?? "");
+  const resolvedSources = sourceOverride ?? resolveAboutMeSources(profile.sources);
+  const canAiWrite = kind === "character";
+
   useEffect(() => {
     setEditing(false);
     setDraft("");
     setEmojiOpen(false);
+    setSourcesOpen(false);
+    setSourceOverride(null);
   }, [id, kind, open]);
+
+  const handleAiWrite = async () => {
+    if (!canAiWrite || !effectiveConnectionId || generateAboutMe.isPending) return;
+    try {
+      const result = await generateAboutMe.mutateAsync({
+        connectionId: effectiveConnectionId,
+        kind: "character",
+        name: profile.name,
+        ...profile.card,
+        convoBehavior: profile.convoBehavior,
+        sources: resolvedSources,
+        characterId: id,
+        chatId: activeChatId ?? undefined,
+      });
+      if (!result.aboutMe.trim() && draft.trim()) {
+        toast.message("The model left it blank — keeping your text.");
+        return;
+      }
+      setDraft(result.aboutMe);
+      toast.success("About me drafted — review and save");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate about me");
+    }
+  };
 
   const renderAbout = (text: string) =>
     renderInlineWithCustomEmojis(text, "about-me", emojiMap, (t, kp) => [<span key={kp}>{t}</span>]);
@@ -421,6 +506,7 @@ export function AboutMeViewerModal({
                 )}
               </div>
             ) : (
+              <>
               <div className={cn("relative", isMobile && "min-h-0 flex-1")}>
                 {/* Desktop: embedded picker inside the card's own stacking context,
                     opening upward above the field (portaled pickers fought the
@@ -463,6 +549,55 @@ export function AboutMeViewerModal({
                   <Smile size="1rem" />
                 </button>
               </div>
+              {canAiWrite && (
+                <div className="mt-2 shrink-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <select
+                      value={effectiveConnectionId}
+                      onChange={(e) => setConnectionId(e.target.value)}
+                      className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-1.5 py-1 text-[0.6875rem] outline-none focus:border-[var(--primary)]/40"
+                    >
+                      {connectionOptions.length === 0 && <option value="">No connections</option>}
+                      {connectionOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                          {c.model ? ` — ${c.model}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setSourcesOpen((v) => !v)}
+                      aria-label="AI Write sources"
+                      title="Choose what AI Write reads from"
+                      className={cn(
+                        "rounded-md border border-[var(--border)] p-1 transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                        sourcesOpen ? "bg-[var(--accent)] text-[var(--foreground)]" : "text-[var(--muted-foreground)]",
+                      )}
+                    >
+                      <Settings2 size="0.8125rem" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAiWrite}
+                      disabled={!effectiveConnectionId || generateAboutMe.isPending}
+                      className="inline-flex items-center gap-1 rounded-md bg-[var(--primary)] px-2 py-1 text-[0.6875rem] font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                      title="Draft this chat-specific about me from the selected sources"
+                    >
+                      {generateAboutMe.isPending ? (
+                        <Loader2 size="0.75rem" className="animate-spin" />
+                      ) : (
+                        <Wand2 size="0.75rem" />
+                      )}
+                      {generateAboutMe.isPending ? "Writing…" : "AI Write"}
+                    </button>
+                  </div>
+                  {sourcesOpen && (
+                    <AboutMeSourcePicker value={resolvedSources} onChange={setSourceOverride} allowChatContext />
+                  )}
+                </div>
+              )}
+              </>
             )}
           </div>
 

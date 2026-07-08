@@ -12,7 +12,7 @@ import {
   ConversationMessageAttachments,
   ConversationMessageTranslation,
   ConversationMessageSwipes,
-  nameColorStyle,
+  ConversationMessageName,
   formatTimestamp,
   type MessageRenderContext,
 } from "./ConversationMessageShared";
@@ -137,9 +137,7 @@ export function ConversationMessageLine({ ctx }: { ctx: MessageRenderContext }) 
         {!isGrouped && (
           <div className="mari-message-meta mb-0.5 flex items-baseline gap-2">
             {hiddenFromAIHeader}
-            <span className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default" style={nameColorStyle(nameColor)}>
-              {displayName}
-            </span>
+            <ConversationMessageName displayName={displayName} nameColor={nameColor} onOpenAboutMe={ctx.onOpenAboutMe} />
             {!hideTimestamp && (
               <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">
                 {formatTimestamp(message.createdAt)}

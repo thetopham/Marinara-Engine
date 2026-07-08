@@ -13,6 +13,7 @@ import {
   ConversationMessageAttachments,
   ConversationMessageTranslation,
   ConversationMessageSwipes,
+  ConversationMessageName,
   nameColorStyle,
   formatTimestamp,
   type MessageRenderContext,
@@ -174,12 +175,7 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
             >
               {hiddenFromAIHeader}
               {!isUser && (
-                <span
-                  className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
-                  style={nameColorStyle(nameColor)}
-                >
-                  {displayName}
-                </span>
+                <ConversationMessageName displayName={displayName} nameColor={nameColor} onOpenAboutMe={ctx.onOpenAboutMe} />
               )}
               {!hideTimestamp && !isUser && (
                 <span className="mari-message-timestamp text-[0.6875rem] text-[var(--muted-foreground)]/60">

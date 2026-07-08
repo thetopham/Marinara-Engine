@@ -2875,6 +2875,33 @@ export async function generateRoutes(app: FastifyInstance) {
           }
         }
 
+        // About Me Keeper (Convo only): give the agent each participant's current
+        // public (card) + chat-specific about-me so it can decide what to update.
+        if (resolvedAgents.some((a) => a.type === "about-me-keeper")) {
+          const aboutMeOverridesForAgent = (chatMeta.conversationAboutMeOverrides ?? {}) as Record<string, string>;
+          const aboutMeState: Array<{
+            characterId: string;
+            name: string;
+            publicAboutMe: string;
+            chatAboutMe: string;
+          }> = [];
+          for (const char of agentContext.characters) {
+            let publicAboutMe = "";
+            try {
+              const row = await chars.getById(char.id);
+              const data = row ? (typeof row.data === "string" ? JSON.parse(row.data) : row.data) : null;
+              const ext = (data?.extensions ?? {}) as Record<string, unknown>;
+              if (typeof ext.aboutMe === "string") publicAboutMe = ext.aboutMe;
+            } catch {
+              /* non-critical */
+            }
+            const chatAboutMe =
+              typeof aboutMeOverridesForAgent[char.id] === "string" ? aboutMeOverridesForAgent[char.id]! : "";
+            aboutMeState.push({ characterId: char.id, name: char.name, publicAboutMe, chatAboutMe });
+          }
+          agentContext.memory._aboutMeState = aboutMeState;
+        }
+
         // If the background agent is enabled, load available backgrounds + tags into context
         const backgroundAgent = resolvedAgents.find((a) => a.type === "background");
         if (backgroundAgent) {
@@ -3139,6 +3166,23 @@ export async function generateRoutes(app: FastifyInstance) {
             })
           ) {
             resolvedAgents.splice(resolvedAgents.indexOf(ceaAgent), 1);
+          }
+        }
+
+        // About Me Keeper runs on its own cadence (default every 8 assistant messages).
+        if (resolvedAgents.some((a) => a.type === "about-me-keeper")) {
+          const amkAgent = resolvedAgents.find((a) => a.type === "about-me-keeper")!;
+          if (
+            await shouldSkipAgentByAssistantInterval({
+              agentsStore,
+              chatId: input.chatId,
+              agentType: "about-me-keeper",
+              settings: amkAgent.settings,
+              fallbackInterval: (getDefaultBuiltInAgentSettings("about-me-keeper").runInterval as number) ?? 8,
+              messages: allChatMessages,
+            })
+          ) {
+            resolvedAgents.splice(resolvedAgents.indexOf(amkAgent), 1);
           }
         }
 
@@ -6939,6 +6983,74 @@ export async function generateRoutes(app: FastifyInstance) {
                 }
               } catch {
                 // Non-critical
+              }
+            }
+
+            // ── About Me Keeper: apply chat-specific overrides, re-emit public edits for approval ──
+            if (result.success && result.type === "about_me_update" && result.data && typeof result.data === "object") {
+              try {
+                const rawUpdates = (result.data as Record<string, unknown>).updates;
+                const updates = Array.isArray(rawUpdates) ? (rawUpdates as Array<Record<string, unknown>>) : [];
+                const validCharIds = new Set(agentContext.characters.map((c) => c.id));
+                const isUsable = (u: Record<string, unknown>) =>
+                  typeof u.characterId === "string" &&
+                  validCharIds.has(u.characterId) &&
+                  typeof u.newText === "string";
+                const chatUpdates = updates.filter((u) => u.target === "chat" && isUsable(u));
+                const publicUpdates = updates.filter((u) => u.target === "public" && isUsable(u));
+
+                // Chat-specific overrides auto-apply to chat metadata (low stakes, this chat only).
+                if (chatUpdates.length > 0) {
+                  const freshChat = await chats.getById(input.chatId);
+                  if (freshChat) {
+                    const freshMeta = parseExtra(freshChat.metadata) as Record<string, unknown>;
+                    const overrides = {
+                      ...((freshMeta.conversationAboutMeOverrides as Record<string, string>) ?? {}),
+                    };
+                    for (const u of chatUpdates) {
+                      const id = u.characterId as string;
+                      const text = u.newText as string;
+                      if (text.trim()) overrides[id] = text;
+                      else delete overrides[id];
+                    }
+                    await chats.updateMetadata(input.chatId, {
+                      ...freshMeta,
+                      conversationAboutMeOverrides: overrides,
+                    });
+                  }
+                }
+
+                // Public edits change the shared card → route through the existing
+                // character-card approval modal. oldText is computed server-side from
+                // the known current public about-me so the modal's replace is exact.
+                if (publicUpdates.length > 0) {
+                  const state = (agentContext.memory._aboutMeState ?? []) as Array<{
+                    characterId: string;
+                    publicAboutMe: string;
+                  }>;
+                  const currentById = new Map(state.map((s) => [s.characterId, s.publicAboutMe]));
+                  const cardUpdates = publicUpdates
+                    .map((u) => {
+                      const id = u.characterId as string;
+                      const oldText = currentById.get(id) ?? "";
+                      const newText = u.newText as string;
+                      if (oldText === newText) return null;
+                      return {
+                        action: "update" as const,
+                        characterId: id,
+                        field: "aboutMe" as const,
+                        oldText,
+                        newText,
+                        reason: typeof u.reason === "string" ? u.reason : "About Me Keeper suggested update",
+                      };
+                    })
+                    .filter((u): u is NonNullable<typeof u> => u !== null);
+                  if (cardUpdates.length > 0) {
+                    sendAgentResultEvent({ ...result, type: "character_card_update", data: { updates: cardUpdates } });
+                  }
+                }
+              } catch (err) {
+                logger.warn(err, "[about-me-keeper] failed to apply results");
               }
             }
 

@@ -16,11 +16,15 @@ import { type CharacterCardFieldUpdate, type EditableCharacterCardField } from "
 import { useGenerate } from "../../hooks/use-generate";
 
 function getCharacterCardFieldValue(data: Record<string, unknown>, field: EditableCharacterCardField): string | null {
-  if (field === "backstory" || field === "appearance") {
+  if (field === "backstory" || field === "appearance" || field === "aboutMe") {
     const extensions = data.extensions;
-    if (!extensions || typeof extensions !== "object") return null;
-    const value = (extensions as Record<string, unknown>)[field];
-    return typeof value === "string" ? value : null;
+    const value =
+      extensions && typeof extensions === "object" ? (extensions as Record<string, unknown>)[field] : undefined;
+    if (typeof value === "string") return value;
+    // aboutMe is optional and often absent; treat missing as empty so About Me
+    // Keeper can populate a character's about-me from scratch. backstory/appearance
+    // keep returning null when absent (they always carry a "" default in practice).
+    return field === "aboutMe" ? "" : null;
   }
 
   const value = data[field];
@@ -32,7 +36,7 @@ function setCharacterCardFieldValue(
   field: EditableCharacterCardField,
   value: string,
 ): Record<string, unknown> {
-  if (field === "backstory" || field === "appearance") {
+  if (field === "backstory" || field === "appearance" || field === "aboutMe") {
     const extensions =
       data.extensions && typeof data.extensions === "object" ? (data.extensions as Record<string, unknown>) : {};
 

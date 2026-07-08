@@ -25,6 +25,9 @@ interface HelpTooltipProps {
   buttonClassName?: string;
   /** Use a wider tooltip panel (long explanations) */
   wide?: boolean;
+  /** Increment to programmatically open the tooltip (e.g. on a mobile tap where there's
+   *  no hover). Opens it pinned; changes are ignored while equal to the previous value. */
+  openSignal?: number;
 }
 
 export function HelpTooltip({
@@ -35,6 +38,7 @@ export function HelpTooltip({
   className,
   buttonClassName,
   wide,
+  openSignal,
 }: HelpTooltipProps) {
   const [show, setShow] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -57,6 +61,21 @@ export function HelpTooltip({
     activeTooltipClose = closeSelf;
     setShow(true);
   };
+
+  // Programmatic open (e.g. a mobile tap with no hover): open pinned when the signal changes.
+  const prevSignalRef = useRef(openSignal);
+  useEffect(() => {
+    if (openSignal === undefined || openSignal === prevSignalRef.current) return;
+    prevSignalRef.current = openSignal;
+    if (openSignal > 0) {
+      if (activeTooltipClose && activeTooltipClose !== closeSelf) activeTooltipClose();
+      activeTooltipClose = closeSelf;
+      setShow(true);
+      setPinned(true);
+    }
+    // closeSelf is stable (ref-backed); openSignal drives this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   // Compute position before paint so the tooltip never flickers
   useLayoutEffect(() => {

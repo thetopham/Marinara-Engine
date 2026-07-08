@@ -2,6 +2,7 @@
 // Checkbox panel that configures which sources the AI-write "about me" draws
 // from. Shared by the character-card editor and the in-chat about-me popout.
 // ──────────────────────────────────────────────
+import { useState } from "react";
 import type { AboutMeSourceConfig } from "@marinara-engine/shared";
 import { DEFAULT_ABOUT_ME_CHAT_CONTEXT_LIMIT } from "@marinara-engine/shared";
 import { HelpTooltip } from "../ui/HelpTooltip";
@@ -19,12 +20,14 @@ function SourceRow({
   checked,
   disabled,
   tooltip,
+  tooltipOpenSignal,
   onToggle,
 }: {
   label: string;
   checked: boolean;
   disabled?: boolean;
   tooltip?: string;
+  tooltipOpenSignal?: number;
   onToggle: (checked: boolean) => void;
 }) {
   return (
@@ -43,7 +46,7 @@ function SourceRow({
       />
       <span className="inline-flex items-center gap-1">
         {label}
-        {tooltip && <HelpTooltip text={tooltip} />}
+        {tooltip && <HelpTooltip text={tooltip} openSignal={tooltipOpenSignal} />}
       </span>
     </label>
   );
@@ -75,8 +78,23 @@ export function AboutMeSourcePicker({
     onChange({ ...value, lorebookEntryIds: next });
   };
   const lorebookTooltip = lorebookEntries
-    ? "This character's linked and embedded lorebook entries — handy when the card fields are blank and the substance lives in the lorebook. Pick which linked entries below."
-    : "This character's linked and embedded lorebook entries. To choose which linked entries feed the bio, open this character's card → Convo → About Me.";
+    ? "This character's lorebook entries — handy when the card fields are blank and the substance lives in the lorebook. Pick which entries below."
+    : "This character's lorebook entries. To choose which entries feed the bio, open this character's card → Convo → About Me.";
+
+  // Mobile popout has no expansion and no hover — auto-open the explainer tooltip when
+  // the user selects the Lorebook source there, so they learn where to pick entries.
+  const [lorebookTipSignal, setLorebookTipSignal] = useState(0);
+  const toggleLorebook = (checked: boolean) => {
+    toggle("lorebook", checked);
+    if (
+      checked &&
+      lorebookEntries === undefined &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      setLorebookTipSignal((n) => n + 1);
+    }
+  };
 
   return (
     <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--background)]/60 p-3">
@@ -97,14 +115,15 @@ export function AboutMeSourcePicker({
         <SourceRow
           label="Lorebook entries"
           checked={!!value.lorebook}
-          onToggle={(c) => toggle("lorebook", c)}
+          onToggle={toggleLorebook}
           tooltip={lorebookTooltip}
+          tooltipOpenSignal={lorebookTipSignal}
         />
-        {/* Card editor only: pick which linked entries feed the bio. */}
+        {/* Card editor only: pick which entries feed the bio. */}
         {lorebookEntries !== undefined && value.lorebook && (
           <div className="ml-5 max-h-40 space-y-1 overflow-y-auto border-l border-[var(--border)] pl-2">
             {lorebookEntries.length === 0 ? (
-              <p className="text-[0.6875rem] text-[var(--muted-foreground)]/70">No linked lorebook entries.</p>
+              <p className="text-[0.6875rem] text-[var(--muted-foreground)]/70">No lorebook entries.</p>
             ) : (
               lorebookEntries.map((e) => (
                 <SourceRow

@@ -604,28 +604,20 @@ export async function charactersRoutes(app: FastifyInstance) {
     if (sources.convoBehavior && input.convoBehavior?.trim())
       cardParts.push(`How they behave in conversation: ${input.convoBehavior.trim()}`);
 
-    // Lorebook entries (characters only): linked standalone books + the embedded card
-    // book, deduped. Capped so a big lorebook can't blow up this one-shot request.
+    // Lorebook entries (characters only). All of the character's lorebook entries come
+    // through listByCharacter — the embedded card book is synced to a standalone that
+    // shows up here too, so every entry has a stable db id that matches the source
+    // picker's selection. Capped so a big lorebook can't blow up this one-shot request.
     if (sources.lorebook && input.characterId && input.kind === "character") {
       try {
         const loreLines: string[] = [];
-        const charRow = await storage.getById(input.characterId);
-        const cdata = charRow
-          ? ((typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data) as Record<string, any>)
-          : null;
-        const embeddedEntries = Array.isArray(cdata?.character_book?.entries) ? cdata!.character_book.entries : [];
-        for (const e of embeddedEntries as Array<Record<string, any>>) {
-          if (e?.enabled === false) continue;
-          const content = typeof e?.content === "string" ? e.content.trim() : "";
-          if (content) loreLines.push(e.comment ? `[${e.comment}] ${content}` : content);
-        }
-        const embeddedLbId = cdata ? getEmbeddedLorebookId(cdata) : null;
         const books = (await lorebooksStorage.listByCharacter(input.characterId)) as Array<{ id: string }>;
-        const linkedIds = books.map((b) => b.id).filter((id) => id !== embeddedLbId);
-        const linkedEntries = linkedIds.length ? await lorebooksStorage.listEntriesByLorebooks(linkedIds) : [];
-        // When the user picked specific linked entries, include only those; absent → all.
+        const entries = books.length
+          ? await lorebooksStorage.listEntriesByLorebooks(books.map((b) => b.id))
+          : [];
+        // When the user picked specific entries, include only those; absent → all.
         const selectedEntryIds = Array.isArray(sources.lorebookEntryIds) ? new Set(sources.lorebookEntryIds) : null;
-        for (const e of linkedEntries as Array<{ id?: string; content?: string; name?: string; enabled?: boolean }>) {
+        for (const e of entries as Array<{ id?: string; content?: string; name?: string; enabled?: boolean }>) {
           if (e.enabled === false) continue;
           if (selectedEntryIds && (!e.id || !selectedEntryIds.has(e.id))) continue;
           const content = typeof e.content === "string" ? e.content.trim() : "";
@@ -683,25 +675,14 @@ export async function charactersRoutes(app: FastifyInstance) {
 
   /**
    * GET /api/characters/:id/lorebook-entries
-   * A character's LINKED lorebook entries (the standalone that mirrors the card's
-   * embedded book is skipped) — used by the AI-write source picker to let the user
-   * choose which entries feed the "about me". Content is not returned; names only.
+   * A character's lorebook entries (embedded + linked — the embedded card book is
+   * synced to a standalone that shows up here too, so ids match generation). Used by
+   * the AI-write source picker to choose which entries feed the "about me". Names only.
    */
   app.get<{ Params: { id: string } }>("/:id/lorebook-entries", async (req) => {
     const books = (await lorebooksStorage.listByCharacter(req.params.id)) as Array<{ id: string }>;
-    let embeddedLbId: string | null = null;
-    try {
-      const charRow = await storage.getById(req.params.id);
-      const cdata = charRow
-        ? ((typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data) as Record<string, unknown>)
-        : null;
-      embeddedLbId = cdata ? getEmbeddedLorebookId(cdata) : null;
-    } catch {
-      /* ignore */
-    }
-    const linkedIds = books.map((b) => b.id).filter((id) => id !== embeddedLbId);
-    if (linkedIds.length === 0) return { entries: [] };
-    const entries = (await lorebooksStorage.listEntriesByLorebooks(linkedIds)) as unknown as Array<{
+    if (books.length === 0) return { entries: [] };
+    const entries = (await lorebooksStorage.listEntriesByLorebooks(books.map((b) => b.id))) as unknown as Array<{
       id: string;
       name?: string;
       content?: string;

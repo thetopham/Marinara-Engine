@@ -92,24 +92,36 @@ export function ConversationMessageLine({ ctx }: { ctx: MessageRenderContext }) 
       <div className={cn("mari-message-avatar w-10 flex-shrink-0", shouldHideUserAvatar && "hidden")}>
         {!isGrouped && (
           <>
-            <button
-              type="button"
-              onClick={ctx.onOpenAboutMe}
-              disabled={!ctx.onOpenAboutMe}
-              title={ctx.onOpenAboutMe ? `View ${displayName}'s about me` : undefined}
-              className={cn(
-                "relative block h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]",
-                ctx.onOpenAboutMe && "cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/50",
-              )}
-            >
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={displayName} loading="lazy" className="h-full w-full object-cover" style={avatarCropStyle} />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
-                  {isUser ? <User size="1.125rem" /> : displayName[0]?.toUpperCase()}
-                </div>
-              )}
-            </button>
+            {ctx.onOpenAboutMe ? (
+              // Clickable avatar → about-me viewer (Convo only). A plain <div> is
+              // used when there's no target so mobile taps still fall through to
+              // the message action-reveal gesture.
+              <button
+                type="button"
+                onClick={ctx.onOpenAboutMe}
+                aria-label={`View ${displayName}'s about me`}
+                title={`View ${displayName}'s about me`}
+                className="relative block h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)] cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/50"
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} loading="lazy" className="h-full w-full object-cover" style={avatarCropStyle} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
+                    {isUser ? <User size="1.125rem" /> : displayName[0]?.toUpperCase()}
+                  </div>
+                )}
+              </button>
+            ) : (
+              <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} loading="lazy" className="h-full w-full object-cover" style={avatarCropStyle} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
+                    {isUser ? <User size="1.125rem" /> : displayName[0]?.toUpperCase()}
+                  </div>
+                )}
+              </div>
+            )}
             {(showActions || forceShowActions || showMessageNumbers) && messageIndex != null && (
               <span className="mt-0.5 block text-center text-[0.5rem] font-medium text-[var(--muted-foreground)] select-none">
                 #{messageIndex}

@@ -74,6 +74,12 @@ export function ConvoProfileFields({
     if (!effectiveConnectionId || generateAboutMe.isPending) return;
     try {
       const result = await generateAboutMe.mutateAsync({ connectionId: effectiveConnectionId, kind, ...aiSource });
+      // The prompt may intentionally return an empty bio. Don't silently wipe an
+      // existing about-me — only apply an empty result if the field was already empty.
+      if (!result.aboutMe.trim() && aboutMe.trim()) {
+        toast.message("The model left the about me blank — keeping your current text.");
+        return;
+      }
       onAboutMeChange(result.aboutMe);
       toast.success("About me drafted — review and edit to taste");
     } catch (err) {

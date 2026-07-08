@@ -78,9 +78,14 @@ export function AboutMeViewerModal({ open, onClose, kind, id }: AboutMeViewerMod
   const handleSave = async () => {
     if (!chatId || isPending) return;
     try {
-      await writeOverrides({ ...overrides, [id]: draft });
+      // An empty override means "use the default" — drop the key rather than
+      // leaving a stale "" entry (mirrors the About Me Keeper agent).
+      const next = { ...overrides };
+      if (draft.trim()) next[id] = draft;
+      else delete next[id];
+      await writeOverrides(next);
       setEditing(false);
-      toast.success("Chat-specific about me saved");
+      toast.success(draft.trim() ? "Chat-specific about me saved" : "Reverted to the default about me");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     }

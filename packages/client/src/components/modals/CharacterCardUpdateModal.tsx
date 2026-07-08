@@ -135,9 +135,12 @@ export function CharacterCardUpdateModal({ open, onClose }: Props) {
     if (!entry || !character) return [];
     return draftUpdates.map((u) => {
       const current = getCharacterCardFieldValue(parsedData, u.field);
+      // Populating a currently-empty field from scratch (oldText === "") is a valid
+      // insert, not a stale match — e.g. About Me Keeper filling a blank about-me.
+      const isEmptyInsert = u.oldText.length === 0 && current === "";
       return {
         update: u,
-        stale: !(typeof current === "string" && u.oldText.length > 0 && current.includes(u.oldText)),
+        stale: !isEmptyInsert && !(typeof current === "string" && u.oldText.length > 0 && current.includes(u.oldText)),
       };
     });
   }, [entry, character, draftUpdates, parsedData]);
@@ -185,11 +188,19 @@ export function CharacterCardUpdateModal({ open, onClose }: Props) {
     for (const u of overrideStale ? [...applicableUpdates, ...staleUpdates] : applicableUpdates) {
       const base = getCharacterCardFieldValue(nextData, u.field);
       if (typeof base !== "string") continue;
-      const nextValue = base.includes(u.oldText)
-        ? base.replace(u.oldText, () => u.newText)
-        : overrideStale
-          ? appendStaleCardReplacement(base, u.newText)
-          : base;
+      let nextValue: string;
+      if (u.oldText.length === 0 && base === "") {
+        // From-scratch insert into an empty field — set it directly.
+        nextValue = u.newText;
+      } else if (u.oldText.length > 0 && base.includes(u.oldText)) {
+        // Exact-match replace (guard against empty oldText, which base.includes()
+        // always matches and would prepend newText at index 0).
+        nextValue = base.replace(u.oldText, () => u.newText);
+      } else if (overrideStale) {
+        nextValue = appendStaleCardReplacement(base, u.newText);
+      } else {
+        nextValue = base;
+      }
       nextData = setCharacterCardFieldValue(nextData, u.field, nextValue);
     }
     nextData.character_version = bumpCharacterVersion(nextData.character_version);

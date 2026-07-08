@@ -4600,7 +4600,11 @@ export async function generateRoutes(app: FastifyInstance) {
               const executedToolResults = await executeToolCalls(permittedToolCalls, {
                 ...baseToolExecutionContext,
                 // The character whose turn this is — update_about_me writes their about-me.
-                callingCharacterId: targetCharId ?? input.forCharacterId ?? null,
+                // Only attribute when this generation voices exactly one character and the
+                // user isn't impersonating; otherwise the caller is ambiguous (merged group)
+                // and the tool refuses rather than write the wrong character's about-me.
+                callingCharacterId:
+                  speaksOnlyTargetCharacter && !input.impersonate ? (targetCharId ?? input.forCharacterId ?? null) : null,
               });
               const toolResultsById = new Map(
                 [...executedToolResults, ...deniedToolResults].map((result) => [result.toolCallId, result]),
@@ -7048,12 +7052,12 @@ export async function generateRoutes(app: FastifyInstance) {
                 const publicUpdates = updates.filter((u) => u.target === "public" && isUsable(u));
 
                 // Chat-specific overrides auto-apply to chat metadata (low stakes, this chat only).
+                // Use the queued patchMetadata (atomic read-modify-write) so a concurrent
+                // metadata write can't clobber the override map — same path the tool uses.
                 if (chatUpdates.length > 0) {
-                  const freshChat = await chats.getById(input.chatId);
-                  if (freshChat) {
-                    const freshMeta = parseExtra(freshChat.metadata) as Record<string, unknown>;
+                  await chats.patchMetadata(input.chatId, (currentMeta) => {
                     const overrides = {
-                      ...((freshMeta.conversationAboutMeOverrides as Record<string, string>) ?? {}),
+                      ...((currentMeta.conversationAboutMeOverrides as Record<string, string> | undefined) ?? {}),
                     };
                     for (const u of chatUpdates) {
                       const id = u.characterId as string;
@@ -7061,11 +7065,8 @@ export async function generateRoutes(app: FastifyInstance) {
                       if (text.trim()) overrides[id] = text;
                       else delete overrides[id];
                     }
-                    await chats.updateMetadata(input.chatId, {
-                      ...freshMeta,
-                      conversationAboutMeOverrides: overrides,
-                    });
-                  }
+                    return { conversationAboutMeOverrides: overrides };
+                  });
                 }
 
                 // Public edits change the shared card → route through the existing

@@ -606,7 +606,7 @@ export async function charactersRoutes(app: FastifyInstance) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-      { model: conn.model, temperature: 0.9 },
+      { model: conn.model, temperature: 0.9, maxTokens: 512 },
     );
     return { aboutMe: (result.content ?? "").trim() };
   });

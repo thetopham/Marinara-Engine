@@ -6,13 +6,17 @@
 // ──────────────────────────────────────────────
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pencil, RotateCcw, Save, Trash2, User, X } from "lucide-react";
+import { Pencil, RotateCcw, Save, Smile, Trash2, User, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Chat } from "@marinara-engine/shared";
 import { useChat, useUpdateChatMetadata } from "../../hooks/use-chats";
 import { useCharacter, usePersonas } from "../../hooks/use-characters";
+import { useConversationCustomEmojis } from "../../hooks/use-conversation-custom-emojis";
 import { useChatStore } from "../../stores/chat.store";
 import { cn } from "../../lib/utils";
+import { renderInlineWithCustomEmojis } from "../../lib/custom-emoji-render";
+import { EmojiPicker } from "../ui/EmojiPicker";
+import { CustomEmojiTab } from "../chat/CustomEmojiTab";
 
 interface AnchorRect {
   top: number;
@@ -117,15 +121,45 @@ export function AboutMeViewerModal({
   const hasOverride = override !== undefined && override.trim().length > 0;
   const effective = hasOverride ? override! : profile.aboutMe;
 
+  const { map: emojiMap } = useConversationCustomEmojis();
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     setEditing(false);
     setDraft("");
+    setEmojiOpen(false);
   }, [id, kind, open]);
+
+  const renderAbout = (text: string) =>
+    renderInlineWithCustomEmojis(text, "about-me", emojiMap, (t, kp) => [<span key={kp}>{t}</span>]);
+
+  const insertEmoji = (token: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setDraft((d) => d + token);
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = el.value.slice(0, start) + token + el.value.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + token.length;
+      try {
+        el.selectionStart = el.selectionEnd = caret;
+      } catch {
+        /* ignore */
+      }
+    });
+  };
 
   // Close on Escape.
   useEffect(() => {
@@ -199,7 +233,9 @@ export function AboutMeViewerModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10000]"
+      // Just below the EmojiPicker's z-[9999] so its popover can layer above this
+      // card, but still far above all chat UI.
+      className="fixed inset-0 z-[9990]"
       data-component="AboutMeProfilePopout"
       // Transparent — no dimming, Discord-style. Click outside closes.
       onMouseDown={(e) => {
@@ -286,17 +322,44 @@ export function AboutMeViewerModal({
 
             {!editing ? (
               <div className="min-h-[2.5rem] whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--foreground)]">
-                {effective.trim() ? effective : <span className="text-[var(--muted-foreground)]">No about me set.</span>}
+                {effective.trim() ? (
+                  renderAbout(effective)
+                ) : (
+                  <span className="text-[var(--muted-foreground)]">No about me set.</span>
+                )}
               </div>
             ) : (
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={5}
-                autoFocus
-                placeholder="What this person shows in this conversation…"
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-[0.8125rem] leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-              />
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={5}
+                  autoFocus
+                  placeholder="What this person shows in this conversation… :emoji: works too"
+                  className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 pr-9 text-[0.8125rem] leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+                />
+                <button
+                  ref={emojiBtnRef}
+                  type="button"
+                  onClick={() => setEmojiOpen((v) => !v)}
+                  aria-label="Emoji"
+                  className="absolute bottom-2 right-2 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                >
+                  <Smile size="1rem" />
+                </button>
+                <EmojiPicker
+                  open={emojiOpen}
+                  onClose={() => setEmojiOpen(false)}
+                  onSelect={insertEmoji}
+                  anchorRef={emojiBtnRef}
+                  customTab={{
+                    icon: "⭐",
+                    label: "Custom emojis",
+                    render: (query) => <CustomEmojiTab onInsert={insertEmoji} query={query} />,
+                  }}
+                />
+              </div>
             )}
           </div>
 
@@ -324,7 +387,7 @@ export function AboutMeViewerModal({
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
                 >
                   <Pencil size="0.8125rem" />
-                  {hasOverride ? "Edit for this chat" : "Set for this chat"}
+                  Edit
                 </button>
               </>
             ) : (

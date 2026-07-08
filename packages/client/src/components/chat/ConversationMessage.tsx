@@ -669,7 +669,23 @@ export const ConversationMessage = memo(function ConversationMessage({
       ? { kind: "character", id: message.characterId }
       : null;
   const onOpenAboutMe = aboutMeTarget
-    ? () => useUIStore.getState().openModal("about-me-viewer", aboutMeTarget)
+    ? (anchor: DOMRect) =>
+        useUIStore.getState().openModal("about-me-viewer", {
+          ...aboutMeTarget,
+          anchorRect: {
+            top: anchor.top,
+            left: anchor.left,
+            right: anchor.right,
+            bottom: anchor.bottom,
+            width: anchor.width,
+            height: anchor.height,
+          },
+          avatarUrl,
+          displayName,
+          nameColor: nameColor ?? null,
+          status: aboutMeTarget.kind === "character" ? (resolvedCharacterInfo?.conversationStatus ?? null) : null,
+          activity: aboutMeTarget.kind === "character" ? (resolvedCharacterInfo?.conversationActivity ?? null) : null,
+        })
     : undefined;
 
   const ctx: MessageRenderContext = {

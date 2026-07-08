@@ -98,7 +98,7 @@ export function ConversationMessageLine({ ctx }: { ctx: MessageRenderContext }) 
               // the message action-reveal gesture.
               <button
                 type="button"
-                onClick={ctx.onOpenAboutMe}
+                onClick={(e) => ctx.onOpenAboutMe?.(e.currentTarget.getBoundingClientRect())}
                 aria-label={`View ${displayName}'s about me`}
                 title={`View ${displayName}'s about me`}
                 className="relative block h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)] cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/50"

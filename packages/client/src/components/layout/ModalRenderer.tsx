@@ -127,6 +127,21 @@ export function ModalRenderer() {
           onClose={closeModal}
           kind={(modal?.props?.kind as "character" | "persona") ?? "character"}
           id={(modal?.props?.id as string) ?? ""}
+          anchorRect={
+            (modal?.props?.anchorRect as {
+              top: number;
+              left: number;
+              right: number;
+              bottom: number;
+              width: number;
+              height: number;
+            } | null) ?? null
+          }
+          avatarUrl={(modal?.props?.avatarUrl as string | null) ?? null}
+          displayName={(modal?.props?.displayName as string | null) ?? null}
+          nameColor={(modal?.props?.nameColor as string | null) ?? null}
+          status={(modal?.props?.status as "online" | "idle" | "dnd" | "offline" | null) ?? null}
+          activity={(modal?.props?.activity as string | null) ?? null}
         />
       );
       break;

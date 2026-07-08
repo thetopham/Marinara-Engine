@@ -1,24 +1,69 @@
 // ──────────────────────────────────────────────
-// About Me viewer (Conversation mode) — opened by clicking an avatar.
-// Shows the effective about-me (per-chat override, else card/persona default)
-// and lets the user set / edit / clear the chat-specific override, Discord
-// "per-server profile" style.
+// About Me profile popout (Conversation mode) — opened by clicking an avatar.
+// A Discord-style card anchored next to the avatar (no dimmed backdrop): blown-up
+// avatar + status, then the effective about-me (per-chat override, else the
+// card/persona default), with set / edit / clear of the chat-specific override.
 // ──────────────────────────────────────────────
-import { useEffect, useMemo, useState } from "react";
-import { Pencil, RotateCcw, Save, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Pencil, RotateCcw, Save, Trash2, User, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Chat } from "@marinara-engine/shared";
 import { useChat, useUpdateChatMetadata } from "../../hooks/use-chats";
 import { useCharacter, usePersonas } from "../../hooks/use-characters";
 import { useChatStore } from "../../stores/chat.store";
 import { cn } from "../../lib/utils";
-import { Modal } from "../ui/Modal";
+
+interface AnchorRect {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
 
 interface AboutMeViewerModalProps {
   open: boolean;
   onClose: () => void;
   kind: "character" | "persona";
   id: string;
+  anchorRect?: AnchorRect | null;
+  avatarUrl?: string | null;
+  displayName?: string | null;
+  nameColor?: string | null;
+  status?: "online" | "idle" | "dnd" | "offline" | null;
+  activity?: string | null;
+}
+
+const CARD_WIDTH = 320;
+
+function statusDotClass(status?: string | null) {
+  return status === "offline"
+    ? "bg-gray-400"
+    : status === "dnd"
+      ? "bg-red-500"
+      : status === "idle"
+        ? "bg-yellow-500"
+        : "bg-green-500";
+}
+
+function statusLabel(status?: string | null) {
+  return status === "offline" ? "Offline" : status === "dnd" ? "Busy" : status === "idle" ? "Away" : "Online";
+}
+
+/** Style for a name that may be a solid color or a CSS gradient string. */
+function nameStyle(nameColor?: string | null) {
+  if (!nameColor) return undefined;
+  if (nameColor.includes("gradient")) {
+    return {
+      backgroundImage: nameColor,
+      WebkitBackgroundClip: "text",
+      backgroundClip: "text",
+      color: "transparent",
+    } as const;
+  }
+  return { color: nameColor } as const;
 }
 
 function parseCharacterConvo(data: unknown): { name: string; displayName: string; aboutMe: string } {
@@ -34,23 +79,37 @@ function parseCharacterConvo(data: unknown): { name: string; displayName: string
   return { name, displayName, aboutMe: typeof ext.aboutMe === "string" ? ext.aboutMe : "" };
 }
 
-export function AboutMeViewerModal({ open, onClose, kind, id }: AboutMeViewerModalProps) {
+export function AboutMeViewerModal({
+  open,
+  onClose,
+  kind,
+  id,
+  anchorRect,
+  avatarUrl,
+  displayName: displayNameProp,
+  nameColor,
+  status,
+  activity,
+}: AboutMeViewerModalProps) {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const { data: chat } = useChat(activeChatId);
   const { data: character } = useCharacter(kind === "character" ? id : null);
   const { data: personas } = usePersonas(kind === "persona");
   const updateMeta = useUpdateChatMetadata();
 
-  const profile = useMemo(() => {
-    if (kind === "character") {
-      return parseCharacterConvo((character as { data?: unknown } | undefined)?.data);
-    }
-    const persona = ((personas ?? []) as Array<Record<string, unknown>>).find((p) => p.id === id);
-    const name = typeof persona?.name === "string" ? persona.name : "";
-    const displayName =
-      typeof persona?.convoDisplayName === "string" && persona.convoDisplayName ? persona.convoDisplayName : name;
-    return { name, displayName, aboutMe: typeof persona?.aboutMe === "string" ? persona.aboutMe : "" };
-  }, [character, id, kind, personas]);
+  const profile =
+    kind === "character"
+      ? parseCharacterConvo((character as { data?: unknown } | undefined)?.data)
+      : (() => {
+          const persona = ((personas ?? []) as Array<Record<string, unknown>>).find((p) => p.id === id);
+          const name = typeof persona?.name === "string" ? persona.name : "";
+          const dn =
+            typeof persona?.convoDisplayName === "string" && persona.convoDisplayName ? persona.convoDisplayName : name;
+          return { name, displayName: dn, aboutMe: typeof persona?.aboutMe === "string" ? persona.aboutMe : "" };
+        })();
+
+  const displayName = displayNameProp || profile.displayName || profile.name || "Profile";
+  const handle = profile.name && profile.name !== displayName ? profile.name : "";
 
   const metadata = (chat?.metadata ?? {}) as Chat["metadata"];
   const overrides = (metadata.conversationAboutMeOverrides ?? {}) as Record<string, string>;
@@ -60,12 +119,48 @@ export function AboutMeViewerModal({ open, onClose, kind, id }: AboutMeViewerMod
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  // Reset editor state whenever the viewer target or open-state changes.
   useEffect(() => {
     setEditing(false);
     setDraft("");
   }, [id, kind, open]);
+
+  // Close on Escape.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  // Anchor the card next to the avatar; flip/clamp to stay on screen.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const rect = anchorRect;
+    const card = cardRef.current;
+    const cw = card?.offsetWidth ?? CARD_WIDTH;
+    const ch = card?.offsetHeight ?? 360;
+    const gap = 12;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (!rect) {
+      setPos({ top: Math.max(8, (vh - ch) / 2), left: Math.max(8, (vw - cw) / 2) });
+      return;
+    }
+    let left = rect.right + gap;
+    if (left + cw > vw - 8) left = rect.left - cw - gap;
+    if (left < 8) left = 8;
+    let top = rect.top;
+    if (top + ch > vh - 8) top = vh - ch - 8;
+    if (top < 8) top = 8;
+    setPos({ top, left });
+  }, [open, anchorRect, editing, effective]);
+
+  if (!open) return null;
 
   const chatId = activeChatId;
   const isPending = updateMeta.isPending;
@@ -78,8 +173,6 @@ export function AboutMeViewerModal({ open, onClose, kind, id }: AboutMeViewerMod
   const handleSave = async () => {
     if (!chatId || isPending) return;
     try {
-      // An empty override means "use the default" — drop the key rather than
-      // leaving a stale "" entry (mirrors the About Me Keeper agent).
       const next = { ...overrides };
       if (draft.trim()) next[id] = draft;
       else delete next[id];
@@ -104,99 +197,165 @@ export function AboutMeViewerModal({ open, onClose, kind, id }: AboutMeViewerMod
     }
   };
 
-  return (
-    <Modal open={open} onClose={onClose} title={profile.displayName || "About Me"} width="max-w-lg">
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full px-2 py-0.5 text-[0.625rem] font-medium",
-              hasOverride
-                ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
-            )}
-          >
-            {hasOverride ? "Chat-specific" : "Default profile"}
-          </span>
-          {hasOverride && (
-            <span className="text-[0.625rem] text-[var(--muted-foreground)]">
-              Only shown in this conversation, overriding the default.
-            </span>
-          )}
-        </div>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10000]"
+      data-component="AboutMeProfilePopout"
+      // Transparent — no dimming, Discord-style. Click outside closes.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={cardRef}
+        className="mari-modal-panel absolute w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
+        style={{
+          top: pos?.top ?? (anchorRect?.top ?? 80),
+          left: pos?.left ?? (anchorRect ? anchorRect.right + 12 : 80),
+          visibility: pos ? "visible" : "hidden",
+        }}
+      >
+        {/* Banner */}
+        <div className="h-14 w-full" style={{ background: nameColor || "var(--accent)" }} />
 
-        {!editing ? (
-          <div className="min-h-[4rem] whitespace-pre-wrap rounded-xl border border-[var(--border)] bg-[var(--secondary)]/50 p-3 text-sm leading-relaxed text-[var(--foreground)]">
-            {effective.trim() ? (
-              effective
-            ) : (
-              <span className="text-[var(--muted-foreground)]">No about me set.</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-2 top-2 rounded-lg bg-black/25 p-1 text-white/90 transition-colors hover:bg-black/40"
+          aria-label="Close"
+        >
+          <X size="0.875rem" />
+        </button>
+
+        <div className="px-4 pb-4">
+          {/* Blown-up avatar overlapping the banner */}
+          <div className="-mt-9 mb-2 flex items-end justify-between">
+            <div className="relative">
+              <div className="h-[4.5rem] w-[4.5rem] overflow-hidden rounded-full border-4 border-[var(--card)] bg-[var(--accent)]">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xl font-bold text-[var(--muted-foreground)]">
+                    {kind === "persona" ? <User size="1.5rem" /> : displayName[0]?.toUpperCase()}
+                  </div>
+                )}
+              </div>
+              {kind === "character" && (
+                <span
+                  title={statusLabel(status)}
+                  className={cn(
+                    "absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-[3px] border-[var(--card)]",
+                    statusDotClass(status),
+                  )}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Identity */}
+          <div className="mb-3">
+            <h2 className="text-lg font-bold leading-tight text-[var(--foreground)]" style={nameStyle(nameColor)}>
+              {displayName}
+            </h2>
+            {handle && <p className="text-[0.8125rem] text-[var(--muted-foreground)]">{profile.name}</p>}
+            {kind === "character" && (
+              <p className="mt-0.5 text-[0.75rem] text-[var(--muted-foreground)]">
+                {statusLabel(status)}
+                {activity ? ` · ${activity}` : ""}
+              </p>
             )}
           </div>
-        ) : (
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={6}
-            autoFocus
-            placeholder="What this person shows in this conversation…"
-            className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-          />
-        )}
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {!editing ? (
-            <>
-              {hasOverride && (
+          {/* About Me */}
+          <div className="rounded-xl bg-[var(--secondary)]/50 p-3">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[0.6875rem] font-bold uppercase tracking-wide text-[var(--muted-foreground)]">
+                About Me
+              </span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[0.5625rem] font-medium",
+                  hasOverride
+                    ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+                    : "bg-[var(--background)]/60 text-[var(--muted-foreground)]",
+                )}
+              >
+                {hasOverride ? "Chat-specific" : "Default"}
+              </span>
+            </div>
+
+            {!editing ? (
+              <div className="min-h-[2.5rem] whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--foreground)]">
+                {effective.trim() ? effective : <span className="text-[var(--muted-foreground)]">No about me set.</span>}
+              </div>
+            ) : (
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={5}
+                autoFocus
+                placeholder="What this person shows in this conversation…"
+                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-[0.8125rem] leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              />
+            )}
+          </div>
+
+          {/* Controls */}
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            {!editing ? (
+              <>
+                {hasOverride && (
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    disabled={isPending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
+                  >
+                    <Trash2 size="0.8125rem" />
+                    Clear
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleClear}
-                  disabled={isPending}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
+                  onClick={() => {
+                    setDraft(effective);
+                    setEditing(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
                 >
-                  <Trash2 size="0.8125rem" />
-                  Clear override
+                  <Pencil size="0.8125rem" />
+                  {hasOverride ? "Edit for this chat" : "Set for this chat"}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setDraft(effective);
-                  setEditing(true);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-              >
-                <Pencil size="0.8125rem" />
-                {hasOverride ? "Edit for this chat" : "Set for this chat"}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
-              >
-                <RotateCcw size="0.8125rem" />
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                <Save size="0.8125rem" />
-                {isPending ? "Saving…" : "Save"}
-              </button>
-            </>
-          )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
+                >
+                  <RotateCcw size="0.8125rem" />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isPending}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  <Save size="0.8125rem" />
+                  {isPending ? "Saving…" : "Save"}
+                </button>
+              </>
+            )}
+          </div>
+          <p className="mt-2 text-[0.625rem] text-[var(--muted-foreground)]">
+            Default about me is edited on the {kind === "persona" ? "persona" : "character"} card. A chat-specific
+            override only applies here.
+          </p>
         </div>
-        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-          The default about me is edited on the {kind === "persona" ? "persona" : "character"} card. A chat-specific
-          override only applies here.
-        </p>
       </div>
-    </Modal>
+    </div>,
+    document.body,
   );
 }

@@ -51,6 +51,9 @@ const AgentWriteApprovalModal = lazy(() =>
 const DocsViewerModal = lazy(() =>
   import("../modals/DocsViewerModal").then((module) => ({ default: module.DocsViewerModal })),
 );
+const AboutMeViewerModal = lazy(() =>
+  import("../modals/AboutMeViewerModal").then((module) => ({ default: module.AboutMeViewerModal })),
+);
 
 export function ModalRenderer() {
   const modal = useUIStore((s) => s.modal);
@@ -115,6 +118,16 @@ export function ModalRenderer() {
     case "docs-viewer":
       content = (
         <DocsViewerModal open onClose={closeModal} initialDoc={(modal?.props?.initialDoc as string | null) ?? null} />
+      );
+      break;
+    case "about-me-viewer":
+      content = (
+        <AboutMeViewerModal
+          open
+          onClose={closeModal}
+          kind={(modal?.props?.kind as "character" | "persona") ?? "character"}
+          id={(modal?.props?.id as string) ?? ""}
+        />
       );
       break;
     default:

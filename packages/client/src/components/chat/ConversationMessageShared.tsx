@@ -131,6 +131,8 @@ export interface MessageRenderContext {
   onTranslate: () => void;
   onStartEdit: () => void;
   onImageOpen: (url: string, prompt?: string | null) => void;
+  /** Open the Convo about-me viewer for this message's character/persona (undefined when unresolvable). */
+  onOpenAboutMe?: () => void;
   onRemoveAttachment: (index: number) => void;
   onSetActiveSwipe?: (id: string, index: number) => void;
   onRegenerate?: (id: string) => void;

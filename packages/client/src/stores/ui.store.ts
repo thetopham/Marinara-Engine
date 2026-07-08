@@ -2510,13 +2510,18 @@ export const useUIStore = create<UIState>()(
         persisted.customCursorEnabled = persisted.customCursorEnabled !== false;
         persisted.includeReasoningInExports = persisted.includeReasoningInExports === true;
         persisted.pinnedSettingsSections = Array.isArray(persisted.pinnedSettingsSections)
-          ? persisted.pinnedSettingsSections.filter((sectionId: unknown): sectionId is string => typeof sectionId === "string")
+          ? Array.from(
+              new Set(
+                persisted.pinnedSettingsSections
+                  .filter((sectionId: unknown): sectionId is string => typeof sectionId === "string")
+                  .map((sectionId: string) => (sectionId === "character-art" ? "roleplay-messages" : sectionId)),
+              ),
+            )
           : [];
-        persisted.pinnedSettingsSections = persisted.pinnedSettingsSections.map((sectionId: string) =>
-          sectionId === "character-art" ? "roleplay-messages" : sectionId,
-        );
         persisted.pinnedSettingsItems = Array.isArray(persisted.pinnedSettingsItems)
-          ? persisted.pinnedSettingsItems.filter((itemId: unknown): itemId is string => typeof itemId === "string")
+          ? Array.from(
+              new Set(persisted.pinnedSettingsItems.filter((itemId: unknown): itemId is string => typeof itemId === "string")),
+            )
           : [];
         persisted.chatChromeTextColor = normalizeChatChromeTextColor(persisted.chatChromeTextColor);
         persisted.defaultRoleplayBackground = normalizeDefaultRoleplayBackground(persisted.defaultRoleplayBackground);

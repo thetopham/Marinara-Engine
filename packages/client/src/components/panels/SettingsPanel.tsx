@@ -1816,7 +1816,7 @@ export function SettingsPanel() {
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 border-b border-[var(--border)]/70 px-2.5 py-2">
-        {(pinnedSections.length || pinnedItems.length) && (
+        {(pinnedSections.length > 0 || pinnedItems.length > 0) && (
           <div className="min-w-0 rounded-xl border border-[var(--border)]/60 bg-[var(--background)]/24 p-1 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
             <div className="flex min-w-0 items-center gap-1.5">
               <button

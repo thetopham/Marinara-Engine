@@ -42,7 +42,7 @@ Video connections are selected separately from image-generation connections.
 
 If a chat does not have a selected video connection, Marinara tries the connection marked **Default for Videos** in Connections. If neither exists, Gallery video actions show a connection warning.
 
-Game Mode has separate storyboard controls under **Chat Settings -> Agents -> Storyboards**. **Automatic Storyboard Illustrations** creates keyframe images after each completed GM narration. **Automatic Storyboard Animations** also creates MP4 clips for those keyframes and requires a Video Generation connection. The **Illustration Prompt** selector controls still-only/manual storyboard style; the **Animation Prompt** selector controls storyboard style when clips are requested. The **Game Video Prompt** selector in **Chat Settings -> Agents -> Scene Videos** controls how saved scene/storyboard images are animated. When automation is disabled, use the manual **Create storyboard** control in **Gallery**.
+Game Mode has separate storyboard controls under **Chat Settings -> Agents -> Storyboards**. **Automatic Storyboard Illustrations** creates keyframe images after each completed GM narration. **Automatic Storyboard Animations** also creates MP4 clips for those keyframes and requires a Video Generation connection. The **Illustration Prompt** selector controls still-only/manual storyboard style; **Animation Source Prompt** controls the comic page or keyframe image used when clips are requested; and **Storyboard Motion Prompt** controls how that saved source image moves. The separate **Game Video Prompt** under **Scene Videos** controls ordinary Game scene clips. When automation is disabled, use the manual **Create storyboard** control in **Gallery**.
 
 ## Gallery Workflow
 
@@ -71,12 +71,12 @@ Storyboards are per completed GM turn. Marinara uses the GM turn narration.
 The storyboard flow is:
 
 1. The Prompt Director reads the completed turn narration plus stable reader-section indices.
-2. It creates 2-6 ordered keyframes, usually 4, using the chat's selected storyboard prompt preset.
+2. It creates 1-6 ordered keyframes, usually 4, using the chat's selected storyboard prompt preset.
 3. Each keyframe contains a still-image prompt, section anchors, character context, and duration/aspect-ratio settings.
 4. Marinara saves the storyboard metadata, then starts keyframe media generation concurrently once the prompts are ready.
-5. Keyframe illustrations are saved to the Gallery's **Images** tab. When animations are enabled, Marinara builds the video prompt from each saved keyframe image with the selected **Game Video Prompt** used by Gallery **Animate illustration**, then saves keyframe clips to scene videos in the **Videos** tab.
+5. Keyframe illustrations are saved to the Gallery's **Images** tab. When animations are enabled, Marinara builds the video prompt from each saved keyframe image, the director's motion plan, and the selected **Storyboard Motion Prompt**, then saves keyframe clips to scene videos in the **Videos** tab.
 
-The Game Mode **Gallery** panel has a **Create storyboard** button for manual generation. Manual storyboards create still keyframe illustrations by default using the chat's **Illustration Prompt** selection; they also create clips using the **Animation Prompt** selection plus the Scene Videos **Game Video Prompt** when **Automatic Storyboard Animations** is enabled and a Video Generation connection is selected. After a storyboard exists, gallery also shows its keyframes and a button to reopen the floating storyboard viewer by clicking on **View storyboard**.
+The Game Mode **Gallery** panel has a **Create storyboard** button for manual generation. Manual storyboards create still keyframe illustrations by default using the chat's **Illustration Prompt** selection; they also create clips using **Animation Source Prompt** plus **Storyboard Motion Prompt** when **Automatic Storyboard Animations** is enabled and a Video Generation connection is selected. After a storyboard exists, gallery also shows its keyframes and a button to reopen the floating storyboard viewer by clicking on **View storyboard**.
 
 The floating storyboard viewer follows the current story section while you read and click through a turn. It shows the active keyframe clip when available, falls back to the generated keyframe image while video is pending or failed, and includes close, drag, resize, play/pause, mute/unmute, size, and frame-position controls.
 
@@ -93,9 +93,10 @@ The Game Mode storyboard viewer uses the same viewer control model as **View lat
 Storyboard and video prompt style are selected per chat:
 
 - **Chat Settings -> Agents -> Storyboards -> Illustration Prompt** is used for manual and still-only storyboards. The default **Still Keyframes** preset avoids comic text and panels.
-- **Chat Settings -> Agents -> Storyboards -> Animation Prompt** is used when storyboard animations are requested. The default **Comic Page** preset allows comic panels, dialogue bubbles, captions, and SFX because those keyframes become clip source images.
+- **Chat Settings -> Agents -> Storyboards -> Animation Source Prompt** is used when storyboard animations are requested. The default **Comic Page** preset selects duration-aware panel density and allows concise comic panels, dialogue bubbles, captions, and SFX because those keyframes become clip source images.
+- **Chat Settings -> Agents -> Storyboards -> Storyboard Motion Prompt** animates those source images with planned subject motion, camera motion, continuity, transitions, and timing.
 - **Chat Settings -> Agents -> Storyboards -> Edit Storyboard Presets** copies built-ins such as **Still Keyframes**, **Comic Page**, **Colored Manga**, and **B&W Manga** into chat-local editable templates.
-- **Chat Settings -> Agents -> Scene Videos -> Game Video Prompt** is used for Game scene videos and storyboard clips. The default **Cinematic Scene Video** preset turns the saved first-frame image into motion.
+- **Chat Settings -> Agents -> Scene Videos -> Game Video Prompt** is used for ordinary Game scene videos. The default **Cinematic Scene Video** preset turns the saved first-frame image into motion.
 - **Chat Settings -> Agents -> Scene Videos -> Edit Video Presets** copies the built-in video prompt into chat-local editable templates.
 
 Open **Settings -> Generations -> Video Generation Prompt Templates** and **Prompt Overrides** to edit the reusable global templates used by scene media.
@@ -109,9 +110,9 @@ The relevant keys are:
 | `game.video` | Fallback video template if a selected per-chat Game Video Prompt cannot be rendered. |
 | `game.storyboardIllustrationDirector` | Fallback storyboard director template if a selected per-chat storyboard preset cannot be rendered. |
 
-The selected **Game Video Prompt** receives variables such as scene title, narration summary, source illustration prompt, characters, setting, art style, duration seconds, aspect ratio, and a reminder that the source illustration is used as the first frame/reference. Editing this chat-local prompt is the main way to prompt-engineer different motion outcomes without changing code.
+The selected **Game Video Prompt** and **Storyboard Motion Prompt** receive variables such as scene title, narration summary, source illustration prompt, characters, setting, art style, duration seconds, aspect ratio, and a reminder that the source illustration is used as the first frame/reference. Storyboard motion also receives the director's camera motion, continuity, transition, and animation plan. Editing the relevant chat-local prompt is the main way to prompt-engineer different motion outcomes without changing code.
 
-The selected storyboard prompt receives the game context, stripped GM narration, reader section indices, target keyframe count, duration, and aspect ratio. Automatic storyboard animations reuse the saved keyframe image as the first-frame/reference image and build the motion prompt through `game.video`, matching the manual Gallery animation flow.
+The selected storyboard source prompt receives the game context, stripped GM narration, reader section indices, target keyframe count, duration, and aspect ratio. Automatic storyboard animations reuse the saved keyframe image as the first-frame/reference image and compile the selected storyboard motion template through `game.video`.
 
 Before rendering the template, Marinara compacts the video prompt context. The narration variable is a short visible story beat, not the full assistant message, and the illustration prompt variable is a filtered excerpt that drops common still-image boilerplate. xAI receives a stricter final prompt budget than Gemini Omni, Google Veo, and OpenRouter because its video API rejects prompts over its maximum length.
 
@@ -145,7 +146,7 @@ Automatic storyboards are opt-in. Open **Chat Settings -> Agents -> Storyboards*
 
 ### Storyboard keyframes are images but not videos
 
-Storyboard image generation uses the Game Mode image-generation connection. Storyboard video generation also needs **Automatic Storyboard Animations** plus a Video Generation connection. **Automatic Storyboard Animations** can only be toggled on if Automatic Storyboard Illustrations are also on, because it depends on those for keyframes. The **Animation Prompt** selector changes storyboard image style for video-enabled runs, and **Game Video Prompt** changes how those saved images move, but neither selector generates clips by itself. If animations are off, or no video connection is selected and no default video connection exists, Marinara can still save keyframe images, but clips cannot be generated.
+Storyboard image generation uses the Game Mode image-generation connection. Storyboard video generation also needs **Automatic Storyboard Animations** plus a Video Generation connection. **Automatic Storyboard Animations** can only be toggled on if Automatic Storyboard Illustrations are also on, because it depends on those for keyframes. **Animation Source Prompt** changes storyboard image style for video-enabled runs, and **Storyboard Motion Prompt** changes how those saved images move, but neither selector generates clips by itself. If animations are off, or no video connection is selected and no default video connection exists, Marinara can still save keyframe images, but clips cannot be generated.
 
 ### Storyboard generation times out
 

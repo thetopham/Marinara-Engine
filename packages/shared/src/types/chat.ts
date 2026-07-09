@@ -510,6 +510,8 @@ export interface ChatMetadata {
   gameStoryboardIllustrationPromptTemplateId?: string | null;
   /** Selected Game Mode storyboard prompt template for animation-ready auto storyboards. */
   gameStoryboardAnimationPromptTemplateId?: string | null;
+  /** Selected Game Mode video prompt template used only for storyboard clips. */
+  gameStoryboardVideoPromptTemplateId?: string | null;
   /** Chat-local storyboard prompt templates, merged with built-in storyboard prompt modes. */
   gameStoryboardPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
   /** Last generated scene-video record ID for this game. */

@@ -93,7 +93,7 @@ The lifecycle is designed so you can run long-running games across multiple play
 The setup wizard has seven steps: **Connection**, **World**, **Party**, **Goals**, **Lorebooks**, **Features**, and **GM**. The only field that is strictly required is the GM connection on the Connection step. Everything else has a sensible default, so if you just want to test the mode you can move through the wizard with most fields blank and Marinara will infer reasonable values.
 
 - **Connection** — game name, GM connection, optional **Customize Parameters**, and optional Scene Effects connection.
-- **World** — genre, setting, tone, difficulty, rating, and language.
+- **World** — experience style, genre, setting, tone, difficulty, rating, and language.
 - **Party** — persona, GM mode, and party members.
 - **Goals** — player goals and additional preferences.
 - **Lorebooks** — optional lorebooks for world-gen canon.
@@ -101,6 +101,12 @@ The setup wizard has seven steps: **Connection**, **World**, **Party**, **Goals*
 - **GM** — game prompt preset, extra instructions, and custom GM prompt override.
 
 The fields below are the ones that most strongly steer your game.
+
+### Experience Style
+
+**Standard** preserves the general RPG and visual-novel narration direction. **Living Anime** makes world generation and every GM turn anime-first: the GM stages observable action and reaction beats, expressive dialogue and acting, environmental motion, and visual continuity before any illustration or animation prompt is created.
+
+Living Anime does not force a genre, rating, romance structure, or school setting. Your Genre, Setting, Tone, rating, character cards, goals, and extra instructions still define the content. Existing games default to Standard and can switch styles later under **Chat Settings -> Prompt Preset -> Experience style**.
 
 ### Genre
 
@@ -324,7 +330,7 @@ Scene videos animate generated Game Mode illustrations into short MP4 clips. Con
 
 Use the Gallery **Video** action to animate the latest scene illustration, or click **Animate** on a specific Gallery illustration to use that image as the first frame/reference. Generated videos appear in the Gallery, can be previewed fullscreen with their prompt, copied, downloaded, pinned, resized, and followed through **View latest**.
 
-Game Mode can also storyboard a completed GM turn. **Create storyboard** in the Gallery asks the Prompt Director to split the GM narration into keyframes and render each keyframe as a gallery illustration. **Chat Settings -> Agents -> Storyboards** controls automatic generation plus the chat's storyboard prompt styles: **Illustration Prompt** for still/manual storyboards and **Animation Prompt** when clips are requested. **Chat Settings -> Agents -> Scene Videos -> Game Video Prompt** controls how generated scene/storyboard images are animated. When **Automatic Storyboard Animations** is enabled and a video connection is available, keyframes also become MP4 clips. The floating storyboard viewer follows the current story section while you read and can be closed, dragged, resized, muted, paused, and reopened from the Gallery.
+Game Mode can also storyboard a completed GM turn. **Create storyboard** in the Gallery asks the Prompt Director to split the GM narration into keyframes and render each keyframe as a gallery illustration. **Chat Settings -> Agents -> Storyboards** controls automatic generation plus three prompt layers: **Illustration Prompt** for still/manual storyboards, **Animation Source Prompt** for the comic page or keyframe image used when clips are requested, and **Storyboard Motion Prompt** for how that saved source image moves. The separate **Chat Settings -> Agents -> Scene Videos -> Game Video Prompt** continues to control ordinary Game scene videos. When **Automatic Storyboard Animations** is enabled and a video connection is available, keyframes also become MP4 clips. The floating storyboard viewer follows the current story section while you read and can be closed, dragged, resized, muted, paused, and reopened from the Gallery.
 
 See [Scene Video Generation](SCENE_VIDEO_GENERATION.md) for provider setup, defaults, storyboard behavior, prompt templates, and troubleshooting. See [Storyboard Engine Guide](STORYBOARD_ENGINE_GUIDE.md) for a step-by-step storyboard workflow.
 

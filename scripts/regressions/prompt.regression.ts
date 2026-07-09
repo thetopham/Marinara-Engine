@@ -7,6 +7,8 @@ import {
   compileImagePrompt,
   createRegexScriptSchema,
   createDefaultImageStyleProfileSettings,
+  GAME_STORYBOARD_COMIC_NEGATIVE_PROMPT,
+  GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE,
   isPatternSafe,
   normalizeChatSummaryEntries,
   resolveRegexPatternLiteralMacros,
@@ -25,6 +27,13 @@ import {
 } from "../../packages/server/src/services/agents/agent-executor.js";
 import type { ResolvedAgent } from "../../packages/server/src/services/agents/agent-pipeline.js";
 import { loadGameVideoPrompt } from "../../packages/server/src/services/video/game-video-prompt.js";
+import {
+  buildGmFormatReminder,
+  buildGmSystemPrompt,
+  buildSetupPrompt,
+  type GmPromptContext,
+} from "../../packages/server/src/services/game/gm-prompts.js";
+import { buildSceneIllustrationProviderPrompt } from "../../packages/server/src/services/game/game-asset-generation.js";
 import { countUserMessagesAfterSummaryAnchor } from "../../packages/server/src/services/conversation/auto-summary.service.js";
 import { buildLegacyDefaultAgentConfigUpdate } from "../../packages/server/src/services/agents/default-prompt-migration.js";
 import { buildMemoryRecallBlock } from "../../packages/server/src/services/generation/memory-recall-context.js";
@@ -767,6 +776,74 @@ const cases: RegressionCase[] = [
     },
   },
   {
+    name: "Living Anime direction is opt-in across setup and GM turns",
+    run() {
+      const baseContext: GmPromptContext = {
+        gameActiveState: "exploration",
+        storyArc: null,
+        plotTwists: null,
+        map: null,
+        npcs: [],
+        sessionSummaries: [],
+        sessionNumber: 1,
+        partyNames: ["Mira"],
+        playerName: "Ren",
+        gmCharacterCard: null,
+        difficulty: "normal",
+        genre: "fantasy",
+        setting: "a dungeon city",
+        tone: "heroic",
+      };
+
+      const standardSystem = buildGmSystemPrompt(baseContext);
+      const standardReminder = buildGmFormatReminder(baseContext);
+      const standardSetup = buildSetupPrompt({ experienceStyle: "standard" });
+      const animeSystem = buildGmSystemPrompt({ ...baseContext, experienceStyle: "living_anime" });
+      const animeReminder = buildGmFormatReminder({ ...baseContext, experienceStyle: "living_anime" });
+      const animeSetup = buildSetupPrompt({ experienceStyle: "living_anime" });
+
+      assert.doesNotMatch(standardSystem, /living anime experience/i);
+      assert.doesNotMatch(standardReminder, /living_anime_turn_direction/i);
+      assert.doesNotMatch(standardSetup, /experience_style id="living_anime"/i);
+      assert.match(animeSystem, /author the game itself as a living anime experience/i);
+      assert.match(animeSystem, /2-4 observable beats/i);
+      assert.match(animeReminder, /immediately playable anime scene/i);
+      assert.match(animeSetup, /cohesive polished 2D anime production style/i);
+    },
+  },
+  {
+    name: "animation storyboard prompts carry duration-aware motion direction",
+    run() {
+      assert.match(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /\$\{durationSeconds\}-second animated clip/);
+      assert.match(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /2 panels for clips up to 6 seconds/);
+      assert.match(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /"continuityNotes"/);
+      assert.match(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /"cameraMotion"/);
+      assert.match(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /"transitionHint"/);
+      assert.doesNotMatch(GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE, /Use the negativePrompt:/);
+    },
+  },
+  {
+    name: "animation storyboard illustration override permits panels and lettering",
+    async run() {
+      const compiled = await buildSceneIllustrationProviderPrompt({
+        chatId: "chat-storyboard-comic",
+        title: "Guild arrival",
+        prompt: "Colored anime comic page, exactly 3 panels, brief dialogue bubbles.",
+        reason: "Animation-ready storyboard",
+        imgModel: "fixture",
+        imgBaseUrl: "https://example.invalid",
+        imgApiKey: "fixture",
+        negativePromptOverride: GAME_STORYBOARD_COMIC_NEGATIVE_PROMPT,
+        preserveFullScenePrompt: true,
+      });
+
+      assert.equal(compiled.negativePrompt, GAME_STORYBOARD_COMIC_NEGATIVE_PROMPT);
+      assert.equal(compiled.negativePrompt.includes("split screen"), false);
+      assert.equal(compiled.negativePrompt.includes("contact sheet"), false);
+      assert.match(compiled.prompt, /exactly 3 panels/);
+    },
+  },
+  {
     name: "game video prompt selection wins over global prompt override",
     async run() {
       const promptOverridesStorage = {
@@ -816,11 +893,66 @@ const cases: RegressionCase[] = [
           durationSeconds: 6,
           aspectRatio: "16:9",
           sourceIllustrationLine: "Use image-123 as the first frame/reference image.",
+          experienceStyleLine: "",
+          motionPlanLine: "",
+          continuityLine: "",
+          transitionLine: "",
         },
       });
 
       assert.equal(prompt, "CHAT VIDEO Arrival Use image-123 as the first frame/reference image.");
       assert.doesNotMatch(prompt, /GLOBAL VIDEO OVERRIDE/);
+    },
+  },
+  {
+    name: "storyboard motion prompt selection can override the ordinary scene-video prompt",
+    async run() {
+      const promptOverridesStorage = {
+        async get() {
+          return null;
+        },
+        async list() {
+          return [];
+        },
+        async upsert(input) {
+          return { ...input, updatedAt: "2026-01-01T00:00:00.000Z" };
+        },
+        async remove() {},
+      } satisfies PromptOverridesStorage;
+      const prompt = await loadGameVideoPrompt({
+        promptOverridesStorage,
+        meta: {
+          gameVideoPromptTemplateId: "scene-motion",
+          gameVideoPromptTemplates: [
+            { id: "scene-motion", name: "Scene", description: "", promptTemplate: "SCENE ${sceneTitle}" },
+            {
+              id: "storyboard-motion",
+              name: "Storyboard",
+              description: "",
+              promptTemplate: "STORYBOARD ${motionPlanLine}",
+            },
+          ],
+        },
+        templateId: "storyboard-motion",
+        ctx: {
+          sceneTitle: "Arrival",
+          narrationSummary: "The party reaches the gate.",
+          illustrationPrompt: "A three-panel anime comic page.",
+          charactersLine: "Mira, Sol",
+          settingLine: "sunset city gate",
+          artStyleLine: "polished 2D anime",
+          durationSeconds: 10,
+          aspectRatio: "16:9",
+          sourceIllustrationLine: "Use storyboard image as the first frame.",
+          experienceStyleLine: "Experience direction: Living Anime.",
+          motionPlanLine: "Motion plan: move through panels in reading order.",
+          continuityLine: "Continuity: preserve panel borders.",
+          transitionLine: "Timing: settle on the final reaction.",
+        },
+      });
+
+      assert.equal(prompt, "STORYBOARD Motion plan: move through panels in reading order.");
+      assert.doesNotMatch(prompt, /^SCENE/);
     },
   },
   {

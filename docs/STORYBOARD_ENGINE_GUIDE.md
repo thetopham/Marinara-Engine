@@ -30,7 +30,7 @@ Keyframe images are saved in the Gallery's **Images** tab. Keyframe clips are sa
 3. Optional: set up animated clips:
    - Create a **Video Generation** connection in **Settings -> Connections**.
    - Select it in the setup wizard's **Video Generation Connection** field, or in **Chat Settings -> Agents -> Scene Videos -> Video Connection**.
-4. Optional: open **Chat Settings -> Agents -> Storyboards** and choose the **Illustration Prompt** and **Animation Prompt** styles for this chat. Open **Chat Settings -> Agents -> Scene Videos** to choose the **Game Video Prompt** used when keyframes are animated.
+4. Optional: open **Chat Settings -> Agents -> Storyboards** and choose the **Illustration Prompt**, **Animation Source Prompt**, and **Storyboard Motion Prompt** styles for this chat. Open **Chat Settings -> Agents -> Scene Videos** to choose the separate **Game Video Prompt** used for ordinary Game scene clips.
 5. Play until the GM finishes a narration turn. If you enabled **Automatic Storyboard Illustrations**, the storyboard starts once the turn finishes streaming; otherwise create one manually in the next step.
 6. Open **Gallery** and click **Create storyboard**.
 7. Keep reading. The floating storyboard viewer appears and changes panels/illustrations/animations as you read through the turn.
@@ -46,7 +46,8 @@ Automatic generation is controlled per chat:
 - **Automatic Storyboard Illustrations** creates still keyframe images after each completed GM turn. This is the lower-cost path.
 - **Automatic Storyboard Animations** adds MP4 clips for each keyframe. It requires storyboard illustrations plus a Video Generation connection. Turning animations on also enables illustrations; turning illustrations off disables animations.
 - **Illustration Prompt** controls manual storyboards and automatic storyboards that only create still keyframes. The default **Still Keyframes** preset avoids comic panels, speech bubbles, captions, and SFX text so the floating viewer does not reveal later beats before you read them.
-- **Animation Prompt** controls storyboards when **Automatic Storyboard Animations** is enabled. The default **Comic Page** preset allows panel flow, dialogue bubbles, captions, and SFX because the generated images become source frames for clips.
+- **Animation Source Prompt** controls storyboards when **Automatic Storyboard Animations** is enabled. The default **Comic Page** preset allows duration-aware panel flow, concise dialogue bubbles, captions, and SFX because the generated images become source frames for clips.
+- **Storyboard Motion Prompt** controls how each saved storyboard source image becomes a clip. It is selected independently from the **Game Video Prompt** used for ordinary Game scene videos.
 - **Edit Storyboard Presets** lets you copy a built-in preset into a chat-local editable template. Built-ins are read-only; custom copies are stored on that chat and can be selected for either prompt slot.
 
 Find these switches in either place:
@@ -58,7 +59,7 @@ Use automatic illustrations when you want every turn to get a visual panel seque
 
 Built-in storyboard prompt presets are **Still Keyframes**, **Comic Page**, **Colored Manga**, and **B&W Manga**. They are separate from Roleplay Illustrator prompt presets and from the global game prompt entries in Settings -> Generations -> Prompt Overrides.
 
-Storyboard animations combine two prompt layers. The Storyboards card chooses how Marinara plans and renders the keyframe image. The Scene Videos card's **Game Video Prompt** chooses how Marinara animates that saved image into motion.
+Storyboard animations combine two prompt layers. **Animation Source Prompt** chooses how Marinara plans and renders the keyframe or comic-page image. **Storyboard Motion Prompt** then animates that saved image using the director's subject motion, camera motion, continuity, transition, and timing plan.
 
 ## What Happens Under the Hood
 
@@ -66,12 +67,12 @@ When a storyboard starts, Marinara:
 
 1. Takes the selected completed GM message and strips GM command tags.
 2. Sends the GM narration, game context, reader section indices, target keyframe count, aspect ratio, and clip duration to a Prompt Director.
-3. Chooses the chat's storyboard prompt preset: **Illustration Prompt** for still-only storyboards, or **Animation Prompt** when storyboard animations are requested.
+3. Chooses the chat's storyboard source preset: **Illustration Prompt** for still-only storyboards, or **Animation Source Prompt** when storyboard animations are requested.
 4. Saves the storyboard plan, then starts keyframe media generation.
 5. Renders keyframe images through the Game Illustrator image connection.
-6. If animations are enabled and a video connection is selected, builds the selected **Game Video Prompt** from each saved keyframe image, like the Gallery **Animate illustration** action, then renders each keyframe clip from that generated image as the first frame/reference.
+6. If animations are enabled and a video connection is selected, builds the selected **Storyboard Motion Prompt** from each saved keyframe image and the director's motion plan, then renders each keyframe clip from that generated image as the first frame/reference.
 
-The default plan targets 4 keyframes, 16:9 output, and 6-second clips when videos are generated. Very short turns may produce fewer frames, but the engine keeps storyboards between 2 and 6 keyframes.
+The default plan targets 4 keyframes, 16:9 output, and 10-second clips when videos are generated. Very short turns may produce fewer frames, and the engine keeps storyboards between 1 and 6 keyframes.
 
 ## Using the Viewer
 
@@ -94,6 +95,7 @@ Storyboards are only as clear as the turn they receive and the selected storyboa
 For more consistent boards:
 
 - Keep the game's setting, tone, and art style specific during setup.
+- Select **Living Anime** as the Experience Style when you want the GM narration itself to supply observable action, reaction, and continuity beats for downstream storyboards.
 - **Use character cards with detailed avatars and reference images enabled to get consistency**
 - Keep important outfits, wounds, props, and locations explicit in the narration or game state.
 - Use image style profiles for the visual finish you want.
@@ -104,9 +106,10 @@ For common tuning, use **Chat Settings -> Agents -> Storyboards** first:
 | Control | What it changes |
 | --- | --- |
 | **Illustration Prompt** | The storyboard director template used for manual and still-only storyboards. |
-| **Animation Prompt** | The storyboard director template used when storyboard animations are requested. |
+| **Animation Source Prompt** | The storyboard director template used to create source images when storyboard animations are requested. |
+| **Storyboard Motion Prompt** | The video template used to animate storyboard source images and their motion plans. |
 | **Edit Storyboard Presets** | Chat-local custom copies of built-in storyboard presets. |
-| **Scene Videos -> Game Video Prompt** | The video-template layer used to animate generated scene illustrations and storyboard keyframes. |
+| **Scene Videos -> Game Video Prompt** | The video-template layer used to animate ordinary generated Game scene illustrations. |
 
 For global media-template tuning, open **Settings -> Generations -> Prompt Overrides**. The most relevant keys are:
 

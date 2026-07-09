@@ -102,6 +102,8 @@ import {
   VIDEO_GENERATION_SETTINGS_KEY,
   VIDEO_DEFAULTS_STORAGE_KEY,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
@@ -4550,9 +4552,16 @@ function normalizeStoryboardAspectRatio(
   return value === "9:16" || value === "16:9" ? value : fallback;
 }
 
+function clampStoryboardDuration(value: number): number {
+  return Math.min(
+    GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
+    Math.max(GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN, Math.trunc(value)),
+  );
+}
+
 function normalizeStoryboardDuration(value: unknown, fallback: number): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) ? Math.min(15, Math.max(1, Math.trunc(parsed))) : fallback;
+  return Number.isFinite(parsed) ? clampStoryboardDuration(parsed) : clampStoryboardDuration(fallback);
 }
 
 function normalizeStoryboardKeyframeCount(value: unknown, fallback = GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT): number {
@@ -9936,7 +9945,12 @@ export async function gameRoutes(app: FastifyInstance) {
       .min(GAME_STORYBOARD_KEYFRAME_COUNT_MIN)
       .max(GAME_STORYBOARD_KEYFRAME_COUNT_MAX)
       .optional(),
-    durationSeconds: z.number().int().min(1).max(15).optional(),
+    durationSeconds: z
+      .number()
+      .int()
+      .min(GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN)
+      .max(GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX)
+      .optional(),
     aspectRatio: z.enum(["16:9", "9:16"]).optional().default("16:9"),
     generateVideos: z.boolean().optional(),
     debugMode: z.boolean().optional().default(false),
@@ -9994,10 +10008,6 @@ export async function gameRoutes(app: FastifyInstance) {
       const videoSettings = normalizeVideoGenerationUserSettings(
         await createAppSettingsStorage(app.db).get(VIDEO_GENERATION_SETTINGS_KEY),
       );
-      const storyboardDurationSeconds = Math.min(
-        15,
-        Math.max(1, Math.trunc(input.durationSeconds ?? videoSettings.sceneVideoDurationSeconds)),
-      );
       await recoverStaleGameStoryboards(storyboards, storyboardStaleRenderCutoff(), "storyboard generate");
 
       const chat = await chats.getById(input.chatId);
@@ -10015,6 +10025,10 @@ export async function gameRoutes(app: FastifyInstance) {
       const sourceSections = normalizeStoryboardSections(input.sections, sourceNarration);
 
       const meta = parseMeta(chat.metadata);
+      const storyboardDurationSeconds = normalizeStoryboardDuration(
+        input.durationSeconds ?? meta.gameStoryboardAnimationDurationSeconds,
+        videoSettings.sceneVideoDurationSeconds,
+      );
       const storyboardKeyframeCount = normalizeStoryboardKeyframeCount(
         input.keyframeCount,
         normalizeStoryboardKeyframeCount(meta.gameStoryboardKeyframeCount),

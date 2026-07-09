@@ -81,6 +81,7 @@ import { showAlertDialog, showConfirmDialog, showPromptDialog } from "../../lib/
 import { HelpTooltip } from "../ui/HelpTooltip";
 import { ExpandedTextarea } from "../ui/ExpandedTextarea";
 import { Modal } from "../ui/Modal";
+import { DraftNumberInput } from "../ui/DraftNumberInput";
 import { ChoiceSelectionModal } from "../presets/ChoiceSelectionModal";
 import { SecretPlotPanel } from "../agents/SecretPlotPanel";
 import { SummariesEditorModal } from "./SummariesEditorModal";
@@ -179,6 +180,9 @@ import {
   DEFAULT_AGENT_MAX_TOKENS,
   DEFAULT_AGENT_PROMPTS,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
   GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE_ID,
@@ -188,6 +192,7 @@ import {
   GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
   GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES,
   GAME_VIDEO_PROMPT_TEMPLATE_ID,
+  VIDEO_GENERATION_SETTINGS_KEY,
   getChatModeCapabilities,
   LIMITS,
   MIN_AGENT_MAX_TOKENS,
@@ -199,6 +204,7 @@ import {
   AGENT_COST_HIGH_TOKENS,
   CONVERSATION_COMMAND_KEYS,
   getDefaultBuiltInAgentSettings,
+  normalizeVideoGenerationUserSettings,
   isAgentAvailableInChatMode,
   isAgentConfigDeleted,
   isAgentHiddenFromChatSettingsPicker,
@@ -329,6 +335,21 @@ function normalizeGameStoryboardKeyframeCount(value: unknown): number {
   return Math.max(
     GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
     Math.min(GAME_STORYBOARD_KEYFRAME_COUNT_MAX, Math.trunc(numeric)),
+  );
+}
+
+function hasGameStoryboardAnimationDuration(value: unknown): boolean {
+  if (value == null || value === "") return false;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric);
+}
+
+function normalizeGameStoryboardAnimationDuration(value: unknown): number {
+  if (!hasGameStoryboardAnimationDuration(value)) return GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Math.max(
+    GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
+    Math.min(GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX, Math.trunc(numeric)),
   );
 }
 
@@ -852,6 +873,12 @@ export function ChatSettingsDrawer({
     () => (typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {})),
     [chat.metadata],
   );
+  const videoGenerationSettingsQuery = useQuery({
+    queryKey: ["app-settings", VIDEO_GENERATION_SETTINGS_KEY],
+    queryFn: () => api.get<{ value: string | null }>(`/app-settings/${VIDEO_GENERATION_SETTINGS_KEY}`),
+    enabled: open && isGame,
+    staleTime: 60_000,
+  });
   const { data: currentPromptPresetFull } = usePresetFull(isRoleplayMode ? (chat.promptPresetId ?? null) : null);
   const promptPresetOptionsLoaded = Array.isArray(presets);
   const promptPresetOptions = useMemo(() => (presets ?? []) as PromptPreset[], [presets]);
@@ -1534,6 +1561,33 @@ export function ChatSettingsDrawer({
   const gameStoryboardAutoIllustrationsEnabled = metadata.gameStoryboardAutoIllustrationsEnabled === true;
   const gameStoryboardAutoAnimationsEnabled = metadata.gameStoryboardAutoGenerationEnabled === true;
   const gameStoryboardKeyframeCount = normalizeGameStoryboardKeyframeCount(metadata.gameStoryboardKeyframeCount);
+  const gameStoryboardAnimationDurationConfigured = hasGameStoryboardAnimationDuration(
+    metadata.gameStoryboardAnimationDurationSeconds,
+  );
+  const gameStoryboardAnimationFallbackDuration = useMemo(
+    () =>
+      normalizeGameStoryboardAnimationDuration(
+        normalizeVideoGenerationUserSettings(videoGenerationSettingsQuery.data?.value ?? null)
+          .sceneVideoDurationSeconds,
+      ),
+    [videoGenerationSettingsQuery.data?.value],
+  );
+  const gameStoryboardAnimationDurationSeconds = normalizeGameStoryboardAnimationDuration(
+    gameStoryboardAnimationDurationConfigured
+      ? metadata.gameStoryboardAnimationDurationSeconds
+      : gameStoryboardAnimationFallbackDuration,
+  );
+  const commitGameStoryboardAnimationDuration = useCallback(
+    (durationSeconds: number) => {
+      const normalized = normalizeGameStoryboardAnimationDuration(durationSeconds);
+      if (!gameStoryboardAnimationDurationConfigured && normalized === gameStoryboardAnimationDurationSeconds) return;
+      updateMeta.mutate({
+        id: chat.id,
+        gameStoryboardAnimationDurationSeconds: normalized,
+      });
+    },
+    [chat.id, gameStoryboardAnimationDurationConfigured, gameStoryboardAnimationDurationSeconds, updateMeta],
+  );
   const gameStoryboardViewerDisplayMode: GameStoryboardViewerDisplayMode =
     metadata.gameStoryboardViewerDisplayMode === "background" ? "background" : "floating";
   const gameStoryboardPromptTemplates = useMemo(
@@ -7565,10 +7619,10 @@ export function ChatSettingsDrawer({
                         <div className="min-w-0">
                           <div className="flex items-center gap-1 text-[0.625rem] font-medium text-[var(--foreground)]">
                             Keyframes per Turn
-                            <HelpTooltip text="Controls the number of storyboard illustrations planned for each completed GM turn. Animation clips use the same count." />
+                            <HelpTooltip text="Controls how many storyboard illustrations are planned for each completed GM turn. Animations are created from these keyframes when enabled." />
                           </div>
                           <p className="mt-0.5 text-[0.5625rem] leading-snug text-[var(--muted-foreground)]">
-                            Applies to automatic and manual storyboard generation.
+                            Used for automatic illustrations, manual storyboards, and animation source frames.
                           </p>
                         </div>
                         <span className="shrink-0 rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[0.625rem] tabular-nums text-[var(--foreground)] ring-1 ring-[var(--border)]">
@@ -7593,6 +7647,56 @@ export function ChatSettingsDrawer({
                       <div className="flex justify-between text-[0.5625rem] text-[var(--muted-foreground)]">
                         <span>{GAME_STORYBOARD_KEYFRAME_COUNT_MIN}</span>
                         <span>{GAME_STORYBOARD_KEYFRAME_COUNT_MAX}</span>
+                      </div>
+                    </div>
+                    <div
+                      className={cn(
+                        "grid gap-2 rounded-lg bg-[var(--background)]/75 px-3 py-2 ring-1 ring-[var(--border)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+                        !gameStoryboardAutoAnimationsEnabled && "opacity-60",
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1 text-[0.625rem] font-medium text-[var(--foreground)]">
+                          Animation Clip Duration
+                          <HelpTooltip text="Overrides the Video Generation scene fallback for storyboard MP4 clips in this chat. Some video providers may clamp to a lower maximum." />
+                        </div>
+                        <p className="mt-0.5 text-[0.5625rem] leading-snug text-[var(--muted-foreground)]">
+                          {gameStoryboardAnimationDurationConfigured
+                            ? "Used for each generated storyboard animation clip."
+                            : "Uses the global Video Generation scene fallback until set."}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+                        <div className="grid grid-cols-[minmax(0,4rem)_auto] items-center gap-1.5">
+                          <DraftNumberInput
+                            value={gameStoryboardAnimationDurationSeconds}
+                            min={GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN}
+                            max={GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX}
+                            disabled={!gameStoryboardAutoAnimationsEnabled}
+                            onCommit={commitGameStoryboardAnimationDuration}
+                            className="min-w-0 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-2 py-1 text-xs text-[var(--foreground)] outline-none transition-colors focus:border-[var(--primary)]/50 disabled:cursor-not-allowed disabled:opacity-70"
+                            ariaLabel="Storyboard animation clip duration in seconds"
+                          />
+                          <span className="text-[0.625rem] text-[var(--muted-foreground)]">s</span>
+                        </div>
+                        {gameStoryboardAnimationDurationConfigured ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateMeta.mutate({
+                                id: chat.id,
+                                gameStoryboardAnimationDurationSeconds: null,
+                              })
+                            }
+                            className="rounded-md border border-[var(--border)] px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Use video default
+                          </button>
+                        ) : (
+                          <span className="rounded-md bg-[var(--secondary)]/70 px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                            Video default
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="space-y-1">

@@ -121,6 +121,9 @@ import type {
 } from "@marinara-engine/shared";
 import type { SceneSegmentEffect } from "@marinara-engine/shared";
 import {
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
+  GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
   GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
   GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
   GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
@@ -254,6 +257,21 @@ function normalizeGameStoryboardKeyframeCount(value: unknown): number {
   return Math.max(
     GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
     Math.min(GAME_STORYBOARD_KEYFRAME_COUNT_MAX, Math.trunc(numeric)),
+  );
+}
+
+function hasGameStoryboardAnimationDuration(value: unknown): boolean {
+  if (value == null || value === "") return false;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric);
+}
+
+function normalizeGameStoryboardAnimationDuration(value: unknown): number {
+  if (!hasGameStoryboardAnimationDuration(value)) return GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Math.max(
+    GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
+    Math.min(GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX, Math.trunc(numeric)),
   );
 }
 
@@ -3692,6 +3710,12 @@ function GameSurfaceComponent({
   const gameStoryboardAutoGenerationEnabled =
     gameStoryboardAutoIllustrationsEnabled || gameStoryboardAutoAnimationsEnabled;
   const gameStoryboardKeyframeCount = normalizeGameStoryboardKeyframeCount(chatMeta.gameStoryboardKeyframeCount);
+  const gameStoryboardAnimationDurationConfigured = hasGameStoryboardAnimationDuration(
+    chatMeta.gameStoryboardAnimationDurationSeconds,
+  );
+  const gameStoryboardAnimationDurationSeconds = normalizeGameStoryboardAnimationDuration(
+    chatMeta.gameStoryboardAnimationDurationSeconds,
+  );
   const gameImageUseAvatarReferences = chatMeta.gameImageUseAvatarReferences !== false;
   const gameImageIncludeCharacterAppearance = chatMeta.gameImageIncludeCharacterAppearance !== false;
 
@@ -5530,6 +5554,10 @@ function GameSurfaceComponent({
         swipeIndex: latestAssistantSwipeIndex,
         sections: latestAssistantStoryboardSections,
         keyframeCount: gameStoryboardKeyframeCount,
+        durationSeconds:
+          gameStoryboardAutoAnimationsEnabled && gameStoryboardAnimationDurationConfigured
+            ? gameStoryboardAnimationDurationSeconds
+            : undefined,
         generateVideos: gameStoryboardAutoAnimationsEnabled,
         debugMode: useUIStore.getState().debugMode,
       });
@@ -5548,6 +5576,8 @@ function GameSurfaceComponent({
     }
   }, [
     activeChatId,
+    gameStoryboardAnimationDurationConfigured,
+    gameStoryboardAnimationDurationSeconds,
     gameImageGenerationEnabled,
     gameStoryboardAutoAnimationsEnabled,
     gameStoryboardKeyframeCount,
@@ -5580,6 +5610,9 @@ function GameSurfaceComponent({
       latestAssistantMsg.content.length,
       latestAssistantStoryboardSections.length,
       gameStoryboardKeyframeCount,
+      gameStoryboardAutoAnimationsEnabled && gameStoryboardAnimationDurationConfigured
+        ? gameStoryboardAnimationDurationSeconds
+        : "default",
       lastSection?.index ?? 0,
       lastSection?.content.length ?? 0,
     ].join(":");
@@ -5593,6 +5626,10 @@ function GameSurfaceComponent({
         swipeIndex: latestAssistantSwipeIndex,
         sections: latestAssistantStoryboardSections,
         keyframeCount: gameStoryboardKeyframeCount,
+        durationSeconds:
+          gameStoryboardAutoAnimationsEnabled && gameStoryboardAnimationDurationConfigured
+            ? gameStoryboardAnimationDurationSeconds
+            : undefined,
         generateVideos: gameStoryboardAutoAnimationsEnabled,
         debugMode: useUIStore.getState().debugMode,
       })
@@ -5604,6 +5641,8 @@ function GameSurfaceComponent({
       });
   }, [
     activeChatId,
+    gameStoryboardAnimationDurationConfigured,
+    gameStoryboardAnimationDurationSeconds,
     gameImageGenerationEnabled,
     gameStoryboardAutoAnimationsEnabled,
     gameStoryboardAutoGenerationEnabled,

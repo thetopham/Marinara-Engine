@@ -158,6 +158,7 @@ import type {
   ConversationCommandKey,
   ConversationNote,
   ExportEnvelope,
+  GameExperienceStyle,
   GameStoryboardViewerDisplayMode,
   HapticFeedbackSensitivity,
   HudWidget,
@@ -204,6 +205,8 @@ import {
   AGENT_COST_HIGH_TOKENS,
   CONVERSATION_COMMAND_KEYS,
   getDefaultBuiltInAgentSettings,
+  normalizeGameExperienceStyle,
+  normalizeVideoGenerationUserSettings,
   isAgentAvailableInChatMode,
   isAgentConfigDeleted,
   isAgentHiddenFromChatSettingsPicker,
@@ -1745,11 +1748,28 @@ export function ChatSettingsDrawer({
     () => resolveSelectedGameVideoPromptTemplateId(metadata.gameVideoPromptTemplateId, gameVideoPromptOptions),
     [gameVideoPromptOptions, metadata.gameVideoPromptTemplateId],
   );
+  const selectedGameStoryboardVideoPromptTemplateId = useMemo(
+    () =>
+      resolveSelectedGameVideoPromptTemplateId(
+        metadata.gameStoryboardVideoPromptTemplateId ?? metadata.gameVideoPromptTemplateId,
+        gameVideoPromptOptions,
+      ),
+    [gameVideoPromptOptions, metadata.gameStoryboardVideoPromptTemplateId, metadata.gameVideoPromptTemplateId],
+  );
   const updateGameVideoPromptSelection = useCallback(
     (promptTemplateId: string) => {
       updateMeta.mutate({
         id: chat.id,
         gameVideoPromptTemplateId: promptTemplateId === GAME_VIDEO_PROMPT_TEMPLATE_ID ? null : promptTemplateId,
+      });
+    },
+    [chat.id, updateMeta],
+  );
+  const updateGameStoryboardVideoPromptSelection = useCallback(
+    (promptTemplateId: string) => {
+      updateMeta.mutate({
+        id: chat.id,
+        gameStoryboardVideoPromptTemplateId: promptTemplateId,
       });
     },
     [chat.id, updateMeta],
@@ -1765,9 +1785,12 @@ export function ChatSettingsDrawer({
         id: chat.id,
         gameVideoPromptTemplates: normalized,
         ...(availableIds.has(selectedGameVideoPromptTemplateId) ? {} : { gameVideoPromptTemplateId: null }),
+        ...(availableIds.has(selectedGameStoryboardVideoPromptTemplateId)
+          ? {}
+          : { gameStoryboardVideoPromptTemplateId: null }),
       });
     },
-    [chat.id, selectedGameVideoPromptTemplateId, updateMeta],
+    [chat.id, selectedGameStoryboardVideoPromptTemplateId, selectedGameVideoPromptTemplateId, updateMeta],
   );
   const addGameVideoPromptTemplate = useCallback(
     (sourceTemplateId: string) => {
@@ -3797,6 +3820,9 @@ export function ChatSettingsDrawer({
                 storedValue={(metadata.gameSystemPrompt as string) ?? ""}
                 value={gamePromptDraft}
                 specialInstructionsValue={gameSpecialInstructionsDraft}
+                experienceStyle={normalizeGameExperienceStyle(
+                  (metadata.gameSetupConfig as Record<string, unknown> | undefined)?.experienceStyle,
+                )}
                 promptPresetId={effectiveModePromptPresetId}
                 promptPresets={promptPresetOptions}
                 selectedPresetName={selectedModePromptPreset?.name ?? null}
@@ -3805,6 +3831,13 @@ export function ChatSettingsDrawer({
                 onSpecialInstructionsCommit={(gameSpecialInstructions) =>
                   updateMeta.mutate({ id: chat.id, gameSpecialInstructions })
                 }
+                onExperienceStyleChange={(experienceStyle: GameExperienceStyle) => {
+                  const setupConfig =
+                    metadata.gameSetupConfig && typeof metadata.gameSetupConfig === "object"
+                      ? { ...(metadata.gameSetupConfig as Record<string, unknown>), experienceStyle }
+                      : { experienceStyle };
+                  updateMeta.mutate({ id: chat.id, gameSetupConfig: setupConfig });
+                }}
                 onExpandedChange={setGamePromptExpanded}
                 onValueChange={setGamePromptDraft}
                 onSpecialInstructionsChange={setGameSpecialInstructionsDraft}
@@ -7826,8 +7859,8 @@ export function ChatSettingsDrawer({
                         }
                       />
                       <GamePromptTemplateSelect
-                        label="Animation Prompt"
-                        description="Used when automatic storyboard animations are enabled."
+                        label="Animation Source Prompt"
+                        description="Creates the comic page or keyframe image that will be animated."
                         options={gameStoryboardPromptOptions}
                         selectedId={selectedGameStoryboardAnimationPromptTemplateId}
                         fallbackId={GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID}
@@ -7838,6 +7871,16 @@ export function ChatSettingsDrawer({
                           )
                         }
                       />
+                      <div className="md:col-span-2">
+                        <GamePromptTemplateSelect
+                          label="Storyboard Motion Prompt"
+                          description="Controls how saved storyboard source images become animation clips."
+                          options={gameVideoPromptOptions}
+                          selectedId={selectedGameStoryboardVideoPromptTemplateId}
+                          fallbackId={GAME_VIDEO_PROMPT_TEMPLATE_ID}
+                          onChange={updateGameStoryboardVideoPromptSelection}
+                        />
+                      </div>
                     </div>
                     <GameStoryboardPromptLibrary
                       customTemplates={gameStoryboardPromptTemplates}
@@ -7850,8 +7893,8 @@ export function ChatSettingsDrawer({
                       separate.
                     </p>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Still keyframes avoid comic text so normal storyboards do not reveal later panels. Comic page
-                      keyframes are meant for the animation path.
+                      Still keyframes avoid comic text so normal storyboards do not reveal later panels. Animation
+                      Source controls the rendered page; Storyboard Motion controls how that page moves.
                     </p>
                   </AgentSettingsCard>
                 )}

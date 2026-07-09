@@ -1,5 +1,6 @@
 import {
   normalizeTextForMatch,
+  normalizeGameExperienceStyle,
   type GameActiveState,
   type GameCampaignPlan,
   type GameMap,
@@ -293,6 +294,7 @@ export async function injectGameGmPromptRuntime(args: {
     genre: (setupConfig?.genre as string) || "fantasy",
     setting: (setupConfig?.setting as string) || "original",
     tone: (setupConfig?.tone as string) || "balanced",
+    experienceStyle: normalizeGameExperienceStyle(setupConfig?.experienceStyle),
     rating: (setupConfig?.rating as "sfw" | "nsfw") || "sfw",
     campaignPlan: gameBlueprint?.campaignPlan ?? null,
     canGenerateBackgrounds:

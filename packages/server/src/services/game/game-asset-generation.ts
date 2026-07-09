@@ -1008,7 +1008,14 @@ export async function buildSceneIllustrationProviderPrompt(
       referenceImages.length ? `Reference images attached: ${referenceImages.length}` : "",
     ],
   });
-  return compileGameImagePrompt(req, "illustration", prompt, 7000, GAME_ILLUSTRATION_NEGATIVE_PROMPT);
+  return compileGameImagePrompt(
+    req,
+    "illustration",
+    prompt,
+    7000,
+    req.negativePromptOverride === undefined ? GAME_ILLUSTRATION_NEGATIVE_PROMPT : undefined,
+    req.negativePromptOverride,
+  );
 }
 
 export async function buildSceneIllustrationImagePrompt(req: SceneIllustrationGenRequest): Promise<string> {

@@ -24,6 +24,7 @@ import {
   normalizeTrackerFieldLocksForState,
   trackerFieldLocksAreEmpty,
   customAgentHasCapability,
+  CHAT_SUMMARY_PROMPT_SETTINGS_KEY,
   DEFAULT_CONVERSATION_PROMPT,
   unwrapConversationInstructions,
   findKnownModel,
@@ -58,6 +59,7 @@ import { createCustomEmojisStorage } from "../services/storage/custom-emojis.sto
 import { createCustomStickersStorage } from "../services/storage/custom-stickers.storage.js";
 import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
 import { createPersonaGalleryStorage } from "../services/storage/persona-gallery.storage.js";
+import { createAppSettingsStorage } from "../services/storage/app-settings.storage.js";
 import { buildLorebookSemanticEmbeddingsById } from "../services/lorebook/embeddings.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
@@ -311,7 +313,7 @@ import {
   clampRoleplaySummaryMaxTokens,
   isAutomaticRoleplaySummaryEnabled,
   parseChatSummaryText,
-  resolveChatSummaryPromptFromMetadata,
+  resolveChatSummaryPrompt,
   withoutRetiredChatSummaryAgentIds,
 } from "../services/generation/roleplay-summary-runtime.js";
 import { getMaxToolRounds } from "../config/runtime-config.js";
@@ -501,6 +503,7 @@ export async function generateRoutes(app: FastifyInstance) {
   const customStickersStore = createCustomStickersStorage(app.db);
   const characterGallery = createCharacterGalleryStorage(app.db);
   const personaGallery = createPersonaGalleryStorage(app.db);
+  const appSettings = createAppSettingsStorage(app.db);
 
   /**
    * In-memory cache for OpenAI Responses API encrypted reasoning items.
@@ -1971,10 +1974,12 @@ export async function generateRoutes(app: FastifyInstance) {
             ...(convoProfileBlocks.behaviorPostHistoryBlock
               ? [{ role: "user" as const, content: convoProfileBlocks.behaviorPostHistoryBlock }]
               : []),
-            ...(conversationContextMacroSlots.context ? [] : [{ role: "user" as const, content: contextBlock }]),
           ];
-          if (conversationContextMacroSlots.context) {
-            replaceConversationContextMacro(finalMessages, "context", contextBlock);
+          const conversationContextInserted = conversationContextMacroSlots.context
+            ? replaceConversationContextMacro(finalMessages, "context", contextBlock)
+            : false;
+          if (!conversationContextInserted) {
+            finalMessages.push({ role: "user" as const, content: contextBlock });
           }
           if (conversationContextMacroSlots.reactRules) {
             replaceConversationContextMacro(finalMessages, "reactRules", conversationReactRules);
@@ -5850,9 +5855,16 @@ export async function generateRoutes(app: FastifyInstance) {
             .map((message: any) => `[${message.role}]: ${(message.content as string).slice(0, 2000)}`)
             .join("\n\n");
           const previousSummary = typeof chatMeta.summary === "string" ? chatMeta.summary.trim() : "";
+          const globalSummaryPromptSettings = await appSettings.get(CHAT_SUMMARY_PROMPT_SETTINGS_KEY);
           const result = await summaryProvider.chatComplete(
             [
-              { role: "system", content: resolveChatSummaryPromptFromMetadata(chatMeta) },
+              {
+                role: "system",
+                content: resolveChatSummaryPrompt({
+                  chatMetadata: chatMeta,
+                  globalSettingsValue: globalSummaryPromptSettings,
+                }),
+              },
               {
                 role: "user",
                 content:
@@ -7884,13 +7896,11 @@ export async function generateRoutes(app: FastifyInstance) {
                   command,
                   characterId,
                   chatId: input.chatId,
-                  app,
                   chars,
-                  chats,
-                  sendSceneCreated: (data) => {
+                  sendSceneRequested: (data) => {
                     reply.raw.write(
                       `data: ${JSON.stringify({
-                        type: "scene_created",
+                        type: "scene_requested",
                         data,
                       })}\n\n`,
                     );

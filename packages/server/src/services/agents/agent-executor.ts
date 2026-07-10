@@ -453,7 +453,7 @@ function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
-function agentCallSignal(parentSignal?: AbortSignal, agentType?: string): AbortSignal {
+function agentCallSignal(parentSignal?: AbortSignal, agentType?: "illustrator"): AbortSignal {
   const timeoutMs = agentType === "illustrator" ? ILLUSTRATOR_AGENT_CALL_TIMEOUT_MS : DEFAULT_AGENT_CALL_TIMEOUT_MS;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return parentSignal ? combineAbortSignals([parentSignal, timeoutSignal]) : timeoutSignal;
@@ -623,7 +623,7 @@ export async function executeAgent(
             responseText += chunk;
           }
         : undefined,
-      signal: agentCallSignal(context.signal, config.type),
+      signal: agentCallSignal(context.signal, config.type === "illustrator" ? "illustrator" : undefined),
     });
 
     if (!responseText && result.content) responseText = result.content;
@@ -669,7 +669,7 @@ export async function executeAgent(
               retryResponseText += chunk;
             }
           : undefined,
-        signal: agentCallSignal(context.signal, config.type),
+        signal: agentCallSignal(context.signal, config.type === "illustrator" ? "illustrator" : undefined),
       });
       totalTokens += retryResult.usage?.totalTokens ?? 0;
       if (!retryResponseText && retryResult.content) retryResponseText = retryResult.content;
@@ -742,7 +742,7 @@ async function executeAgentWithTools(
   let totalTokens = 0;
   const debugAgentsEnabled = isDebugAgentsEnabled() && logger.isLevelEnabled("debug");
   const customParameters = agentCustomParameters(config);
-  const toolLoopSignal = agentCallSignal(context.signal, config.type);
+  const toolLoopSignal = agentCallSignal(context.signal, config.type === "illustrator" ? "illustrator" : undefined);
 
   for (let round = 0; round < maxToolRounds; round++) {
     emitAgentDebug(context, {

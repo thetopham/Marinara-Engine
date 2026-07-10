@@ -7202,12 +7202,14 @@ export async function generateRoutes(app: FastifyInstance) {
                     preferredTargetLorebookId,
                     writableLorebookIds,
                     updates,
-                    revectorizeEntry: async (entry) => {
-                      await warmLorebookEntryEmbeddings(app.db, [entry], {
-                        embeddingSource: memoryRecallEmbeddingSource,
-                        signal: abortController.signal,
-                      });
-                    },
+                    revectorizeEntry: memoryRecallVectorizerAvailable
+                      ? async (entry) => {
+                          await warmLorebookEntryEmbeddings(app.db, [entry], {
+                            embeddingSource: memoryRecallEmbeddingSource,
+                            signal: abortController.signal,
+                          });
+                        }
+                      : undefined,
                   });
                 }
               } catch {

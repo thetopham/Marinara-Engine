@@ -343,6 +343,11 @@ export interface SuggestionsCommand {
   suggestions: unknown;
 }
 
+export interface PlanCommand {
+  type: "plan";
+  plan: unknown;
+}
+
 export type AssistantCommand =
   | CreatePersonaCommand
   | CreateCharacterCommand
@@ -354,7 +359,8 @@ export type AssistantCommand =
   | CreateChatCommand
   | NavigateCommand
   | FetchCommand
-  | SuggestionsCommand;
+  | SuggestionsCommand
+  | PlanCommand;
 
 export type CharacterCommand =
   | ScheduleUpdateCommand
@@ -473,6 +479,7 @@ const CREATE_LOREBOOK_BLOCK_RE = /<create_lorebook>([\s\S]*?)<\/create_lorebook>
 const UPDATE_LOREBOOK_BLOCK_RE = /<update_lorebook>([\s\S]*?)<\/update_lorebook>/gi;
 const CREATE_PRESET_BLOCK_RE = /<create_preset>([\s\S]*?)<\/create_preset>/gi;
 const SUGGESTIONS_BLOCK_RE = /<suggestions>([\s\S]*?)<\/suggestions>/gi;
+const PLAN_BLOCK_RE = /<plan>([\s\S]*?)<\/plan>/gi;
 const CREATE_CHAT_RE = new RegExp(`\\[create_chat:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const NAVIGATE_RE = new RegExp(`\\[navigate:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const FETCH_RE = new RegExp(`\\[fetch:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -1308,6 +1315,16 @@ export function parseCharacterCommands(content: string): {
     if (suggestions !== null) commands.push({ type: "suggestions", suggestions });
   }
 
+  for (const match of content.matchAll(PLAN_BLOCK_RE)) {
+    const plan = parseLenientJsonValue(match[1] ?? "");
+    if (plan !== null) commands.push({ type: "plan", plan });
+  }
+
+  for (const planBlock of findBracketJsonCommandBlocks(content, "plan")) {
+    const plan = parseLenientJsonValue(planBlock);
+    if (plan !== null) commands.push({ type: "plan", plan });
+  }
+
   for (const match of content.matchAll(CREATE_LOREBOOK_RE)) {
     const params = match[1]!;
     const name = parseQuotedParam(params, "name");
@@ -1390,6 +1407,7 @@ export function parseCharacterCommands(content: string): {
     .replace(UPDATE_LOREBOOK_BLOCK_RE, "")
     .replace(CREATE_PRESET_BLOCK_RE, "")
     .replace(SUGGESTIONS_BLOCK_RE, "")
+    .replace(PLAN_BLOCK_RE, "")
     .replace(CREATE_LOREBOOK_RE, "")
     .replace(CREATE_CHAT_RE, "")
     .replace(NAVIGATE_RE, "")
@@ -1397,6 +1415,7 @@ export function parseCharacterCommands(content: string): {
     .replace(/\n{3,}/g, "\n\n") // collapse excessive newlines left by removals
     .trim();
   cleanContent = stripBracketJsonCommandBlocks(cleanContent, "suggestions").replace(/\n{3,}/g, "\n\n").trim();
+  cleanContent = stripBracketJsonCommandBlocks(cleanContent, "plan").replace(/\n{3,}/g, "\n\n").trim();
 
   return { cleanContent, commands };
 }

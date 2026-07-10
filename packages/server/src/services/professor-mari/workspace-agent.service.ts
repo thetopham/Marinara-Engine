@@ -40,12 +40,14 @@ import {
   MODEL_LISTS,
   PROFESSOR_MARI_ID,
   resolveProviderReasoningEffort,
+  sanitizeMariGuidedPlan,
   sanitizeMariSuggestionChips,
   type APIProvider,
   type GenerationParameterSendMap,
 } from "@marinara-engine/shared";
 import type {
   MariDbCommandResult,
+  MariGuidedPlanStep,
   MariSuggestionChip,
   MariWorkspaceConnectionSummary,
   MariWorkspacePromptEvent,
@@ -108,6 +110,7 @@ type AssistantWorkspaceAction = {
   visibleText: string;
   commands: WorkspaceCommandCall[];
   suggestions: MariSuggestionChip[];
+  plan: MariGuidedPlanStep[];
   stop: boolean;
   protocolValid: boolean;
   assistantHistoryContent: string;
@@ -418,6 +421,9 @@ Required schema:
   "suggestions": [
     { "label": "short button text", "prompt": "exact message to send if tapped", "entity": "characters|lorebooks|personas|presets|connections|agents|settings|chat", "tone": "danger|caution|success" }
   ],
+  "plan": [
+    { "fieldKey": "name", "question": "short question for this field", "chips": [ { "label": "...", "prompt": "..." } ] }
+  ],
   "stop": false
 }
 
@@ -425,11 +431,13 @@ Field rules:
 - \`say\` is the only text Marinara may show to the user.
 - \`commands\` is the command list to execute now. Use \`[]\` only when no command is needed.
 - \`suggestions\` is optional. Include at most 5 quick-reply chips when useful; omit it when no chips are needed.
+- \`plan\` is optional and mutually exclusive with a multi-turn interrogation: use it ONLY when the user's create/edit request is vague (e.g. "make me a character" with no details). Return the WHOLE plan in this ONE turn - an ordered list of the natural fields for what they're creating (e.g. name, vibe, scenario, greeting for a character), each with 3-5 illustrative example-answer chips. The client walks the plan locally with no further calls from you, then sends you one summary message with all the answers so you can actually create it with your normal commands. If the request already has enough detail, skip \`plan\` entirely and just create it now - don't force the user through fields they already answered.
 - \`stop\` is \`false\` while you need command results or another model turn. Set \`stop\` to \`true\` only when the response is complete.
 - If \`commands\` is not empty, \`stop\` should usually be \`false\`.
 - If you say you will do workspace/app-data work, include the command in the same JSON object.
-- When the user is creating or editing something, ask ONE focused question at a time and offer 3-5 suggested answers as \`suggestions\`, each tagged with the matching entity so the UI colors them. Use tone:"danger" only for irreversible actions. Suggestions never replace your natural reply text.
 - Immediately after you successfully create or update something, offer 2-4 follow-up suggestions for a natural next step: link it to something else, refine a field, create a related item, or open it for full editing. Tag each with the relevant entity.
+- Do not mention tapping, clicking, choosing chips, quick replies, buttons, or examples unless \`suggestions\` or \`plan\` is present in the same JSON object. If you want the user to answer in plain chat, ask directly without referring to UI controls.
+- For vague create/edit requests, prefer one \`plan\` instead of interrogating the user turn by turn. Use \`suggestions\` only for simple quick replies or follow-up next steps, not as a hidden substitute for a guided plan.
 
 ${MARI_GUIDED_SEQUENCES}
 
@@ -935,6 +943,7 @@ function dedupeWorkspaceCommandCalls(calls: WorkspaceCommandCall[]): WorkspaceCo
 function assistantHistoryContentForAction(
   action: Pick<AssistantWorkspaceAction, "visibleText" | "commands" | "stop"> & {
     suggestions?: MariSuggestionChip[];
+    plan?: MariGuidedPlanStep[];
   },
 ): string {
   const payload: Record<string, unknown> = {
@@ -943,6 +952,7 @@ function assistantHistoryContentForAction(
     stop: action.stop,
   };
   if (action.suggestions && action.suggestions.length > 0) payload.suggestions = action.suggestions;
+  if (action.plan && action.plan.length > 0) payload.plan = action.plan;
   return JSON.stringify(payload);
 }
 
@@ -987,6 +997,7 @@ function parseAssistantWorkspaceAction(content: string): AssistantWorkspaceActio
     .join("\n\n");
   const visibleText = [inlineVisibleText, frameVisibleText].filter(Boolean).join("\n\n").trim();
   const suggestions = matches.flatMap((match) => sanitizeSuggestionChips(match.payload.suggestions));
+  const plan = matches.flatMap((match) => sanitizePlanSteps(match.payload.plan));
   const commands = dedupeWorkspaceCommandCalls([
     ...parseXmlCommandCalls(contentWithoutJson),
     ...jsonCommands,
@@ -1000,9 +1011,10 @@ function parseAssistantWorkspaceAction(content: string): AssistantWorkspaceActio
     visibleText,
     commands,
     suggestions,
+    plan,
     stop,
     protocolValid,
-    assistantHistoryContent: assistantHistoryContentForAction({ visibleText, commands, suggestions, stop }),
+    assistantHistoryContent: assistantHistoryContentForAction({ visibleText, commands, suggestions, plan, stop }),
   };
 }
 
@@ -1012,6 +1024,14 @@ function sanitizeSuggestionChips(raw: unknown): MariSuggestionChip[] {
     logger.debug("[Professor Mari] Dropped invalid workspace suggestion chips");
   }
   return chips;
+}
+
+function sanitizePlanSteps(raw: unknown): MariGuidedPlanStep[] {
+  const steps = sanitizeMariGuidedPlan(raw, { maxSteps: 8, maxChipsPerStep: 5 });
+  if (Array.isArray(raw) && raw.length > 0 && steps.length === 0) {
+    logger.debug("[Professor Mari] Dropped invalid workspace guided plan");
+  }
+  return steps;
 }
 
 function roleForMessage(row: { role: string }): "system" | "user" | "assistant" {
@@ -1525,6 +1545,7 @@ export class ProfessorMariWorkspaceService {
                 visibleText: parsedAction.visibleText,
                 commands: [],
                 suggestions: parsedAction.suggestions,
+                plan: parsedAction.plan,
                 stop: true,
               }),
             }
@@ -1568,6 +1589,7 @@ export class ProfessorMariWorkspaceService {
           appendTraceText(workspaceTrace, `${action.visibleText}\n`);
         }
         if (action.suggestions.length > 0) args.onEvent({ type: "suggestions", data: action.suggestions });
+        if (action.plan.length > 0) args.onEvent({ type: "plan", data: action.plan });
         streamedVisibleText = "";
 
         messages.push({ role: "assistant", content: action.assistantHistoryContent });
@@ -1630,6 +1652,7 @@ export class ProfessorMariWorkspaceService {
             assistantText = appendVisibleText(assistantText, finalAction.visibleText);
             appendTraceText(workspaceTrace, finalAction.visibleText);
             if (finalAction.suggestions.length > 0) args.onEvent({ type: "suggestions", data: finalAction.suggestions });
+            if (finalAction.plan.length > 0) args.onEvent({ type: "plan", data: finalAction.plan });
           } else if (finalAction.commands.length > 0) {
             const content =
               "Professor Mari tried to run more workspace commands after the command limit, so I stopped the loop. Ask her to continue if you want her to keep working from the saved trace.";

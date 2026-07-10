@@ -44,7 +44,7 @@ export const MARI_STARTER_CHIPS: MariSuggestionChip[] = [
     id: "starter-persona",
     label: "Create a persona",
     entity: "personas",
-    icon: "Sparkles",
+    icon: "UserRound",
     prompt: "Help me create a persona for myself, step by step.",
   },
   {
@@ -72,6 +72,24 @@ const MARI_CHIP_ENTITIES = new Set<MariChipEntity>([
   "chat",
 ]);
 
+const MARI_CHIP_ENTITY_ALIASES: Record<string, MariChipEntity> = {
+  character: "characters",
+  characters: "characters",
+  lorebook: "lorebooks",
+  lorebooks: "lorebooks",
+  persona: "personas",
+  personas: "personas",
+  preset: "presets",
+  presets: "presets",
+  connection: "connections",
+  connections: "connections",
+  agent: "agents",
+  agents: "agents",
+  setting: "settings",
+  settings: "settings",
+  chat: "chat",
+};
+
 const MARI_CHIP_TONES = new Set<MariChipTone>(["default", "danger", "caution", "success"]);
 
 function truncateMariChipText(value: string, maxLength: number): string {
@@ -88,6 +106,13 @@ function firstStringField(record: Record<string, unknown>, keys: string[]): stri
     if (typeof value === "string" && value.trim()) return value;
   }
   return undefined;
+}
+
+function normalizeMariChipEntity(value: unknown): MariChipEntity | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s_-]+/g, "_");
+  if (MARI_CHIP_ENTITIES.has(normalized as MariChipEntity)) return normalized as MariChipEntity;
+  return MARI_CHIP_ENTITY_ALIASES[normalized];
 }
 
 /**
@@ -118,9 +143,8 @@ export function sanitizeMariSuggestionChips(raw: unknown, options: { maxChips?: 
       label,
       prompt,
     };
-    if (typeof record.entity === "string" && MARI_CHIP_ENTITIES.has(record.entity as MariChipEntity)) {
-      chip.entity = record.entity as MariChipEntity;
-    }
+    const entity = normalizeMariChipEntity(record.entity);
+    if (entity) chip.entity = entity;
     if (typeof record.icon === "string" && record.icon.trim()) {
       chip.icon = truncateMariChipText(record.icon, 40);
     }
@@ -131,6 +155,44 @@ export function sanitizeMariSuggestionChips(raw: unknown, options: { maxChips?: 
     if (chips.length >= maxChips) break;
   }
   return chips;
+}
+
+/**
+ * One question in a guided-creation plan Mari returns in a single call. The client walks
+ * these locally (tap a chip -> next step, zero further calls) until exhausted, then sends
+ * one summary message back so Mari performs the actual creation with her normal commands.
+ */
+export interface MariGuidedPlanStep {
+  fieldKey: string;
+  question: string;
+  chips: MariSuggestionChip[];
+}
+
+const PLAN_STEP_FIELD_KEY_KEYS = ["fieldKey", "key", "field", "name"];
+const PLAN_STEP_QUESTION_KEYS = ["question", "prompt", "label", "text"];
+
+/** Same tolerant-parsing philosophy as sanitizeMariSuggestionChips - accept near-miss shapes. */
+export function sanitizeMariGuidedPlan(raw: unknown, options: { maxSteps?: number; maxChipsPerStep?: number } = {}): MariGuidedPlanStep[] {
+  if (!Array.isArray(raw)) return [];
+  const maxSteps = options.maxSteps ?? 8;
+  const maxChipsPerStep = options.maxChipsPerStep ?? 5;
+  const steps: MariGuidedPlanStep[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const rawFieldKey = firstStringField(record, PLAN_STEP_FIELD_KEY_KEYS);
+    const rawQuestion = firstStringField(record, PLAN_STEP_QUESTION_KEYS) ?? rawFieldKey;
+    if (!rawFieldKey || !rawQuestion) continue;
+    const chips = sanitizeMariSuggestionChips(record.chips ?? record.options ?? record.suggestions, { maxChips: maxChipsPerStep });
+    if (chips.length === 0) continue;
+    steps.push({
+      fieldKey: truncateMariChipText(rawFieldKey, 40).replace(/\s+/g, "_"),
+      question: truncateMariChipText(rawQuestion, 120),
+      chips,
+    });
+    if (steps.length >= maxSteps) break;
+  }
+  return steps;
 }
 
 export interface MariWorkspaceToolTrace {
@@ -302,5 +364,6 @@ export type MariWorkspacePromptEvent =
   | { type: "approval_pending"; data: MariDbPendingApproval }
   | { type: "metadata"; data: Record<string, unknown> }
   | { type: "suggestions"; data: MariSuggestionChip[] }
+  | { type: "plan"; data: MariGuidedPlanStep[] }
   | { type: "done"; data?: unknown }
   | { type: "error"; data: string };

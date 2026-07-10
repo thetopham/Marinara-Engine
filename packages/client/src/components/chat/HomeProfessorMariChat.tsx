@@ -35,6 +35,7 @@ import {
   Search,
   Send,
   ShieldAlert,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -50,6 +51,7 @@ import {
   type Chat,
   type MariDbHistoryEntry,
   type MariDbPendingApproval,
+  type MariGuidedPlanStep,
   type MariSuggestionChip,
   type MariWorkspaceSkillDetail,
   type MariWorkspaceSkillsResponse,
@@ -64,6 +66,7 @@ import { filterLanguageGenerationConnections } from "../../lib/connection-filter
 import { api, getPrivilegedActionErrorMessage } from "../../lib/api-client";
 import { formatGenerationParameterError } from "../../lib/generation-parameter-errors";
 import { useChatStore } from "../../stores/chat.store";
+import { useAgentStore } from "../../stores/agent.store";
 import { useSidecarStore } from "../../stores/sidecar.store";
 import { useUIStore } from "../../stores/ui.store";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
@@ -1855,7 +1858,6 @@ export function HomeProfessorMariChat({
   const [workspaceActive, setWorkspaceActive] = useState(false);
   const [workspaceActivity, setWorkspaceActivity] = useState<string | null>(null);
   const [workspaceTimeline, setWorkspaceTimeline] = useState<WorkspaceTimelineItem[]>([]);
-  const [suggestionChips, setSuggestionChips] = useState<MariSuggestionChip[]>([]);
   const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const [chatHistory, setChatHistory] = useState<ProfessorMariChatSummary[]>([]);
   const [chatHistoryLoading, setChatHistoryLoading] = useState(false);
@@ -1900,6 +1902,17 @@ export function HomeProfessorMariChat({
 
   const hasActiveGeneration = useChatStore((state) => (chatId ? state.abortControllers.has(chatId) : false));
   const mariPhase = useChatStore((state) => (chatId ? (state.mariPhaseByChatId.get(chatId) ?? null) : null));
+  const mariChips = useAgentStore((state) => state.mariChips);
+  const mariChipsChatId = useAgentStore((state) => state.mariChipsChatId);
+  const setMariChips = useAgentStore((state) => state.setMariChips);
+  const clearMariChips = useAgentStore((state) => state.clearMariChips);
+  const mariPlan = useAgentStore((state) => state.mariPlan);
+  const mariPlanChatId = useAgentStore((state) => state.mariPlanChatId);
+  const mariPlanCursor = useAgentStore((state) => state.mariPlanCursor);
+  const setMariPlan = useAgentStore((state) => state.setMariPlan);
+  const recordMariPlanAnswer = useAgentStore((state) => state.recordMariPlanAnswer);
+  const clearMariPlan = useAgentStore((state) => state.clearMariPlan);
+  const professorMariSuggestionsEnabled = useUIStore((state) => state.professorMariSuggestionsEnabled);
 
   const languageConnections = useMemo<ProfessorMariConnectionOption[]>(
     () => filterLanguageGenerationConnections((connectionsRaw ?? []) as APIConnection[]),
@@ -1927,7 +1940,12 @@ export function HomeProfessorMariChat({
   const effectiveConnectionId = effectiveConnection?.id ?? null;
   const isBusy = sending || hasActiveGeneration || workspaceActive;
   const canSubmitMessage = (draft.trim().length > 0 || attachments.length > 0) && !isReadingAttachments;
-  const visibleSuggestionChips = suggestionChips.length > 0 ? suggestionChips : messages.length === 0 ? MARI_STARTER_CHIPS : [];
+  const visibleSuggestionChips =
+    professorMariSuggestionsEnabled && mariChipsChatId === chatId && mariChips.length > 0
+      ? mariChips
+      : professorMariSuggestionsEnabled && messages.length === 0
+        ? MARI_STARTER_CHIPS
+        : [];
   const selectedSkill = useMemo(
     () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
     [selectedSkillId, skills],
@@ -1942,6 +1960,12 @@ export function HomeProfessorMariChat({
     },
     [onChatWindowOpenChange],
   );
+
+  useEffect(() => {
+    if (professorMariSuggestionsEnabled) return;
+    clearMariChips();
+    clearMariPlan();
+  }, [clearMariChips, clearMariPlan, professorMariSuggestionsEnabled]);
 
   useEffect(() => {
     if (!floatingMode) return;
@@ -1968,11 +1992,14 @@ export function HomeProfessorMariChat({
     };
   }, [floatingMode]);
 
-  const loadMessages = useCallback(async (id: string, options: { clearSuggestions?: boolean } = {}) => {
-    const items = await api.get<Message[]>(`/chats/${id}/messages?limit=80`);
-    setMessages(items.map((message) => ({ ...message, extra: toMessageExtra(message) })));
-    if (options.clearSuggestions) setSuggestionChips([]);
-  }, []);
+  const loadMessages = useCallback(
+    async (id: string, options: { clearSuggestions?: boolean } = {}) => {
+      const items = await api.get<Message[]>(`/chats/${id}/messages?limit=80`);
+      setMessages(items.map((message) => ({ ...message, extra: toMessageExtra(message) })));
+      if (options.clearSuggestions) clearMariChips();
+    },
+    [clearMariChips],
+  );
 
   const loadChatHistory = useCallback(async () => {
     setChatHistoryLoading(true);
@@ -2072,7 +2099,7 @@ export function HomeProfessorMariChat({
           setSelectedConnectionId(restoredConnectionId);
           rememberConnectionId(restoredConnectionId);
         }
-        return loadMessages(chat.id, { clearSuggestions: true });
+        return loadMessages(chat.id);
       })
       .catch((error) => {
         console.error("[Professor Mari] Failed to load home assistant", error);
@@ -2370,7 +2397,7 @@ export function HomeProfessorMariChat({
     await api.post("/professor-mari/workspace/reset", { clearHistory: true });
     setMessages([]);
     setDraft("");
-    setSuggestionChips([]);
+    clearMariChips();
     setWorkspaceActive(false);
     setWorkspaceActivity(null);
     useChatStore.getState().clearStreamBuffer(chat.id);
@@ -2381,28 +2408,61 @@ export function HomeProfessorMariChat({
     if (chatHistoryOpen) await loadChatHistory();
     await qc.invalidateQueries({ queryKey: chatKeys.messages(chat.id) });
     toast.success("Professor Mari's previous chat was saved.");
-  }, [chatHistoryOpen, effectiveConnectionId, loadChatHistory, qc]);
+  }, [chatHistoryOpen, clearMariChips, effectiveConnectionId, loadChatHistory, qc]);
 
-  const handleSuggestionSelect = useCallback((chip: MariSuggestionChip) => {
-    setDraft((current) => (current.trim() ? `${current.trimEnd()} ${chip.prompt}` : chip.prompt));
-    requestAnimationFrame(() => {
-      const textarea = floatingTextareaRef.current ?? embeddedTextareaRef.current;
-      textarea?.focus();
-    });
-  }, []);
+  const guidedPlan = professorMariSuggestionsEnabled && mariPlanChatId === chatId ? mariPlan : null;
+  const guidedPlanStep = guidedPlan ? (guidedPlan[mariPlanCursor] ?? null) : null;
+  const chipRowChips = guidedPlanStep ? guidedPlanStep.chips : visibleSuggestionChips;
+  const chipRowHint = guidedPlanStep
+    ? `${guidedPlanStep.question} Suggestions only; you can type your own answer.`
+    : chipRowChips.length > 0
+      ? "Suggestions only. Pick one, or type your own."
+      : null;
+  const showSuggestionLoading =
+    professorMariSuggestionsEnabled &&
+    chipRowChips.length === 0 &&
+    workspaceActivity?.toLocaleLowerCase().includes("suggestion") === true;
+
+  const handleSuggestionSelect = useCallback(
+    (chip: MariSuggestionChip) => {
+      if (guidedPlanStep) {
+        const result = recordMariPlanAnswer(guidedPlanStep.fieldKey, chip.prompt);
+        if (result === "complete") {
+          const answers = useAgentStore.getState().mariPlanAnswers;
+          const summary = Object.entries(answers)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join("; ");
+          clearMariPlan();
+          setDraft(`Create it - ${summary}`);
+          requestAnimationFrame(() => {
+            const textarea = floatingTextareaRef.current ?? embeddedTextareaRef.current;
+            textarea?.focus();
+          });
+        }
+        return;
+      }
+      setDraft((current) => (current.trim() ? `${current.trimEnd()} ${chip.prompt}` : chip.prompt));
+      requestAnimationFrame(() => {
+        const textarea = floatingTextareaRef.current ?? embeddedTextareaRef.current;
+        textarea?.focus();
+      });
+    },
+    [clearMariPlan, guidedPlanStep, recordMariPlanAnswer],
+  );
 
   const runRestart = useCallback(async () => {
     if (isBusy) return;
     setSending(true);
     try {
       await handleRestart();
+      clearMariPlan();
     } catch (error) {
       console.error("[Professor Mari] Failed to restart", error);
       toast.error("Professor Mari could not restart her notes.");
     } finally {
       setSending(false);
     }
-  }, [handleRestart, isBusy]);
+  }, [clearMariPlan, handleRestart, isBusy]);
 
   const keepWorkspaceChange = useCallback(
     async (id: string) => {
@@ -2585,7 +2645,7 @@ export function HomeProfessorMariChat({
         setWorkspaceTimeline([]);
         useChatStore.getState().clearStreamBuffer(chat.id);
         useChatStore.getState().clearThinkingBuffer(chat.id);
-        await loadMessages(chat.id, { clearSuggestions: true });
+        await loadMessages(chat.id);
         await loadChatHistory();
       } catch (error) {
         console.error("[Professor Mari] Failed to open previous chat", error);
@@ -2628,7 +2688,7 @@ export function HomeProfessorMariChat({
         if (id === chatId) {
           const chat = await ensureProfessorMariChat(effectiveConnectionId);
           setChatId(chat.id);
-          await loadMessages(chat.id, { clearSuggestions: true });
+          await loadMessages(chat.id);
         }
         await loadChatHistory();
       } catch (error) {
@@ -2701,7 +2761,7 @@ export function HomeProfessorMariChat({
       setWorkspaceActive(true);
       setWorkspaceActivity("Thinking...");
       setWorkspaceTimeline([]);
-      setSuggestionChips([]);
+      setMariChips(chat.id, []);
       useChatStore.getState().setAbortController(chat.id, controller);
       useChatStore.getState().clearStreamBuffer(chat.id);
       useChatStore.getState().clearThinkingBuffer(chat.id);
@@ -2773,7 +2833,15 @@ export function HomeProfessorMariChat({
             setWorkspaceTimeline((current) => upsertToolTimeline(current, toolCall));
             setWorkspaceActivity(isError ? "Tool needs attention" : "Thinking...");
           } else if (event.type === "suggestions") {
-            setSuggestionChips(Array.isArray(event.data) ? (event.data as MariSuggestionChip[]) : []);
+            if (useUIStore.getState().professorMariSuggestionsEnabled) {
+              setMariChips(chat.id, Array.isArray(event.data) ? (event.data as MariSuggestionChip[]) : []);
+            }
+          } else if (event.type === "plan") {
+            if (useUIStore.getState().professorMariSuggestionsEnabled) {
+              const steps = Array.isArray(event.data) ? (event.data as MariGuidedPlanStep[]) : [];
+              if (steps.length > 0) setMariPlan(chat.id, steps);
+              else clearMariPlan();
+            }
           } else if (event.type === "done") {
             received = true;
           } else if (event.type === "error") {
@@ -2789,11 +2857,11 @@ export function HomeProfessorMariChat({
       }
       return received;
     },
-    [effectiveConnectionId],
+    [clearMariPlan, effectiveConnectionId, setMariChips, setMariPlan],
   );
 
-  const handleSubmit = async () => {
-    const text = draft.trim();
+  const handleSubmit = async (overrideText?: string) => {
+    const text = (overrideText ?? draft).trim();
     const submittedAttachments = attachments;
     const messageText = text || (submittedAttachments.length > 0 ? "Please inspect the attached file." : "");
     if (!messageText || isBusy || isReadingAttachments) return;
@@ -2814,7 +2882,8 @@ export function HomeProfessorMariChat({
     try {
       const chat = await ensureProfessorMariChat(effectiveConnectionId);
       setDraft("");
-      setSuggestionChips([]);
+      setMariChips(chat.id, []);
+      clearMariPlan();
       setAttachments([]);
       setMessages((current) => [...current, createLocalUserMessage(chat.id, messageText, submittedAttachments)]);
       trackAchievement.mutate("prof_mari_message_sent");
@@ -2881,7 +2950,7 @@ export function HomeProfessorMariChat({
       </div>
 
       <form
-        className="border-t border-[var(--border)]/60 p-2"
+        className="border-t border-[var(--border)]/60 px-2.5 py-2.5"
         onSubmit={(event) => {
           event.preventDefault();
           void handleSubmit();
@@ -2903,7 +2972,19 @@ export function HomeProfessorMariChat({
           isReading={isReadingAttachments}
           onRemove={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
         />
-        <MariSuggestionChips chips={visibleSuggestionChips} onSelect={handleSuggestionSelect} disabled={isBusy} />
+        {chipRowHint && (
+          <p className="mb-1 flex items-center gap-1.5 px-0.5 text-xs text-[var(--muted-foreground)]">
+            <Sparkles size="0.75rem" className="shrink-0 text-[var(--primary)]" />
+            <span>{chipRowHint}</span>
+          </p>
+        )}
+        {showSuggestionLoading && (
+          <div className="mb-1 flex items-center gap-1.5 px-0.5 text-xs text-[var(--muted-foreground)]">
+            <Sparkles size="0.75rem" className="shrink-0 animate-pulse text-[var(--primary)]" />
+            Thinking up suggestions...
+          </div>
+        )}
+        <MariSuggestionChips chips={chipRowChips} onSelect={handleSuggestionSelect} disabled={isBusy} />
         <div className="relative flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-2 py-1.5 shadow-inner shadow-black/10 focus-within:border-[var(--primary)]/50">
           <button
             type="button"
@@ -3477,7 +3558,7 @@ export function HomeProfessorMariChat({
                       </div>
 
                       <form
-                        className="border-t border-[var(--border)]/60 p-2"
+                        className="border-t border-[var(--border)]/60 px-2.5 py-2.5"
                         onSubmit={(event) => {
                           event.preventDefault();
                           void handleSubmit();
@@ -3501,12 +3582,19 @@ export function HomeProfessorMariChat({
                             setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
                           }
                         />
-                        <MariSuggestionChips
-                          chips={visibleSuggestionChips}
-                          onSelect={handleSuggestionSelect}
-                          disabled={isBusy}
-                          compact
-                        />
+                        {chipRowHint && (
+                          <p className="mb-1 flex items-center gap-1.5 px-0.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+                            <Sparkles size="0.6875rem" className="shrink-0 text-[var(--primary)]" />
+                            <span>{chipRowHint}</span>
+                          </p>
+                        )}
+                        {showSuggestionLoading && (
+                          <div className="mb-1 flex items-center gap-1.5 px-0.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+                            <Sparkles size="0.6875rem" className="shrink-0 animate-pulse text-[var(--primary)]" />
+                            Thinking up suggestions...
+                          </div>
+                        )}
+                        <MariSuggestionChips chips={chipRowChips} onSelect={handleSuggestionSelect} disabled={isBusy} compact />
                         <div className="relative flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-2 py-1.5 shadow-inner shadow-black/10 focus-within:border-[var(--primary)]/50">
                           <button
                             type="button"

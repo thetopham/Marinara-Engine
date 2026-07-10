@@ -1,4 +1,9 @@
-import { PROFESSOR_MARI_ID, normalizeTextForMatch, sanitizeMariSuggestionChips } from "@marinara-engine/shared";
+import {
+  PROFESSOR_MARI_ID,
+  normalizeTextForMatch,
+  sanitizeMariGuidedPlan,
+  sanitizeMariSuggestionChips,
+} from "@marinara-engine/shared";
 
 import type { DB } from "../../db/connection.js";
 import { logger } from "../../lib/logger.js";
@@ -12,6 +17,7 @@ import {
   type CreatePresetCommand,
   type FetchCommand,
   type NavigateCommand,
+  type PlanCommand,
   type SuggestionsCommand,
   type UpdateCharacterCommand,
   type UpdateLorebookCommand,
@@ -44,6 +50,7 @@ const PROFESSOR_MARI_COMMAND_TYPES = new Set([
   "navigate",
   "fetch",
   "suggestions",
+  "plan",
 ]);
 
 type ProfessorMariCommandStores = {
@@ -108,6 +115,9 @@ export async function handleProfessorMariCommand(args: {
       };
     case "suggestions":
       sendSuggestions(args.command as SuggestionsCommand, args);
+      break;
+    case "plan":
+      sendPlan(args.command as PlanCommand, args);
       break;
   }
 
@@ -559,6 +569,15 @@ function sendSuggestions(command: SuggestionsCommand, args: Parameters<typeof ha
     return;
   }
   args.sendAssistantAction({ action: "suggestions", suggestions });
+}
+
+function sendPlan(command: PlanCommand, args: Parameters<typeof handleProfessorMariCommand>[0]) {
+  const plan = sanitizeMariGuidedPlan(command.plan, { maxSteps: 8, maxChipsPerStep: 5 });
+  if (plan.length === 0) {
+    logger.debug("[commands] Dropped invalid Professor Mari guided plan payload");
+    return;
+  }
+  args.sendAssistantAction({ action: "plan", plan });
 }
 
 async function fetchProfessorMariContext(

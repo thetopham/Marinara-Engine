@@ -77,6 +77,7 @@ import { Modal } from "../ui/Modal";
 import {
   useCreateNoodleInteraction,
   useCreateNoodlePost,
+  useDeleteNoodleInteraction,
   useDeleteNoodlePost,
   useInviteNoodleCharacter,
   useInviteNoodleCharacters,
@@ -87,6 +88,7 @@ import {
   useRescheduleNoodleRefresh,
   useResetNoodleTimeline,
   useUpdateNoodleAccount,
+  useUpdateNoodleInteraction,
   useUpdateNoodlePost,
   useUpdateNoodleSettings,
 } from "../../hooks/use-noodle";
@@ -138,6 +140,14 @@ type NoodleConfirmAction =
     }
   | {
       kind: "reset-timeline";
+      title: string;
+      message: string;
+      confirmLabel: string;
+    }
+  | {
+      kind: "delete-reply";
+      postId: string;
+      interactionId: string;
       title: string;
       message: string;
       confirmLabel: string;
@@ -739,6 +749,8 @@ export function NoodleView() {
   const deletePost = useDeleteNoodlePost();
   const createInteraction = useCreateNoodleInteraction();
   const removeInteraction = useRemoveNoodleInteraction();
+  const updateInteraction = useUpdateNoodleInteraction();
+  const deleteInteraction = useDeleteNoodleInteraction();
   const rescheduleRefresh = useRescheduleNoodleRefresh();
   const refreshNoodle = useRefreshNoodle();
   const resetNoodleTimeline = useResetNoodleTimeline();
@@ -823,6 +835,8 @@ export function NoodleView() {
   const [postMenuId, setPostMenuId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPostContent, setEditingPostContent] = useState("");
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+  const [editingReplyContent, setEditingReplyContent] = useState("");
   const [confirmAction, setConfirmAction] = useState<NoodleConfirmAction | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
@@ -1228,9 +1242,11 @@ export function NoodleView() {
   const confirmActionPending =
     confirmAction?.kind === "delete-post"
       ? deletePost.isPending
-      : confirmAction?.kind === "reset-timeline"
-        ? resetNoodleTimeline.isPending
-        : false;
+      : confirmAction?.kind === "delete-reply"
+        ? deleteInteraction.isPending
+        : confirmAction?.kind === "reset-timeline"
+          ? resetNoodleTimeline.isPending
+          : false;
   const normalizedProfileHandle = profileHandle.trim().replace(/^@+/, "");
   const isEditingOwnProfile = viewingOwnProfile && profileEditing;
   const profileDisplayName = viewingOwnProfile
@@ -1895,6 +1911,48 @@ export function NoodleView() {
     );
   };
 
+  const startEditingReply = (reply: NoodleInteraction) => {
+    setEditingReplyId(reply.id);
+    setEditingReplyContent(reply.content ?? "");
+  };
+
+  const cancelEditingReply = () => {
+    setEditingReplyId(null);
+    setEditingReplyContent("");
+  };
+
+  const saveEditedReply = (post: NoodlePost, reply: NoodleInteraction) => {
+    if (!personaAccount) return;
+    const content = editingReplyContent.trim();
+    if (!content && !reply.imageUrl) {
+      toast.error("Comments need text or an image.");
+      return;
+    }
+    updateInteraction.mutate(
+      {
+        postId: post.id,
+        interactionId: reply.id,
+        personaId: personaAccount.entityId,
+        content,
+      },
+      {
+        onSuccess: cancelEditingReply,
+        onError: (error) => toast.error(error instanceof Error ? error.message : "Could not edit Noodle comment."),
+      },
+    );
+  };
+
+  const deleteNoodleReply = (post: NoodlePost, reply: NoodleInteraction) => {
+    setConfirmAction({
+      kind: "delete-reply",
+      postId: post.id,
+      interactionId: reply.id,
+      title: "Delete Noodle Comment",
+      message: "This removes the comment and any replies or likes attached to it.",
+      confirmLabel: "Delete comment",
+    });
+  };
+
   const deleteNoodlePost = (post: NoodlePost) => {
     setPostMenuId(null);
     setConfirmAction({
@@ -1932,11 +1990,28 @@ export function NoodleView() {
       });
       return;
     }
+    if (confirmAction.kind === "delete-reply") {
+      if (!personaAccount) return;
+      const { postId, interactionId } = confirmAction;
+      deleteInteraction.mutate(
+        { postId, interactionId, personaId: personaAccount.entityId },
+        {
+          onSuccess: () => {
+            if (editingReplyId === interactionId) cancelEditingReply();
+            if (replyParentInteractionId === interactionId) clearReplyComposer();
+            setConfirmAction(null);
+          },
+          onError: (error) => toast.error(error instanceof Error ? error.message : "Could not delete Noodle comment."),
+        },
+      );
+      return;
+    }
     resetNoodleTimeline.mutate(undefined, {
       onSuccess: () => {
         clearReplyComposer();
         setPostMenuId(null);
         cancelEditingPost();
+        cancelEditingReply();
         setConfirmAction(null);
         toast.success("Noodle timeline reset.");
       },
@@ -3082,6 +3157,7 @@ export function NoodleView() {
                   const likedReplyByPersona = personaAccount
                     ? replyLikes.some((interaction) => interaction.actorAccountId === personaAccount.id)
                     : false;
+                  const canManageReply = Boolean(personaAccount && reply.actorAccountId === personaAccount.id);
                   return (
                     <Fragment key={reply.id}>
                       <div
@@ -3128,9 +3204,39 @@ export function NoodleView() {
                               Replying to <span className="text-[var(--noodle-blue)]">@{parentActor.handle}</span>
                             </p>
                           )}
-                          {reply.content && (
+                          {editingReplyId === reply.id ? (
+                            <div className="mt-2 space-y-2" data-component="NoodleView.CommentEditor">
+                              <textarea
+                                value={editingReplyContent}
+                                onChange={(event) => setEditingReplyContent(event.target.value)}
+                                className={cn(textareaClass, "min-h-20 resize-y")}
+                                placeholder="Edit comment"
+                                autoFocus
+                              />
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={cancelEditingReply}
+                                  disabled={updateInteraction.isPending}
+                                  className="h-8 rounded-full px-3 text-xs font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveEditedReply(post, reply)}
+                                  disabled={
+                                    (!editingReplyContent.trim() && !reply.imageUrl) || updateInteraction.isPending
+                                  }
+                                  className="h-8 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {updateInteraction.isPending ? "Saving" : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : reply.content ? (
                             <p className="mt-1 whitespace-pre-wrap text-sm leading-5">{reply.content}</p>
-                          )}
+                          ) : null}
                           {reply.imageUrl && (
                             <button
                               type="button"
@@ -3183,6 +3289,30 @@ export function NoodleView() {
                             >
                               <MessageCircle size={14} />
                             </button>
+                            {canManageReply && editingReplyId !== reply.id && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditingReply(reply)}
+                                  disabled={updateInteraction.isPending || deleteInteraction.isPending}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--noodle-blue)] transition-colors hover:bg-[var(--noodle-blue)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Edit comment"
+                                  aria-label="Edit comment"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteNoodleReply(post, reply)}
+                                  disabled={updateInteraction.isPending || deleteInteraction.isPending}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--noodle-blue)] transition-colors hover:bg-[var(--noodle-blue)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Delete comment"
+                                  aria-label="Delete comment"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

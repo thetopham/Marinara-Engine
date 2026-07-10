@@ -15,6 +15,8 @@ import {
   noodleGeneratedProfilesSchema,
   noodleGeneratedRefreshSchema,
   noodleInviteSchema,
+  noodleInteractionOwnerSchema,
+  noodleInteractionUpdateSchema,
   noodlePostUpdateSchema,
   noodleRemoveInteractionSchema,
   noodleRescheduleRefreshSchema,
@@ -53,8 +55,10 @@ import {
   rescheduleNoodleRefreshTime,
 } from "../services/noodle/noodle-refresh-schedule.js";
 import {
+  canGenerateNoodleActivityForAccountKind,
   noodlePastMemoryCutoff,
   noodlePastMemorySampleSize,
+  NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
   noodleTimelineFeatureInstructions,
   sampleNoodlePastMemories,
 } from "../services/noodle/noodle-prompt.js";
@@ -645,7 +649,9 @@ async function buildRefreshPrompt(input: {
   const activeAccountList = [...input.activeAccounts, ...(input.personaAccount ? [input.personaAccount] : [])]
     .map(
       (account) =>
-        `- ${account.displayName} (@${account.handle}) kind=${account.kind} entityId=${account.entityId} accountId=${account.id}`,
+        `- ${account.displayName} (@${account.handle}) kind=${account.kind} entityId=${account.entityId} accountId=${account.id} generationRole=${
+          account.kind === "persona" ? "reference-target-only" : "allowed-author-and-actor"
+        }`,
     )
     .join("\n");
 
@@ -656,6 +662,7 @@ async function buildRefreshPrompt(input: {
     "- Random user accounts are not characters. Treat them as ordinary fictional Noodle profiles that may follow, like, reply, repost, gossip, or casually join public drama.",
     "- Structured actions are limited to posts, polls, follows, likes, reposts, replies, and poll votes.",
     "- Generated interactions may target existing posts included in this prompt or posts you create in this response.",
+    NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
     "- For each interaction, set either targetTempId or targetPostId. The unused target field may be omitted or null.",
     "- pollOptionIndex is required only for votes and must be a zero-based integer. For other interactions, omit it or use null.",
     "- An exact @handle in post or reply text tags that active account. Preserve the @handle exactly when mentioning someone.",
@@ -715,7 +722,7 @@ async function buildRefreshPrompt(input: {
         posts: [
           {
             tempId: "local id used only inside this response",
-            authorEntityId: "exact entityId from Active Noodle Accounts",
+            authorEntityId: "exact non-persona entityId allowed to author generated activity",
             content: "post text",
             poll: { question: "optional poll question", options: ["first answer", "second answer"] },
             imagePrompt: "optional image prompt or null",
@@ -724,7 +731,7 @@ async function buildRefreshPrompt(input: {
         ],
         interactions: [
           {
-            actorEntityId: "exact entityId from Active Noodle Accounts",
+            actorEntityId: "exact non-persona entityId allowed to perform generated activity",
             targetTempId: "tempId from posts, if targeting a newly created post",
             targetPostId: "existing post id, if targeting an existing post",
             type: "like | repost | reply | vote",
@@ -734,7 +741,7 @@ async function buildRefreshPrompt(input: {
         ],
         follows: [
           {
-            actorEntityId: "exact entityId from Active Noodle Accounts",
+            actorEntityId: "exact non-persona entityId allowed to perform generated activity",
             targetEntityId: "exact entityId from Active Noodle Accounts",
           },
         ],
@@ -1213,6 +1220,47 @@ export async function noodleRoutes(app: FastifyInstance) {
     return interaction;
   });
 
+  app.patch("/posts/:postId/interactions/:interactionId", async (req, reply) => {
+    const { postId, interactionId } = req.params as { postId: string; interactionId: string };
+    const parsed = noodleInteractionUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const interaction = await noodle.getInteractionById(interactionId);
+    if (!interaction || interaction.postId !== postId) {
+      return reply.code(404).send({ error: "Noodle comment not found" });
+    }
+    await ensurePersonaAccounts(noodle, characters);
+    const persona = await noodle.getAccountByEntity("persona", parsed.data.personaId);
+    if (!persona) return reply.code(404).send({ error: "Noodle persona not found" });
+    if (interaction.type !== "reply" || interaction.actorAccountId !== persona.id) {
+      return reply.code(403).send({ error: "You can only edit comments from this persona." });
+    }
+    const content = parsed.data.content === undefined ? interaction.content : parsed.data.content?.trim() || null;
+    const imageUrl = parsed.data.imageUrl === undefined ? interaction.imageUrl : parsed.data.imageUrl?.trim() || null;
+    if (!content && !imageUrl) return reply.code(400).send({ error: "Comments need text or an image." });
+    const updated = await noodle.updateInteraction(interactionId, { content, imageUrl });
+    if (!updated) return reply.code(404).send({ error: "Noodle comment not found" });
+    return updated;
+  });
+
+  app.delete("/posts/:postId/interactions/:interactionId", async (req, reply) => {
+    const { postId, interactionId } = req.params as { postId: string; interactionId: string };
+    const parsed = noodleInteractionOwnerSchema.safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const interaction = await noodle.getInteractionById(interactionId);
+    if (!interaction || interaction.postId !== postId) {
+      return reply.code(404).send({ error: "Noodle comment not found" });
+    }
+    await ensurePersonaAccounts(noodle, characters);
+    const persona = await noodle.getAccountByEntity("persona", parsed.data.personaId);
+    if (!persona) return reply.code(404).send({ error: "Noodle persona not found" });
+    if (interaction.type !== "reply" || interaction.actorAccountId !== persona.id) {
+      return reply.code(403).send({ error: "You can only delete comments from this persona." });
+    }
+    const deleted = await noodle.deleteInteractionById(interactionId);
+    if (deleted.length === 0) return reply.code(404).send({ error: "Noodle comment not found" });
+    return deleted;
+  });
+
   app.delete("/posts/:id/interactions", async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = noodleRemoveInteractionSchema.safeParse(req.query);
@@ -1353,6 +1401,10 @@ export async function noodleRoutes(app: FastifyInstance) {
       for (const generatedPost of generated.posts.slice(0, settings.maxGeneratedPostsPerRefresh)) {
         const account = entityToAccount.get(generatedPost.authorEntityId);
         if (!account) continue;
+        if (!canGenerateNoodleActivityForAccountKind(account.kind)) {
+          logger.warn("[noodle] Ignoring generated post attributed to persona %s", account.entityId);
+          continue;
+        }
         const imagePrompt =
           remainingImagePrompts > 0 && generatedPost.imagePrompt?.trim() ? generatedPost.imagePrompt.trim() : null;
         if (imagePrompt) remainingImagePrompts -= 1;
@@ -1429,6 +1481,14 @@ export async function noodleRoutes(app: FastifyInstance) {
         if (quotas[generatedInteraction.type] <= 0) continue;
         const actor = entityToAccount.get(generatedInteraction.actorEntityId);
         if (!actor) continue;
+        if (!canGenerateNoodleActivityForAccountKind(actor.kind)) {
+          logger.warn(
+            "[noodle] Ignoring generated %s interaction attributed to persona %s",
+            generatedInteraction.type,
+            actor.entityId,
+          );
+          continue;
+        }
         const targetPostId =
           generatedInteraction.targetPostId ?? tempIdToPostId.get(generatedInteraction.targetTempId ?? "");
         if (!targetPostId || (!allowedExistingPostIds.has(targetPostId) && !createdPostIds.includes(targetPostId))) {
@@ -1468,7 +1528,11 @@ export async function noodleRoutes(app: FastifyInstance) {
       for (const generatedFollow of generated.follows.slice(0, maxGeneratedFollows)) {
         const actor = entityToAccount.get(generatedFollow.actorEntityId);
         const target = entityToAccount.get(generatedFollow.targetEntityId);
-        if (!actor || !target || actor.id === target.id || actor.kind === "persona") continue;
+        if (!actor || !target || actor.id === target.id) continue;
+        if (!canGenerateNoodleActivityForAccountKind(actor.kind)) {
+          logger.warn("[noodle] Ignoring generated follow attributed to persona %s", actor.entityId);
+          continue;
+        }
         const followKey = `${actor.id}:${target.id}`;
         if (seenGeneratedFollows.has(followKey)) continue;
         seenGeneratedFollows.add(followKey);

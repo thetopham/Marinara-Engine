@@ -198,6 +198,19 @@ export const noodleRemoveInteractionSchema = z
     }
   });
 
+export const noodleInteractionOwnerSchema = z.object({
+  personaId: z.string().min(1),
+});
+
+export const noodleInteractionUpdateSchema = noodleInteractionOwnerSchema
+  .extend({
+    content: z.string().max(2000).nullable().optional(),
+    imageUrl: z.string().max(2000).nullable().optional(),
+  })
+  .refine((input) => input.content !== undefined || input.imageUrl !== undefined, {
+    message: "Provide comment text or an image update.",
+  });
+
 export const noodleRefreshSchema = z.object({
   personaId: z.string().min(1).optional(),
   connectionId: z.string().min(1).optional(),
@@ -291,6 +304,8 @@ export type NoodleCreatePostInput = z.infer<typeof noodleCreatePostSchema>;
 export type NoodlePostUpdateInput = z.infer<typeof noodlePostUpdateSchema>;
 export type NoodleCreateInteractionInput = z.infer<typeof noodleCreateInteractionSchema>;
 export type NoodleRemoveInteractionInput = z.infer<typeof noodleRemoveInteractionSchema>;
+export type NoodleInteractionOwnerInput = z.infer<typeof noodleInteractionOwnerSchema>;
+export type NoodleInteractionUpdateInput = z.infer<typeof noodleInteractionUpdateSchema>;
 export type NoodleRefreshInput = z.infer<typeof noodleRefreshSchema>;
 export type NoodleRescheduleRefreshInput = z.infer<typeof noodleRescheduleRefreshSchema>;
 export type NoodleGeneratedRefresh = z.infer<typeof noodleGeneratedRefreshSchema>;

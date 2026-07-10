@@ -1,11 +1,13 @@
 // ──────────────────────────────────────────────
 // Noodle Prompt Instructions
 // ──────────────────────────────────────────────
-import type { NoodleSettings } from "@marinara-engine/shared";
+import type { NoodleAccountKind, NoodleSettings } from "@marinara-engine/shared";
 
 export const NOODLE_PAST_MEMORY_MIN_AGE_MS = 48 * 60 * 60 * 1000;
 export const NOODLE_PAST_MEMORY_MAX_ITEMS = 3;
 export const NOODLE_PAST_MEMORY_INCLUSION_CHANCE = 0.5;
+export const NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION =
+  "- The user persona is controlled exclusively by the user. Never generate posts, replies, likes, reposts, poll votes, or follows as a persona. Personas may only be mentioned or targeted by other accounts.";
 
 type NoodleTimelineFeatureSettings = Pick<
   NoodleSettings,
@@ -13,6 +15,10 @@ type NoodleTimelineFeatureSettings = Pick<
 >;
 
 type RandomSource = () => number;
+
+export function canGenerateNoodleActivityForAccountKind(kind: NoodleAccountKind): boolean {
+  return kind === "character" || kind === "random_user";
+}
 
 function normalizedRandom(random: RandomSource): number {
   const value = random();

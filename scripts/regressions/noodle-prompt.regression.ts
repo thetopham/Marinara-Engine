@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import {
+  canGenerateNoodleActivityForAccountKind,
   noodlePastMemoryCutoff,
   noodlePastMemorySampleSize,
+  NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
   noodleTimelineFeatureInstructions,
   sampleNoodlePastMemories,
 } from "../../packages/server/src/services/noodle/noodle-prompt.js";
+
+assert.equal(canGenerateNoodleActivityForAccountKind("persona"), false);
+assert.equal(canGenerateNoodleActivityForAccountKind("character"), true);
+assert.equal(canGenerateNoodleActivityForAccountKind("random_user"), true);
+assert.match(NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION, /controlled exclusively by the user/u);
+assert.match(
+  NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
+  /Never generate posts, replies, likes, reposts, poll votes, or follows/u,
+);
 
 const activeAccountsInstruction = "- Use only the active accounts listed by entityId. Do not invent accounts.";
 const imageGenerationInstruction =

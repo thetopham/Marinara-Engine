@@ -447,7 +447,17 @@ type ConversationContextMacroKey =
   | "memories"
   | "lorebook"
   | "aboutMe";
+type ConversationRelocationMacroKey = Exclude<ConversationContextMacroKey, "aboutMe">;
 type ConversationContextMacroSlots = Record<ConversationContextMacroKey, boolean>;
+
+const CONVERSATION_RELOCATION_MACRO_KEYS: readonly ConversationRelocationMacroKey[] = [
+  "context",
+  "commands",
+  "reactRules",
+  "replyRules",
+  "memories",
+  "lorebook",
+];
 
 const EMPTY_CONVERSATION_CONTEXT_MACRO_SLOTS: ConversationContextMacroSlots = {
   context: false,
@@ -493,9 +503,9 @@ function conversationContextMacroConditionPattern(key: ConversationContextMacroK
 
 // Lowercased relocation aliases, for the deferConditionalOperand predicate.
 const RELOCATION_CONDITION_OPERANDS: ReadonlySet<string> = new Set(
-  Object.values(CONVERSATION_CONTEXT_MACRO_ALIASES)
-    .flat()
-    .map((alias) => alias.toLowerCase()),
+  CONVERSATION_RELOCATION_MACRO_KEYS.flatMap((key) => CONVERSATION_CONTEXT_MACRO_ALIASES[key]).map((alias) =>
+    alias.toLowerCase(),
+  ),
 );
 
 // True when a {{#if}} operand references a relocation macro (bare `memories` or
@@ -515,7 +525,7 @@ function resolveConversationContextMacroSlots(template: string): ConversationCon
   for (const key of Object.keys(CONVERSATION_CONTEXT_MACRO_ALIASES) as ConversationContextMacroKey[]) {
     slots[key] =
       conversationContextMacroPattern(key).test(template) ||
-      conversationContextMacroConditionPattern(key).test(template);
+      (key !== "aboutMe" && conversationContextMacroConditionPattern(key).test(template));
   }
   return slots;
 }
@@ -529,13 +539,13 @@ function resolveConversationContextMacroSlots(template: string): ConversationCon
  */
 function decodeDeferredRelocationConditionals(
   messages: GenerationPromptMessage[],
-  relocationValues: Record<ConversationContextMacroKey, string>,
+  relocationValues: Record<ConversationRelocationMacroKey, string>,
   baseContext: MacroContext,
 ): void {
   if (!messages.some((message) => hasDeferredRelocationConditionals(message.content))) return;
 
   const relocationVariables: Record<string, string> = {};
-  for (const key of Object.keys(CONVERSATION_CONTEXT_MACRO_ALIASES) as ConversationContextMacroKey[]) {
+  for (const key of CONVERSATION_RELOCATION_MACRO_KEYS) {
     const value = (relocationValues[key] ?? "").trim();
     for (const alias of CONVERSATION_CONTEXT_MACRO_ALIASES[key]) {
       relocationVariables[alias] = value;

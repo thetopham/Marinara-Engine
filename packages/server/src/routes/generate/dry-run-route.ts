@@ -713,7 +713,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       const allPersonas = await chars.listPersonas();
       persona =
         ((chat as any).personaId ? allPersonas.find((p: any) => p.id === (chat as any).personaId) : null) ??
-        allPersonas.find((p: any) => p.isActive === "true");
+        (chatMode !== "game" ? allPersonas.find((p: any) => p.isActive === "true") : null);
       if (persona) {
         personaId = persona.id as string;
         personaName = persona.name;

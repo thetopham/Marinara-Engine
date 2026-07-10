@@ -647,11 +647,12 @@ export async function generateRoutes(app: FastifyInstance) {
       }
 
       // Snapshot persona info for per-message persona tracking
+      // (game mode skips the active-persona fallback, matching the prompt's persona resolution below)
       if (userMsg?.id) {
         const snapshotPersonas = await chars.listPersonas().catch(releaseActiveGenerationAndRethrow);
         const snapshotPersona =
           (chat.personaId ? snapshotPersonas.find((p: any) => p.id === chat.personaId) : null) ??
-          snapshotPersonas.find((p: any) => p.isActive === "true");
+          (requestChatMode !== "game" ? snapshotPersonas.find((p: any) => p.isActive === "true") : null);
         if (snapshotPersona) {
           await chats
             .updateMessageExtra(userMsg.id, {

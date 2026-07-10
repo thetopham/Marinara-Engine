@@ -317,7 +317,7 @@ export async function promptsRoutes(app: FastifyInstance) {
     const allPersonas = await charStorage.listPersonas();
     const activePersona =
       (chat.personaId ? allPersonas.find((p: any) => p.id === chat.personaId) : null) ??
-      allPersonas.find((p: any) => p.isActive === "true");
+      (chat.mode !== "game" ? allPersonas.find((p: any) => p.isActive === "true") : null);
     if (activePersona) {
       personaId = activePersona.id as string;
       personaName = activePersona.name;

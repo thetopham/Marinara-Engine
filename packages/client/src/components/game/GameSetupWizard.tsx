@@ -27,7 +27,13 @@ import {
   FolderOpen,
 } from "lucide-react";
 import {
+  ANIME_GAME_PROMPT_TEMPLATE_ID,
+  ANIME_GAME_VIDEO_PROMPT_TEMPLATE_ID,
   DEFAULT_GAME_SYSTEM_PROMPT,
+  GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
+  GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
+  GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
   type CharacterGroup,
   type GameSetupConfig,
   type GameGmMode,
@@ -410,6 +416,9 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   const [videoConnectionId, setVideoConnectionId] = useState<string | null>(null);
   const [enableStoryboardIllustrations, setEnableStoryboardIllustrations] = useState(true);
   const [enableStoryboardAnimations, setEnableStoryboardAnimations] = useState(false);
+  const [storyboardKeyframeCount, setStoryboardKeyframeCount] = useState(
+    GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
+  );
   const [sceneConnectionId, setSceneConnectionId] = useState<string | null>(null);
   const [activeLorebookIds, setActiveLorebookIds] = useState<string[]>([]);
   const [lbSearch, setLbSearch] = useState("");
@@ -423,6 +432,7 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   const [promptPresetTouched, setPromptPresetTouched] = useState(false);
   const [customGamePromptEnabled, setCustomGamePromptEnabled] = useState(false);
   const [gameSystemPromptDraft, setGameSystemPromptDraft] = useState(DEFAULT_GAME_SYSTEM_PROMPT);
+  const [gamePresentation, setGamePresentation] = useState<"standard" | "anime">("standard");
   const [language, setLanguage] = useState("English");
   const [startMuted, setStartMuted] = useState(false);
   const [expandedLearnedOptions, setExpandedLearnedOptions] = useState<Record<LearnedOptionGroup, boolean>>({
@@ -776,6 +786,13 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
           ? enableStoryboardIllustrations
           : undefined,
         gameStoryboardAutoGenerationEnabled: storyboardAnimationsEnabled || undefined,
+        gameStoryboardKeyframeCount: storyboardKeyframeCount,
+        gameGmPromptTemplateId: gamePresentation === "anime" ? ANIME_GAME_PROMPT_TEMPLATE_ID : null,
+        gameStoryboardAnimationPromptTemplateId:
+          gamePresentation === "anime" ? GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE_ID : null,
+        gameStoryboardVideoPromptTemplateId:
+          gamePresentation === "anime" ? ANIME_GAME_VIDEO_PROMPT_TEMPLATE_ID : null,
+        gameStoryboardUseDirectScenePrompt: gamePresentation === "anime" || undefined,
         activeLorebookIds: activeLorebookIds.length > 0 ? activeLorebookIds : undefined,
         enableCustomWidgets,
         customHudWidgets:
@@ -1824,6 +1841,33 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
                             />
                           </span>
                         </button>
+                        {enableStoryboardIllustrations && (
+                          <label className="block rounded-lg bg-[var(--background)]/70 px-3 py-2 ring-1 ring-[var(--border)]">
+                            <span className="flex items-center justify-between gap-3">
+                              <span>
+                                <span className="block text-[0.6875rem] font-medium text-[var(--foreground)]">
+                                  Keyframes per Turn
+                                </span>
+                                <span className="block text-[0.575rem] text-[var(--muted-foreground)]">
+                                  Target storyboard shots. Short turns may produce fewer.
+                                </span>
+                              </span>
+                              <span className="min-w-7 rounded-md bg-[var(--secondary)] px-2 py-1 text-center text-xs font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)]">
+                                {storyboardKeyframeCount}
+                              </span>
+                            </span>
+                            <input
+                              type="range"
+                              min={GAME_STORYBOARD_KEYFRAME_COUNT_MIN}
+                              max={GAME_STORYBOARD_KEYFRAME_COUNT_MAX}
+                              step={1}
+                              value={storyboardKeyframeCount}
+                              onChange={(event) => setStoryboardKeyframeCount(Number(event.target.value))}
+                              className="mt-2 w-full accent-[var(--primary)]"
+                              aria-label="Keyframes per Turn"
+                            />
+                          </label>
+                        )}
                         <p className="text-[0.55rem] leading-relaxed text-[var(--muted-foreground)]">
                           Illustrations use the image connection. Animations also need the video connection below and
                           cost much more per turn.
@@ -2138,6 +2182,25 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
           <>
             <div>
               <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
+                <Sparkles size={12} />
+                Presentation
+              </label>
+              <select
+                value={gamePresentation}
+                onChange={(event) => setGamePresentation(event.target.value === "anime" ? "anime" : "standard")}
+                className={GAME_SETUP_INPUT_CLASS}
+              >
+                <option value="standard">Standard</option>
+                <option value="anime">Anime Episode</option>
+              </select>
+              <p className="mt-1 text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
+                {gamePresentation === "anime"
+                  ? "Shapes narration and storyboard direction like an anime episode. It does not enable image or video generation or change your connections."
+                  : "Uses the standard flexible Game Mode narration and media prompts."}
+              </p>
+            </div>
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
                 <Feather size={12} />
                 Game Prompt Preset
               </label>
@@ -2154,7 +2217,9 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
                 ))}
               </select>
               <p className="mt-1 text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
-                Uses the Game mode prompt from the selected preset unless the custom GM prompt below is enabled.
+                {gamePresentation === "anime"
+                  ? "The Anime Game Prompt replaces the selected preset's Game prompt. Other preset settings remain available."
+                  : "Uses the Game mode prompt from the selected preset unless the custom GM prompt below is enabled."}
               </p>
             </div>
 
@@ -2192,7 +2257,9 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
                     <p className="text-[0.55rem] text-[var(--muted-foreground)]">
                       {customGamePromptEnabled
                         ? "Custom prompt will override the selected preset"
-                        : selectedPromptPresetName
+                        : gamePresentation === "anime"
+                          ? "Using Anime Game Prompt"
+                          : selectedPromptPresetName
                           ? `Using ${selectedPromptPresetName}`
                           : "Using default game prompt"}
                     </p>

@@ -179,6 +179,7 @@ import {
   DEFAULT_AGENT_TOOLS,
   DEFAULT_AGENT_MAX_TOKENS,
   DEFAULT_AGENT_PROMPTS,
+  GAME_GM_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
@@ -1613,6 +1614,18 @@ export function ChatSettingsDrawer({
   const gameStoryboardAutoAnimationsEnabled = metadata.gameStoryboardAutoGenerationEnabled === true;
   const gameStoryboardUseDirectScenePrompt = metadata.gameStoryboardUseDirectScenePrompt === true;
   const gameStoryboardUseNovelAiCharacterPrompts = metadata.gameStoryboardUseNovelAiCharacterPrompts !== false;
+  const selectedGameGmPromptTemplateId = useMemo(() => {
+    const selected = typeof metadata.gameGmPromptTemplateId === "string" ? metadata.gameGmPromptTemplateId.trim() : "";
+    return selected && GAME_GM_BUILT_IN_PROMPT_TEMPLATES.some((template) => template.id === selected)
+      ? selected
+      : null;
+  }, [metadata.gameGmPromptTemplateId]);
+  const updateGameGmPromptTemplateSelection = useCallback(
+    (templateId: string | null) => {
+      updateMeta.mutate({ id: chat.id, gameGmPromptTemplateId: templateId });
+    },
+    [chat.id, updateMeta],
+  );
   const gameStoryboardKeyframeCount = normalizeGameStoryboardKeyframeCount(metadata.gameStoryboardKeyframeCount);
   const gameStoryboardAnimationDurationConfigured = hasGameStoryboardAnimationDuration(
     metadata.gameStoryboardAnimationDurationSeconds,
@@ -1745,6 +1758,15 @@ export function ChatSettingsDrawer({
     () => resolveSelectedGameVideoPromptTemplateId(metadata.gameVideoPromptTemplateId, gameVideoPromptOptions),
     [gameVideoPromptOptions, metadata.gameVideoPromptTemplateId],
   );
+  const selectedGameStoryboardVideoPromptTemplateId = useMemo(() => {
+    const selected =
+      typeof metadata.gameStoryboardVideoPromptTemplateId === "string"
+        ? metadata.gameStoryboardVideoPromptTemplateId.trim()
+        : "";
+    return selected && gameVideoPromptOptions.some((option) => option.id === selected)
+      ? selected
+      : selectedGameVideoPromptTemplateId;
+  }, [gameVideoPromptOptions, metadata.gameStoryboardVideoPromptTemplateId, selectedGameVideoPromptTemplateId]);
   const updateGameVideoPromptSelection = useCallback(
     (promptTemplateId: string) => {
       updateMeta.mutate({
@@ -1753,6 +1775,16 @@ export function ChatSettingsDrawer({
       });
     },
     [chat.id, updateMeta],
+  );
+  const updateGameStoryboardVideoPromptSelection = useCallback(
+    (promptTemplateId: string) => {
+      updateMeta.mutate({
+        id: chat.id,
+        gameStoryboardVideoPromptTemplateId:
+          promptTemplateId === selectedGameVideoPromptTemplateId ? null : promptTemplateId,
+      });
+    },
+    [chat.id, selectedGameVideoPromptTemplateId, updateMeta],
   );
   const updateGameVideoPromptTemplates = useCallback(
     (templates: AgentPromptTemplateOption[]) => {
@@ -1765,9 +1797,12 @@ export function ChatSettingsDrawer({
         id: chat.id,
         gameVideoPromptTemplates: normalized,
         ...(availableIds.has(selectedGameVideoPromptTemplateId) ? {} : { gameVideoPromptTemplateId: null }),
+        ...(availableIds.has(selectedGameStoryboardVideoPromptTemplateId)
+          ? {}
+          : { gameStoryboardVideoPromptTemplateId: null }),
       });
     },
-    [chat.id, selectedGameVideoPromptTemplateId, updateMeta],
+    [chat.id, selectedGameStoryboardVideoPromptTemplateId, selectedGameVideoPromptTemplateId, updateMeta],
   );
   const addGameVideoPromptTemplate = useCallback(
     (sourceTemplateId: string) => {
@@ -3801,6 +3836,8 @@ export function ChatSettingsDrawer({
                 promptPresets={promptPresetOptions}
                 selectedPresetName={selectedModePromptPreset?.name ?? null}
                 selectedPresetPrompt={selectedModePromptPreset?.gamePrompt ?? ""}
+                gmPromptTemplateId={selectedGameGmPromptTemplateId}
+                gmPromptTemplates={GAME_GM_BUILT_IN_PROMPT_TEMPLATES}
                 onCommit={(gameSystemPrompt) => updateMeta.mutate({ id: chat.id, gameSystemPrompt })}
                 onSpecialInstructionsCommit={(gameSpecialInstructions) =>
                   updateMeta.mutate({ id: chat.id, gameSpecialInstructions })
@@ -3809,6 +3846,7 @@ export function ChatSettingsDrawer({
                 onValueChange={setGamePromptDraft}
                 onSpecialInstructionsChange={setGameSpecialInstructionsDraft}
                 onPromptPresetChange={handleModePromptPresetChange}
+                onGmPromptTemplateChange={updateGameGmPromptTemplateSelection}
                 onOpenPromptPreset={openSelectedModePromptPreset}
               />
             </div>
@@ -7839,6 +7877,14 @@ export function ChatSettingsDrawer({
                         }
                       />
                     </div>
+                    <GamePromptTemplateSelect
+                      label="Storyboard Video Prompt"
+                      description="Used only for storyboard keyframe clips. Manual scene videos keep the Game Video Prompt above."
+                      options={gameVideoPromptOptions}
+                      selectedId={selectedGameStoryboardVideoPromptTemplateId}
+                      fallbackId={selectedGameVideoPromptTemplateId}
+                      onChange={updateGameStoryboardVideoPromptSelection}
+                    />
                     <GameStoryboardPromptLibrary
                       customTemplates={gameStoryboardPromptTemplates}
                       onAddTemplate={addGameStoryboardPromptTemplate}

@@ -12,11 +12,7 @@ import type {
   HudWidget,
 } from "@marinara-engine/shared";
 import {
-  ANIME_GAME_PROMPT_TEMPLATE,
   DEFAULT_GAME_SYSTEM_PROMPT,
-  GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
-  GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
-  GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
   normalizeGameExperienceStyle,
   wrapGameInstructions,
 } from "@marinara-engine/shared";
@@ -44,8 +40,6 @@ export interface GmPromptContext {
   tone: string;
   /** Narrative and visual direction layered over the core game rules. */
   experienceStyle?: GameExperienceStyle;
-  /** Soft visual-anchor target exposed to Game prompt macros. */
-  gameStoryboardKeyframeCount?: number;
   /** Server-computed time string, e.g. "Day 3, 14:30 (afternoon)" */
   gameTime?: string;
   /** Server-computed weather state */
@@ -90,24 +84,19 @@ export interface GmPromptContext {
 const MAX_PROMPT_MAP_LOCATIONS = 10;
 const MAX_PROMPT_NPCS = 12;
 
-function normalizeGameStoryboardKeyframeCount(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(parsed)) return GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT;
-  return Math.max(
-    GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
-    Math.min(GAME_STORYBOARD_KEYFRAME_COUNT_MAX, Math.round(parsed)),
-  );
-}
+const LIVING_ANIME_DIRECTION = [
+  `<experience_style id="living_anime">`,
+  `Author the game itself as a living anime experience. The narration is the source performance for dialogue, sprites, storyboards, and animation, so make important moments visually stageable from the beginning instead of summarizing them after the fact.`,
+  `- Build each turn as a coherent scene with 2-4 observable beats when the moment supports them. Give each beat a clear focal action, concrete character blocking, expressive body language or facial reaction, and a tangible change in the situation.`,
+  `- For action, favor setup, decisive motion, impact, reaction, and aftermath. For social, romantic, dramatic, or comedic scenes, favor approach, charged interaction, reaction, and payoff. Do not force this sequence when a short exchange or immediate player decision is stronger.`,
+  `- Let dialogue and visible acting carry emotion. Use pauses, interruptions, reaction shots expressed as prose, environmental motion, and specific sensory details instead of abstract emotional summaries.`,
+  `- Maintain visual continuity inside and across turns: location layout, time, weather, outfits, equipment, injuries, props, positions, entrances, and exits remain consistent unless the story visibly changes them.`,
+  `- Keep the output diegetic. Never mention cameras, panels, storyboards, episodes, animation prompts, production notes, or these directing instructions. All normal Game Mode rules, mechanics, rating boundaries, and player agency still apply.`,
+  `</experience_style>`,
+].join("\n");
 
-export function resolveGamePromptMacros(value: string, gameStoryboardKeyframeCount: unknown): string {
-  const keyframeCount = normalizeGameStoryboardKeyframeCount(gameStoryboardKeyframeCount);
-  return value.replace(/\{\{\s*gameStoryboardKeyframeCount\s*\}\}/gi, String(keyframeCount));
-}
-
-function livingAnimeDirection(experienceStyle: unknown, gameStoryboardKeyframeCount: unknown): string {
-  return normalizeGameExperienceStyle(experienceStyle) === "living_anime"
-    ? resolveGamePromptMacros(ANIME_GAME_PROMPT_TEMPLATE, gameStoryboardKeyframeCount)
-    : "";
+function livingAnimeDirection(experienceStyle: unknown): string {
+  return normalizeGameExperienceStyle(experienceStyle) === "living_anime" ? LIVING_ANIME_DIRECTION : "";
 }
 
 function normalizePromptText(value: unknown, fallback = ""): string {
@@ -472,17 +461,10 @@ export function buildGmSystemPrompt(ctx: GmPromptContext): string {
     `</game>`,
   );
 
-  const experienceDirection = livingAnimeDirection(ctx.experienceStyle, ctx.gameStoryboardKeyframeCount);
+  const experienceDirection = livingAnimeDirection(ctx.experienceStyle);
   if (experienceDirection) sections.push(experienceDirection);
 
-  sections.push(
-    wrapGameInstructions(
-      resolveGamePromptMacros(
-        normalizePromptText(ctx.gameSystemPrompt) || DEFAULT_GAME_SYSTEM_PROMPT,
-        ctx.gameStoryboardKeyframeCount,
-      ),
-    ),
-  );
+  sections.push(wrapGameInstructions(normalizePromptText(ctx.gameSystemPrompt) || DEFAULT_GAME_SYSTEM_PROMPT));
 
   // ── Rating Guidelines ──
   if (ctx.rating === "nsfw") {
@@ -657,7 +639,6 @@ export function buildGmFormatReminder(
     | "language"
     | "rating"
     | "experienceStyle"
-    | "gameStoryboardKeyframeCount"
     | "gameSpecialInstructions"
   > & {
     /** Special non-scene-advancing address mode inferred from the current player turn prefix. */
@@ -709,10 +690,9 @@ export function buildGmFormatReminder(
   );
 
   if (normalizeGameExperienceStyle(ctx.experienceStyle) === "living_anime") {
-    const keyframeCount = normalizeGameStoryboardKeyframeCount(ctx.gameStoryboardKeyframeCount);
     lines.push(
       `<living_anime_turn_direction>`,
-      `Write the next turn as an immediately playable anime scene: concrete blocking, visible action, expressive reactions, and stable visual continuity. Aim for up to ${keyframeCount} strong visual anchors when the scene naturally supports them; never pad a short turn. Keep all direction invisible and return only the normal game scene text.`,
+      `Write the next turn as an immediately playable anime scene: concrete blocking, visible action, expressive reactions, and stable visual continuity. Prefer a few strong observable beats over summary. Keep all direction invisible and return only the normal VN scene text.`,
       `</living_anime_turn_direction>`,
       ``,
     );
@@ -881,8 +861,6 @@ export interface SetupPromptContext {
   rating?: "sfw" | "nsfw";
   /** Narrative and visual direction selected for the game. */
   experienceStyle?: GameExperienceStyle;
-  /** Soft visual-anchor target exposed to the Anime Game Prompt. */
-  gameStoryboardKeyframeCount?: number;
   /** Full persona card text (player character) */
   personaCard?: string | null;
   /** Exact player persona name, when known */
@@ -939,11 +917,9 @@ export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
   // Build persona + party sections for the system prompt
   const contextSections: string[] = [];
   if (experienceStyle === "living_anime") {
-    const keyframeCount = normalizeGameStoryboardKeyframeCount(ctx.gameStoryboardKeyframeCount);
     contextSections.push(
       `<experience_style id="living_anime">`,
       `Design this campaign to play as a living anime from its first turn. Build arcs around visually distinct locations, recognizable character silhouettes, expressive relationships, recurring motifs, stageable conflicts, reaction beats, transformations, reveals, and memorable payoffs.`,
-      `The Anime Game Prompt will aim for up to ${keyframeCount} visual anchors per GM turn when the scene naturally supports them; do not design repetitive filler beats merely to reach that target.`,
       `The artStylePrompt must specify a cohesive polished 2D anime production style suited to the requested genre and tone. Do not force school settings, teenage archetypes, comedy, romance, or any rating-specific content unless the user's preferences request them.`,
       `</experience_style>`,
     );
@@ -989,10 +965,7 @@ export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
       `</user_hud_widgets>`,
     );
   }
-  const setupGameSystemPrompt = resolveGamePromptMacros(
-    normalizePromptText(ctx.gameSystemPrompt),
-    ctx.gameStoryboardKeyframeCount,
-  );
+  const setupGameSystemPrompt = normalizePromptText(ctx.gameSystemPrompt);
   if (setupGameSystemPrompt) {
     contextSections.push(
       `<gm_prompt_preferences>`,

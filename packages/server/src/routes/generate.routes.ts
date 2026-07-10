@@ -2662,7 +2662,6 @@ export async function generateRoutes(app: FastifyInstance) {
               language: gmCtx.language,
               rating: gmCtx.rating,
               experienceStyle: gmCtx.experienceStyle,
-              gameStoryboardKeyframeCount: gmCtx.gameStoryboardKeyframeCount,
               gameSpecialInstructions: gmCtx.gameSpecialInstructions,
               canGenerateBackgrounds: gmCtx.canGenerateBackgrounds,
               artStylePrompt: gmCtx.artStylePrompt,

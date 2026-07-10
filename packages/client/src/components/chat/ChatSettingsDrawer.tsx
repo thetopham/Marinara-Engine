@@ -180,8 +180,6 @@ import {
   DEFAULT_AGENT_TOOLS,
   DEFAULT_AGENT_MAX_TOKENS,
   DEFAULT_AGENT_PROMPTS,
-  GAME_ANIME_VIDEO_PROMPT_TEMPLATE_ID,
-  GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
@@ -208,6 +206,7 @@ import {
   CONVERSATION_COMMAND_KEYS,
   getDefaultBuiltInAgentSettings,
   normalizeGameExperienceStyle,
+  normalizeVideoGenerationUserSettings,
   isAgentAvailableInChatMode,
   isAgentConfigDeleted,
   isAgentHiddenFromChatSettingsPicker,
@@ -1613,9 +1612,6 @@ export function ChatSettingsDrawer({
   const gameImageIncludeCharacterAppearance = metadata.gameImageIncludeCharacterAppearance !== false;
   const gameImageAutoGenerationEnabled = metadata.gameImageAutoGenerationEnabled !== false;
   const gameImageDynamicPromptEnabled = metadata.gameImageDynamicPromptEnabled === true;
-  const gameExperienceStyle = normalizeGameExperienceStyle(
-    (metadata.gameSetupConfig as Record<string, unknown> | undefined)?.experienceStyle,
-  );
   const gameStoryboardAutoIllustrationsEnabled = metadata.gameStoryboardAutoIllustrationsEnabled === true;
   const gameStoryboardAutoAnimationsEnabled = metadata.gameStoryboardAutoGenerationEnabled === true;
   const gameStoryboardUseDirectScenePrompt = metadata.gameStoryboardUseDirectScenePrompt === true;
@@ -1652,23 +1648,19 @@ export function ChatSettingsDrawer({
     () =>
       resolveSelectedGameStoryboardPromptTemplateId(
         metadata.gameStoryboardIllustrationPromptTemplateId,
-        gameExperienceStyle === "living_anime"
-          ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-          : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
+        GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
         gameStoryboardPromptOptions,
       ),
-    [gameExperienceStyle, gameStoryboardPromptOptions, metadata.gameStoryboardIllustrationPromptTemplateId],
+    [gameStoryboardPromptOptions, metadata.gameStoryboardIllustrationPromptTemplateId],
   );
   const selectedGameStoryboardAnimationPromptTemplateId = useMemo(
     () =>
       resolveSelectedGameStoryboardPromptTemplateId(
         metadata.gameStoryboardAnimationPromptTemplateId,
-        gameExperienceStyle === "living_anime"
-          ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-          : GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+        GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
         gameStoryboardPromptOptions,
       ),
-    [gameExperienceStyle, gameStoryboardPromptOptions, metadata.gameStoryboardAnimationPromptTemplateId],
+    [gameStoryboardPromptOptions, metadata.gameStoryboardAnimationPromptTemplateId],
   );
   const updateGameStoryboardPromptSelection = useCallback(
     (
@@ -1759,18 +1751,10 @@ export function ChatSettingsDrawer({
   const selectedGameStoryboardVideoPromptTemplateId = useMemo(
     () =>
       resolveSelectedGameVideoPromptTemplateId(
-        metadata.gameStoryboardVideoPromptTemplateId ??
-          (gameExperienceStyle === "living_anime"
-            ? GAME_ANIME_VIDEO_PROMPT_TEMPLATE_ID
-            : metadata.gameVideoPromptTemplateId),
+        metadata.gameStoryboardVideoPromptTemplateId ?? metadata.gameVideoPromptTemplateId,
         gameVideoPromptOptions,
       ),
-    [
-      gameExperienceStyle,
-      gameVideoPromptOptions,
-      metadata.gameStoryboardVideoPromptTemplateId,
-      metadata.gameVideoPromptTemplateId,
-    ],
+    [gameVideoPromptOptions, metadata.gameStoryboardVideoPromptTemplateId, metadata.gameVideoPromptTemplateId],
   );
   const updateGameVideoPromptSelection = useCallback(
     (promptTemplateId: string) => {
@@ -3836,7 +3820,9 @@ export function ChatSettingsDrawer({
                 storedValue={(metadata.gameSystemPrompt as string) ?? ""}
                 value={gamePromptDraft}
                 specialInstructionsValue={gameSpecialInstructionsDraft}
-                experienceStyle={gameExperienceStyle}
+                experienceStyle={normalizeGameExperienceStyle(
+                  (metadata.gameSetupConfig as Record<string, unknown> | undefined)?.experienceStyle,
+                )}
                 promptPresetId={effectiveModePromptPresetId}
                 promptPresets={promptPresetOptions}
                 selectedPresetName={selectedModePromptPreset?.name ?? null}
@@ -3850,19 +3836,7 @@ export function ChatSettingsDrawer({
                     metadata.gameSetupConfig && typeof metadata.gameSetupConfig === "object"
                       ? { ...(metadata.gameSetupConfig as Record<string, unknown>), experienceStyle }
                       : { experienceStyle };
-                  const animeEnabled = experienceStyle === "living_anime";
-                  updateMeta.mutate({
-                    id: chat.id,
-                    gameSetupConfig: setupConfig,
-                    gameStoryboardIllustrationPromptTemplateId: animeEnabled
-                      ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-                      : null,
-                    gameStoryboardAnimationPromptTemplateId: animeEnabled
-                      ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-                      : null,
-                    gameStoryboardVideoPromptTemplateId: animeEnabled ? GAME_ANIME_VIDEO_PROMPT_TEMPLATE_ID : null,
-                    gameStoryboardUseDirectScenePrompt: animeEnabled || null,
-                  });
+                  updateMeta.mutate({ id: chat.id, gameSetupConfig: setupConfig });
                 }}
                 onExpandedChange={setGamePromptExpanded}
                 onValueChange={setGamePromptDraft}
@@ -7876,11 +7850,7 @@ export function ChatSettingsDrawer({
                         description="Used when storyboards create still keyframes without videos."
                         options={gameStoryboardPromptOptions}
                         selectedId={selectedGameStoryboardIllustrationPromptTemplateId}
-                        fallbackId={
-                          gameExperienceStyle === "living_anime"
-                            ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-                            : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID
-                        }
+                        fallbackId={GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID}
                         onChange={(promptTemplateId) =>
                           updateGameStoryboardPromptSelection(
                             "gameStoryboardIllustrationPromptTemplateId",
@@ -7893,11 +7863,7 @@ export function ChatSettingsDrawer({
                         description="Creates the comic page or keyframe image that will be animated."
                         options={gameStoryboardPromptOptions}
                         selectedId={selectedGameStoryboardAnimationPromptTemplateId}
-                        fallbackId={
-                          gameExperienceStyle === "living_anime"
-                            ? GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID
-                            : GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID
-                        }
+                        fallbackId={GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID}
                         onChange={(promptTemplateId) =>
                           updateGameStoryboardPromptSelection(
                             "gameStoryboardAnimationPromptTemplateId",
@@ -7911,11 +7877,7 @@ export function ChatSettingsDrawer({
                           description="Controls how saved storyboard source images become animation clips."
                           options={gameVideoPromptOptions}
                           selectedId={selectedGameStoryboardVideoPromptTemplateId}
-                          fallbackId={
-                            gameExperienceStyle === "living_anime"
-                              ? GAME_ANIME_VIDEO_PROMPT_TEMPLATE_ID
-                              : GAME_VIDEO_PROMPT_TEMPLATE_ID
-                          }
+                          fallbackId={GAME_VIDEO_PROMPT_TEMPLATE_ID}
                           onChange={updateGameStoryboardVideoPromptSelection}
                         />
                       </div>
@@ -9594,14 +9556,6 @@ function GameStoryboardPromptLibrary({
             </button>
             <button
               type="button"
-              onClick={() => onAddTemplate(GAME_STORYBOARD_ANIME_EPISODE_DIRECTOR_PROMPT_TEMPLATE_ID)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
-            >
-              <FilePlus2 size="0.6875rem" />
-              Add Anime Director Copy
-            </button>
-            <button
-              type="button"
               onClick={() => onAddTemplate(GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE_ID)}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
             >
@@ -9734,14 +9688,6 @@ function GameVideoPromptLibrary({
             >
               <Plus size="0.6875rem" />
               Add Video Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => onAddTemplate(GAME_ANIME_VIDEO_PROMPT_TEMPLATE_ID)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
-            >
-              <Plus size="0.6875rem" />
-              Add Anime Video Copy
             </button>
           </div>
           {customTemplates.length === 0 ? (

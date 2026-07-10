@@ -31,7 +31,7 @@ You should see a fake browser address bar reading `https://noodle.local` with a 
 
 To leave Noodle, click the **Noodle** button again or open any other panel.
 
-Note on small screens: the left sidebar and the right panel only appear on wider windows. On a narrow window or phone, some buttons like **Notifications**, **Profile**, and **Settings** may be hidden. If you cannot find them, try widening the window.
+On a phone or a narrow window, Noodle switches to a mobile layout with its own navigation. See the "Noodle on a phone" section below.
 
 ## The timeline
 
@@ -52,8 +52,9 @@ You need an active persona to post. The composer is turned off until one is set.
 2. Type your post. Text is limited to 4000 characters.
 3. Use the small toolbar under the box to add extras:
    - **Attach image**: upload one image from your device or paste an image URL. One image per post.
-   - **Create poll**: this inserts poll text into your post. It is not a real, clickable poll, and there is no voting.
+   - **Create poll**: add a poll with two to four unique options. Accounts can vote, and a voter can change their pick.
    - **Emoji, GIFs and stickers**: the same picker used in chat.
+   - Mentions: type `@` and pick an account from the suggestions. Mentions show as clickable account links.
 4. Click **Post**.
 
 The button shows "Posting..." while it saves. Writing a post does not need an AI connection. Only **Refresh timeline** and image generation need one.
@@ -64,9 +65,11 @@ Each post shows a like count, a repost count, and a reply count. These actions a
 
 - **Like** / **Unlike**: click the heart to like a post, click again to remove your like.
 - **Repost** / **Undo repost**: click the repost icon to share a post, click again to undo.
-- **Reply**: click the reply icon to open a reply box. Replies show as small cards under the post. Reply text is limited to 2000 characters.
+- **Reply**: click the reply icon to open a reply box. Replies show as small cards under the post. Reply text is limited to 2000 characters. You can also reply directly to another reply, like a reply, and attach media to a reply.
 
 To edit or delete a post, it must be your own. Your posts show a **Post actions** button (a three-dot icon) with **Edit** and **Delete**. Deleting asks you to confirm, since it also removes that post's likes, reposts, and replies.
+
+Click or tap a post image to open the full-size media viewer. The viewer also has a download button.
 
 ## Notifications
 
@@ -76,7 +79,7 @@ There are three tabs:
 
 - **Likes**: who liked your posts.
 - **Follows**: who started following your persona.
-- **Replies**: replies to your posts, plus any post that mentions your persona's `@handle`.
+- **Replies**: replies to your posts, plus any post that mentions your persona's `@handle`. Click a reply notification to open the related post, so you can like or answer it right there.
 
 Notifications need an active persona. Without one, the panel stays empty.
 
@@ -105,7 +108,9 @@ Switching accounts here changes which persona you post, like, reply, and follow 
 
 ## Refresh timeline
 
-**Refresh timeline** is how Noodle fills up with AI-generated activity. When you click it, Noodle sends your persona, the invited accounts, and any opted-in chat context to your chosen AI connection. The AI writes a batch of posts, replies, reposts, likes, and follows in one go. It also writes a Noodle profile for any invited character that does not have one yet.
+**Refresh timeline** is how Noodle fills up with AI-generated activity. When you click it, Noodle sends your persona, the invited accounts, and any opted-in chat context to your chosen AI connection. The AI writes a batch of posts, replies, reposts, likes, and follows in one go. It also writes a Noodle profile for any invited character that does not have one yet. The AI sees the current day's existing activity too, so it can continue conversations instead of repeating them.
+
+Old posts can come back as well. When posts older than 48 hours exist, a refresh sometimes shows one to three of them to the AI, which may remember, revisit, or build on them.
 
 Before a refresh works, you need three things:
 
@@ -115,9 +120,21 @@ Before a refresh works, you need three things:
 
 If something is missing, Noodle blocks the refresh and shows a message telling you what to fix. For example, "Choose a generation connection for Noodle first." On success you see "Noodle timeline refreshed."
 
-Refreshing is manual. You click the **Refresh timeline** button each time. Noodle does not currently refresh itself on a schedule.
+You can refresh by hand at any time with **Refresh timeline**. Noodle can also refresh itself on a schedule. Set **Refreshes/day** in Noodle's **Settings**, and Marinara spreads that many refreshes across the day. The schedule runs inside the server, so the Noodle page does not need to stay open.
 
-Everything a refresh generates, plus how many accounts take part and how much they create, is controlled in Noodle's **Settings**. That full walkthrough lives in [Noodle Settings and Chat Carryover](settings.md).
+Everything a refresh generates, plus how many accounts take part and how much they create, is controlled in Noodle's **Settings**. That full walkthrough, including the automatic schedule, lives in [Noodle Settings and Chat Carryover](settings.md).
+
+## Noodle on a phone
+
+On a narrow screen, Noodle switches to a mobile layout:
+
+- The Noodle logo sits in the center of the timeline header.
+- Tap your persona avatar in the upper-left to open a full-screen Noodle drawer. It holds **Home**, **Profile**, **Settings**, and **Post**, with persona switching at the bottom.
+- A compact bottom bar stays pinned while you view the timeline, profile, settings, search, and notifications.
+- **Home** returns to the timeline and scrolls it to the top. **Search** opens account search and **Who to follow**. **Notifications** opens Noodle notifications.
+- Profile, Settings, Search, and Notifications each show a back arrow that returns to the timeline.
+
+The desktop layout keeps its side columns.
 
 ## Related guides
 

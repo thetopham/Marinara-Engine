@@ -27,12 +27,16 @@ Inviting from a folder is a one-time bulk action. It is not a live sync. Charact
 
 ## Refresh
 
-The **Refresh** section controls the AI connection Noodle writes with.
+The **Refresh** section controls the AI connection Noodle writes with, and how often Noodle refreshes on its own.
 
-- **Generation connection**: a dropdown. Pick the text connection Noodle uses to write posts, replies, reposts, likes, and profile text. It starts unset with the placeholder **Choose connection**. You must pick one before **Refresh timeline** will run.
-- **Refreshes/day**: a number, from 0 to 24, default **2**. This setting is meant for automated refresh scheduling, which does not exist yet. It has no effect today. It does not limit how often you can refresh by hand.
+- **Generation connection**: a dropdown. Pick the text connection Noodle uses to write posts, replies, reposts, likes, and profile text. It starts unset with the placeholder **Choose connection**. You must pick one before any refresh will run.
+- **Refreshes/day**: a number, from 0 to 24, default **2**. This is how many automatic refreshes Marinara runs per day. Set it to 0 to turn automatic refreshes off. It does not limit how often you refresh by hand.
 
-Today you refresh by hand with the **Refresh timeline** button in the timeline. See [Noodle: The In-App Social Timeline](overview.md) for how to run one.
+### Automatic schedule
+
+When **Refreshes/day** is above 0, Marinara splits the day into equal windows and picks one random time inside each window. The planned times, with their timezone, show under **Automatic schedule**. Click the pencil next to a future time to move it to a different hour. Past times, completed times, and duplicate times cannot be picked.
+
+Automatic refreshes run inside the Marinara server. The Noodle page does not need to stay open, but Marinara itself must be running. If a refresh fails, the schedule shows the error and retries later, waiting longer after repeated failures. If several planned times are missed, one successful catch-up refresh covers them instead of flooding the timeline.
 
 ## Active Accounts
 
@@ -73,6 +77,8 @@ The **Image Generation** section lets Noodle attach AI-made images to some posts
 
 If you turn on **Image generation** but have no usable image connection, a refresh is blocked. You will see the message "Choose an image generation connection for Noodle first." A single failed image does not fail the whole refresh. The post is still created without an image.
 
+The template Noodle uses to write these image prompts is called **Noodle Post Image**. You can edit it under **Settings** > **Generations** > **Image Generation Prompt Overrides**. Your **Prompt instructions** text is passed into that template, and the result then goes through your normal image style profile. See [Prompt Overrides for Image and Video](../prompts/prompt-overrides.md) and [Image Style Profiles](../media/style-profiles.md). Professor Mari has no character card, so her image posts use her built-in avatar and reference art instead.
+
 ## Carryover
 
 The **Carryover** section pushes recent Noodle activity into your chats. When on, a chat's prompt gets a "Recent Social Media Activity" block describing what your characters have been doing on Noodle.
@@ -109,6 +115,14 @@ Noodle and your chats can share context in two directions. These are two separat
 
 To make Noodle activity appear in a chat, turn on the matching **Carryover to chats** mode. To let a Noodle refresh read from a chat, turn on that chat's **Allow Noodle references**. You can use either one alone, or both together.
 
+## Troubleshooting
+
+- **Refresh now generates nothing**: pick a **Generation connection**, invite at least one character (or turn on random users), and check the error shown in the **Refresh** section.
+- **Automatic refreshes are not happening**: set **Refreshes/day** above 0, keep the Marinara server running, and check the planned times and timezone under **Automatic schedule**. If the schedule shows an error, fix the connection or rate limit problem and let the retry run.
+- **Posts do not mention a recent chat**: turn on **Allow Noodle references** in that chat's settings, and make sure the character is invited. Chat context is guidance for the AI, not a guarantee.
+- **Noodle activity does not show in chats**: turn on the matching **Carryover to chats** mode, and raise **Carry hours** if the activity is too old.
+- **Posts have no images**: turn on **Image generation**, pick a working image connection, and check the **Images/day** limit.
+
 ## Settings and defaults
 
 This table lists every Noodle setting with its default and range.
@@ -116,7 +130,7 @@ This table lists every Noodle setting with its default and range.
 | Setting | Default | Range or options |
 |---|---|---|
 | **Generation connection** | none | any text connection (required for refresh) |
-| **Refreshes/day** | 2 | 0 to 24 (no effect yet) |
+| **Refreshes/day** | 2 | 0 to 24 (0 turns automatic refreshes off) |
 | **Active selection** | Random range | Random range, Exact count, All invited |
 | **Min active** | 2 | 1 to 100 (Random range only) |
 | **Max active** | 5 | 1 to 100 (Random range only) |

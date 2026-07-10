@@ -58,9 +58,14 @@ function maybeFireBotTurns(
   res: OutcomeResponse | undefined,
 ): void {
   const view = res?.view;
-  if (!view || res?.finished) return;
-  const botTurn = !!res?.currentSeatId && res.currentSeatId !== view.yourSeatId;
+  if (!view) return;
+  // A finished game can STILL owe narration: the match-winning shot queues a
+  // "game_over" announcement on the same response that carries finished=true
+  // (with the default raceTo:1 that's the very first clean 8-pot). The server's
+  // drain path serves finished games too, so fire for the drain — just never
+  // for a bot turn once the match is over.
   const pendingAnnouncements = isEightBallView(view) && view.hasPendingAnnouncements === true;
+  const botTurn = !res?.finished && !!res?.currentSeatId && res.currentSeatId !== view.yourSeatId;
   if (!botTurn && !pendingAnnouncements) return;
   const chat =
     qc.getQueryData<{ connectionId?: string | null }>(chatKeys.detail(chatId)) ??

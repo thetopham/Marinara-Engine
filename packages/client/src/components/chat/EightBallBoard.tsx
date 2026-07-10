@@ -191,9 +191,11 @@ export function EightBallBoard({ chatId }: Props) {
   const ballInHandForYou = view.ballInHandFor === view.yourSeatId;
   const ballInHandForOpponent = !!view.ballInHandFor && view.ballInHandFor !== view.yourSeatId;
 
+  // Gate on the RESOLVED candidate, not the raw id string — if a snapshot swaps
+  // the menu under a lingering selection, the stale id must not be submittable.
   const submit = () => {
-    if (disabled || !selectedShotId) return;
-    move.mutate({ move: { type: "shoot", shotId: selectedShotId, style } });
+    if (disabled || !selectedCandidate) return;
+    move.mutate({ move: { type: "shoot", shotId: selectedCandidate.id, style } });
     setSelectedShotId(null);
   };
 
@@ -411,7 +413,7 @@ export function EightBallBoard({ chatId }: Props) {
             </div>
             <button
               type="button"
-              disabled={disabled || !selectedShotId}
+              disabled={disabled || !selectedCandidate}
               onClick={submit}
               className="ml-auto rounded-lg bg-[var(--primary)] px-4 py-1.5 text-sm font-semibold text-[var(--primary-foreground)] transition-transform active:scale-95 disabled:opacity-40"
             >

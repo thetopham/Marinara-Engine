@@ -7,6 +7,7 @@ import type {
   AgentResult,
   AgentWriteApprovalProposal,
   CharacterCardFieldUpdate,
+  MariSuggestionChip,
 } from "@marinara-engine/shared";
 import type { AgentFailure } from "../lib/agent-failures";
 
@@ -123,6 +124,8 @@ interface AgentState {
     text: string;
   }>;
   cyoaChoicesChatId: string | null;
+  mariChips: MariSuggestionChip[];
+  mariChipsChatId: string | null;
   /** Latest Music DJ YouTube "play" intent. nonce bumps each pick so the player reacts. */
   youtubePlay: { searchQuery: string; mood: string; nonce: number } | null;
   /** Latest Music DJ YouTube volume directive (0-100), independent of track changes. */
@@ -154,6 +157,8 @@ interface AgentState {
   setEchoLoadedChatId: (chatId: string | null) => void;
   setCyoaChoices: (choices: Array<{ label: string; text: string }>, chatId?: string | null) => void;
   clearCyoaChoices: () => void;
+  setMariChips: (chatId: string | null, chips: MariSuggestionChip[]) => void;
+  clearMariChips: () => void;
   setYoutubePlay: (play: { searchQuery: string; mood: string }) => void;
   setYoutubeVolume: (volume: number | null) => void;
   clearYoutube: () => void;
@@ -186,6 +191,8 @@ type AgentDataState = Pick<
   | "echoLoadedChatId"
   | "cyoaChoices"
   | "cyoaChoicesChatId"
+  | "mariChips"
+  | "mariChipsChatId"
   | "youtubePlay"
   | "youtubeVolume"
   | "localMusicPlay"
@@ -211,6 +218,8 @@ function createInitialAgentDataState(): AgentDataState {
     echoLoadedChatId: null,
     cyoaChoices: [],
     cyoaChoicesChatId: null,
+    mariChips: [],
+    mariChipsChatId: null,
     youtubePlay: null,
     youtubeVolume: null,
     localMusicPlay: null,
@@ -317,6 +326,8 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   setCyoaChoices: (choices, chatId = null) => set({ cyoaChoices: choices, cyoaChoicesChatId: chatId }),
   clearCyoaChoices: () => set({ cyoaChoices: [], cyoaChoicesChatId: null }),
+  setMariChips: (chatId, chips) => set({ mariChips: chips, mariChipsChatId: chatId }),
+  clearMariChips: () => set({ mariChips: [], mariChipsChatId: null }),
 
   setYoutubePlay: ({ searchQuery, mood }) =>
     set((s) => ({ youtubePlay: { searchQuery, mood, nonce: (s.youtubePlay?.nonce ?? 0) + 1 } })),

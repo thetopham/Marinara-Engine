@@ -26,6 +26,7 @@ import {
   type AgentCallDebugEvent,
   type CharacterCardFieldUpdate,
   type EditableCharacterCardField,
+  type MariSuggestionChip,
   type ThinkingTagPair,
 } from "@marinara-engine/shared";
 
@@ -974,6 +975,8 @@ export function useGenerate() {
   const addEchoMessage = useAgentStore((s) => s.addEchoMessage);
   const setCyoaChoices = useAgentStore((s) => s.setCyoaChoices);
   const clearCyoaChoices = useAgentStore((s) => s.clearCyoaChoices);
+  const setMariChips = useAgentStore((s) => s.setMariChips);
+  const clearMariChips = useAgentStore((s) => s.clearMariChips);
   const setYoutubePlay = useAgentStore((s) => s.setYoutubePlay);
   const setYoutubeVolume = useAgentStore((s) => s.setYoutubeVolume);
   const setLocalMusicPlay = useAgentStore((s) => s.setLocalMusicPlay);
@@ -1045,6 +1048,7 @@ export function useGenerate() {
         clearStreamBuffer(params.chatId);
         clearThoughtBubbles();
         clearCyoaChoices();
+        clearMariChips();
         clearFailedAgentTypes(params.chatId);
         setRegenerateMessageId(params.regenerateMessageId ?? null);
       }
@@ -2310,6 +2314,11 @@ export function useGenerate() {
               } else if (actionData.action === "data_fetched") {
                 const fetchType = (actionData.fetchType as string) ?? "data";
                 toast(`Fetched ${fetchType}: ${actionData.name}`, { icon: "📋" });
+              } else if (actionData.action === "suggestions") {
+                const suggestions = Array.isArray(actionData.suggestions)
+                  ? (actionData.suggestions as MariSuggestionChip[])
+                  : [];
+                setMariChips(params.chatId, suggestions);
               } else if (actionData.action === "navigate") {
                 const panel = actionData.panel as string;
                 const tab = actionData.tab as string | null;
@@ -2729,6 +2738,8 @@ export function useGenerate() {
       addEchoMessage,
       setCyoaChoices,
       clearCyoaChoices,
+      setMariChips,
+      clearMariChips,
       setYoutubePlay,
       setYoutubeVolume,
       setLocalMusicPlay,

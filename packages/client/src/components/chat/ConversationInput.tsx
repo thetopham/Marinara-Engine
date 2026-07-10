@@ -21,6 +21,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useChatStore } from "../../stores/chat.store";
+import { useAgentStore } from "../../stores/agent.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useUnoGameStore } from "../../stores/uno-game.store";
 import { useChessGameStore } from "../../stores/chess-game.store";
@@ -51,6 +52,7 @@ import { SpeechToTextButton } from "../ui/SpeechToTextButton";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
 import { getChatInputShellClass } from "./chat-input-styles";
+import { MariSuggestionChips } from "./MariSuggestionChips";
 import {
   ConversationMediaPickerPanel,
   type ConversationMediaPickerTab,
@@ -60,8 +62,11 @@ import {
   buildGuidedGenerationInstructionMessage,
   formatTextQuotes,
   includesTextForMatch,
+  MARI_STARTER_CHIPS,
   normalizeTextForMatch,
+  PROFESSOR_MARI_ID,
   startsWithTextForMatch,
+  type MariSuggestionChip,
   type Message,
 } from "@marinara-engine/shared";
 
@@ -345,6 +350,8 @@ export function ConversationInput({
   const currentInputFrameRef = useRef<number | null>(null);
   const pendingCurrentInputRef = useRef("");
   const activeChatId = useChatStore((s) => s.activeChatId);
+  const mariChips = useAgentStore((s) => s.mariChips);
+  const mariChipsChatId = useAgentStore((s) => s.mariChipsChatId);
   const { data: activeChat } = useChat(activeChatId);
   const chatName = activeChat?.name;
   const streamingChatId = useChatStore((s) => s.streamingChatId);
@@ -429,6 +436,15 @@ export function ConversationInput({
     });
   }, [activeChatId, qc]);
   const messagesData = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(activeChatId ?? ""));
+  const isProfessorMariChat = activeChatCharacters?.some((character) => character.id === PROFESSOR_MARI_ID) ?? false;
+  const hasMessages = (messagesData?.pages ?? []).some((page) => page.length > 0);
+  const visibleMariChips = isProfessorMariChat
+    ? mariChipsChatId === activeChatId && mariChips.length > 0
+      ? mariChips
+      : !hasMessages
+        ? MARI_STARTER_CHIPS
+        : []
+    : [];
   const lastMessage = useMemo(() => {
     const firstPage = messagesData?.pages?.[0];
     return firstPage?.[firstPage.length - 1] ?? null;
@@ -496,6 +512,22 @@ export function ConversationInput({
       el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
       syncInputState(nextValue);
       setInputDraft(activeChatId, nextValue);
+      el.focus();
+    },
+    [activeChatId, setInputDraft, syncInputState],
+  );
+
+  const handleMariChipSelect = useCallback(
+    (chip: MariSuggestionChip) => {
+      const el = textareaRef.current;
+      if (!el || !activeChatId) return;
+      const current = el.value;
+      const next = current.trim() ? `${current.trimEnd()} ${chip.prompt}` : chip.prompt;
+      el.value = next;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      syncInputState(next);
+      setInputDraft(activeChatId, next);
       el.focus();
     },
     [activeChatId, setInputDraft, syncInputState],
@@ -2100,6 +2132,8 @@ export function ConversationInput({
           )}
         </div>
       )}
+
+      <MariSuggestionChips chips={visibleMariChips} onSelect={handleMariChipSelect} disabled={isStreaming} />
 
       {/* Input bar */}
       <div

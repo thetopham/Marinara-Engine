@@ -2140,6 +2140,7 @@ export function NoodleView() {
   };
 
   const triggerRefresh = () => {
+    if (imagePromptReviewItems.length > 0) return;
     if (!settings?.generationConnectionId) {
       toast.error("Choose a generation connection for Noodle first.");
       return;
@@ -4435,7 +4436,7 @@ export function NoodleView() {
                   <button
                     type="button"
                     onClick={triggerRefresh}
-                    disabled={refreshNoodle.isPending || !settings}
+                    disabled={refreshNoodle.isPending || !settings || imagePromptReviewItems.length > 0}
                     className="flex h-9 w-full items-center justify-center gap-2 rounded-full text-sm font-bold text-[var(--noodle-blue)] transition-colors hover:bg-[var(--noodle-blue)]/10 disabled:cursor-not-allowed disabled:opacity-50"
                     title="Refresh timeline"
                     aria-label="Refresh timeline"

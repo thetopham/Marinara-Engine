@@ -1,10 +1,10 @@
-import type { Lorebook } from "@marinara-engine/shared";
+import type { CreateLorebookInput, Lorebook } from "@marinara-engine/shared";
 
 function canonicalLinkedIds(ids: string[], legacyId: string | null) {
   return Array.from(new Set([...ids, legacyId].filter((id): id is string => Boolean(id))));
 }
 
-export function buildLorebookDuplicateInput(lorebook: Lorebook): Record<string, unknown> {
+export function buildLorebookDuplicateInput(lorebook: Lorebook): CreateLorebookInput {
   return {
     name: `${lorebook.name} (Copy)`,
     description: lorebook.description,

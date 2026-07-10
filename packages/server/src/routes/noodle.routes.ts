@@ -1046,7 +1046,7 @@ const noodleImagePromptConfirmationSchema = z.object({
       z.object({
         id: z.string().min(1),
         prompt: z.string().trim().min(1).max(20_000),
-        negativePrompt: z.string().max(20_000).optional(),
+        negativePrompt: z.string().trim().max(20_000).optional(),
       }),
     )
     .max(20),

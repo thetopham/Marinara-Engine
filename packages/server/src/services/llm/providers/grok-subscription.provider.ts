@@ -16,6 +16,7 @@ import { logger, logDebugOverride } from "../../../lib/logger.js";
 import { DATA_DIR } from "../../../utils/data-dir.js";
 
 const GROK_SCRATCH_DIR = join(DATA_DIR, "grok-cli");
+const GROK_PROMPT_DIR = join(DATA_DIR, "grok-cli-prompts");
 const GROK_ERROR_PREVIEW_CHARS = 2000;
 const GROK_MODELS_TIMEOUT_MS = 30 * 1000;
 const GROK_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -332,10 +333,12 @@ export class GrokSubscriptionProvider extends BaseLLMProvider {
     // on Windows) kill the spawn once transcripts grow — reachable even under
     // the old 32k-token clamp, since it estimated chars while the OS counts
     // bytes (multibyte-heavy chats). Unique filename because parallel agent and
-    // chat requests share the scratch dir; removed after the CLI exits.
-    await mkdir(GROK_SCRATCH_DIR, { recursive: true });
-    const promptFile = join(GROK_SCRATCH_DIR, `prompt-${randomUUID()}.txt`);
-    await writeFile(promptFile, prompt, "utf8");
+    // chat requests share the prompt dir; removed after the CLI exits. Keep
+    // prompt files outside --cwd so the model's file tools cannot discover the
+    // transcript by listing the CLI workspace.
+    await mkdir(GROK_PROMPT_DIR, { recursive: true, mode: 0o700 });
+    const promptFile = join(GROK_PROMPT_DIR, `prompt-${randomUUID()}.txt`);
+    await writeFile(promptFile, prompt, { encoding: "utf8", mode: 0o600 });
     const args = [
       "--no-auto-update",
       "--prompt-file",

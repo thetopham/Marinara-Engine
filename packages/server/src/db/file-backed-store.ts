@@ -237,6 +237,14 @@ export const CASCADES: Array<{ parent: FileBackedTable; child: FileBackedTable; 
     childKey: "storyboardId",
   },
   { parent: "messages", child: "message_swipes", parentKey: "id", childKey: "messageId" },
+  // Game rows must not outlive their message: mirrors the application-level
+  // cleanup in chats.storage.ts deleteGameStateForMessages(), which deletes
+  // checkpoints (by snapshotId and messageId), snapshots, and engine state
+  // whenever messages are removed.
+  { parent: "messages", child: "game_state_snapshots", parentKey: "id", childKey: "messageId" },
+  { parent: "messages", child: "game_checkpoints", parentKey: "id", childKey: "messageId" },
+  { parent: "messages", child: "game_engine_state", parentKey: "id", childKey: "messageId" },
+  { parent: "game_state_snapshots", child: "game_checkpoints", parentKey: "id", childKey: "snapshotId" },
   { parent: "conversation_call_sessions", child: "conversation_call_messages", parentKey: "id", childKey: "callId" },
   { parent: "characters", child: "character_card_versions", parentKey: "id", childKey: "characterId" },
   { parent: "characters", child: "character_images", parentKey: "id", childKey: "characterId" },

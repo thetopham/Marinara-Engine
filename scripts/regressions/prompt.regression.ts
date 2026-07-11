@@ -76,6 +76,10 @@ import {
 import type { DB } from "../../packages/server/src/db/connection.js";
 import { escapeXmlText } from "../../packages/server/src/services/prompt/prompt-escaping.js";
 import {
+  escapeStandaloneGameNarrationAngleLines,
+  hasVisibleGameNarrationText,
+} from "../../packages/client/src/lib/game-tag-parser.js";
+import {
   appendNonLeadingSystemMessagesToLastUser,
   appendReadableAttachmentsToContent,
   buildGenerationGuideInstruction,
@@ -195,6 +199,28 @@ const keywordOptions = {
 };
 
 const cases: RegressionCase[] = [
+  {
+    name: "game narration preserves angle-bracket status readouts and rejects transformed empty steps",
+    run() {
+      const statusReadout = [
+        "<BRONZE PROCTOR — CALIBRATION CONSTRUCT>",
+        "<CORE: SEALED>",
+        "<RULE: DAMAGE REGISTERED ONLY AFTER A MATCHED ATTACK IS COUNTERED>",
+      ].join("\n");
+      assert.equal(
+        escapeStandaloneGameNarrationAngleLines(statusReadout),
+        [
+          "&lt;BRONZE PROCTOR — CALIBRATION CONSTRUCT&gt;",
+          "&lt;CORE: SEALED&gt;",
+          "&lt;RULE: DAMAGE REGISTERED ONLY AFTER A MATCHED ATTACK IS COUNTERED&gt;",
+        ].join("\n"),
+      );
+      assert.equal(escapeStandaloneGameNarrationAngleLines("<strong>Warning</strong>"), "<strong>Warning</strong>");
+      assert.equal(hasVisibleGameNarrationText("  \n  "), false);
+      assert.equal(hasVisibleGameNarrationText("{shake:   }"), false);
+      assert.equal(hasVisibleGameNarrationText("<CORE: SEALED>"), true);
+    },
+  },
   {
     name: "readable text attachments are not pre-truncated before context fitting",
     run() {

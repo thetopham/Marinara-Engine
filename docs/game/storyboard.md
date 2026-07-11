@@ -89,6 +89,10 @@ All of these live in the **Storyboards** card. Open **Chat Settings**, go to **A
 
 **Storyboard Video Prompt** is separate from the general **Game Video Prompt** in the **Scene Videos** card. Leave it on the inherited choice to reuse the general prompt, or select **Anime Game Video** for keyframe clips without changing manual Gallery or Game Assets videos.
 
+Select **Comic Page Animation** for the duration-aware comic source pages, then choose **Comic Page Video** to interpret those panels as ordered visual reference beats for one clip. The original **Comic Page** remains available for ordinary illustrations. The separate video choice leaves the inherited **Game Video Prompt** plus manual Gallery and Game Assets videos unchanged.
+
+New games created with the **Anime Episode** presentation select **Comic Page Animation** and **Comic Page Video** by default. You can switch that chat to the still-shot combination at any time by selecting **Anime Episode Director** and **Anime Game Video**.
+
 ## Style presets
 
 The style presets shape how each keyframe looks. Two selectors pick them:
@@ -96,18 +100,21 @@ The style presets shape how each keyframe looks. Two selectors pick them:
 - **Illustration Prompt** is used when storyboards make still keyframes without videos. Default: **Still Keyframes**.
 - **Animation Prompt** is used when **Automatic Storyboard Animations** is on. Default: **Comic Page**.
 
-There are six built-in presets. They are for Game Mode storyboards only. They are separate from Roleplay illustrator presets.
+There are seven built-in presets. They are for Game Mode storyboards only. They are separate from Roleplay illustrator presets.
 
 | Preset | Best for |
 | --- | --- |
 | **Still Keyframes** | Normal reading. Single-scene keyframes. Avoids comic panels, speech bubbles, captions, and SFX text, so the viewer does not spoil later beats. |
 | **NovelAI Keyframes** | Compact tag prompts tuned for NovelAI V4 and V4.5. Best paired with **Use Storyboard Prompt Directly**. |
 | **Anime Episode Director** | Ordered, animation-ready single shots. It plans the exact first frame, one main movement, simple camera behavior, environmental motion, and an ending hold. |
-| **Comic Page** | Comic panels with dialogue bubbles, captions, and lettering. Meant for the animation path. |
+| **Comic Page** | Original comic-page illustration prompt with 2-6 panels, dialogue bubbles, captions, and lettering. |
+| **Comic Page Animation** | Duration-aware comic source pages for animation. Each page uses a small number of chronological panels as ordered visual references for one clip. |
 | **Colored Manga** | Colored manga staging, cell shading, screentones, speech bubbles, and SFX. |
 | **B&W Manga** | Black-and-white manga inks, screentones, heavy blacks, speech bubbles, and SFX. |
 
 The **Anime Episode Director** pairs with **Anime Game Video** and **Use Storyboard Prompt Directly** when you want the generated still to be the exact first frame of a continuous clip. The director keeps severe violence non-graphic and stages it through anticipation, obstruction, reaction, or aftermath where possible, which can reduce provider safety rejections without changing the GM's canonical story.
+
+The **Comic Page Animation** preset uses the animation clip duration to control page density. It targets 2 panels for a 6-7 second clip, 2-3 panels for 8-10 seconds, and no more than 4 panels for longer storyboard clips. Panels follow cause and effect in reading order. Pair it with **Comic Page Video** when you want the video model to establish the page and then move through its panels without interpreting every panel as a simultaneous scene.
 
 The **NovelAI Keyframes** preset writes compact Danbooru tags. Danbooru tags are short comma-separated keyword tags that some anime image models expect. Choosing an animation, comic, or manga preset does not turn animations on by itself. You still need **Automatic Storyboard Animations** and a video connection for clips.
 
@@ -115,7 +122,7 @@ The **NovelAI Keyframes** preset writes compact Danbooru tags. Danbooru tags are
 
 The built-in presets are read-only. To make your own, open the **Edit Storyboard Presets** section inside the **Storyboards** card. It shows a count of your custom copies.
 
-You copy a built-in into a chat-only editable template, then pick that copy in either selector. The copy controls include the built-in still, anime episode, comic, NovelAI, colored manga, and black-and-white manga templates.
+You copy a built-in into a chat-only editable template, then pick that copy in either selector. The copy controls include the built-in still, anime episode, comic illustration, comic animation, NovelAI, colored manga, and black-and-white manga templates. **Edit Video Presets** likewise offers copies of Cinematic Scene Video, Anime Game Video, and Comic Page Video for either video selector.
 
 Each custom copy has a name, a short description, and the prompt body you edit. A trash button removes a copy after a confirm dialog. These copies are stored on that one chat, not across your whole app.
 

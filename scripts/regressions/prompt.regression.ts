@@ -4,6 +4,8 @@ import {
   ANIME_GAME_PROMPT_TEMPLATE_ID,
   ANIME_GAME_SYSTEM_PROMPT,
   ANIME_GAME_VIDEO_PROMPT_TEMPLATE_ID,
+  COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE,
+  COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID,
   applyRegexReplacement,
   buildNarratorInstructionMessage,
   compileChatSummaryEntries,
@@ -24,8 +26,14 @@ import {
   DEFAULT_AGENT_PROMPT_TEMPLATE_ID,
   DEFAULT_AGENT_PROMPTS,
   GAME_GM_BUILT_IN_PROMPT_TEMPLATES,
+  GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES,
+  GAME_VIDEO_PROMPT_TEMPLATE,
+  GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
+  GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE,
+  GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE,
   GAME_STORYBOARD_NOVELAI_PROMPT_TEMPLATE,
   GAME_STORYBOARD_NOVELAI_PROMPT_TEMPLATE_ID,
   DEFERRED_RELOCATION_CONDITIONAL_TOKEN_RE,
@@ -827,6 +835,14 @@ const cases: RegressionCase[] = [
       assert.match(directorPreset?.promptTemplate ?? "", /PROVIDER-SAFE STAGING/);
       assert.match(directorPreset?.promptTemplate ?? "", /Create exactly \$\{keyframeCount\} shots/);
       assert.match(gameSetupWizardSource, /gamePresentation === "anime"\s*\? ANIME_GAME_SYSTEM_PROMPT/);
+      assert.match(
+        gameSetupWizardSource,
+        /gamePresentation === "anime"\s*\? GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID/,
+      );
+      assert.match(
+        gameSetupWizardSource,
+        /gamePresentation === "anime"\s*\? COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID/,
+      );
       assert.match(gameSetupWizardSource, /trimmedGameSystemPrompt !== effectiveGameSystemPrompt\.trim\(\)/);
       assert.match(gameSetupWizardSource, /Reset to selected/);
     },
@@ -870,6 +886,39 @@ const cases: RegressionCase[] = [
       assert.doesNotMatch(illustrationPrompt, /"transitionHint"/);
       assert.equal(promptKeys.includes("game.storyboardIllustrationDirector"), true);
       assert.equal(promptKeys.includes("game.storyboardDirector"), false);
+    },
+  },
+  {
+    name: "Comic Page illustration and animation presets remain separate prompt contracts",
+    run() {
+      const drawerSource = readFileSync(
+        new URL("../../packages/client/src/components/chat/ChatSettingsDrawer.tsx", import.meta.url),
+        "utf8",
+      );
+      const illustrationPreset = GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find(
+        (template) => template.id === "comic-page-keyframes",
+      );
+      const animationPreset = GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find(
+        (template) => template.id === GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID,
+      );
+
+      assert.equal(illustrationPreset?.promptTemplate, GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE);
+      assert.match(illustrationPreset?.promptTemplate ?? "", /2-6 panels per illustration/);
+      assert.doesNotMatch(illustrationPreset?.promptTemplate ?? "", /\$\{durationSeconds\}-second/);
+      assert.equal(animationPreset?.promptTemplate, GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE);
+      assert.match(animationPreset?.promptTemplate ?? "", /Each keyframe becomes one \$\{durationSeconds\}-second/);
+      assert.match(animationPreset?.promptTemplate ?? "", /2 panels for 6-7 seconds/);
+      assert.match(animationPreset?.promptTemplate ?? "", /2-3 panels for 8-10 seconds/);
+      assert.match(animationPreset?.promptTemplate ?? "", /Never show a consequence before its cause/);
+      assert.match(animationPreset?.promptTemplate ?? "", /Do not ask the video model to animate every panel at once/);
+      assert.doesNotMatch(animationPreset?.promptTemplate ?? "", /2-6 panels per illustration/);
+      assert.match(
+        drawerSource,
+        /onAddTemplate\(GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID\)/,
+      );
+      assert.match(drawerSource, /Add Comic Animation Copy/);
+      assert.match(drawerSource, /onAddTemplate\(COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID\)/);
+      assert.match(drawerSource, /Add Comic Video Copy/);
     },
   },
   {
@@ -1014,6 +1063,52 @@ const cases: RegressionCase[] = [
       assert.match(storyboardPrompt, /anime shot from the supplied first-frame illustration/);
       assert.match(storyboardPrompt, /Stage severe harm with broadcast-anime restraint/);
       assert.doesNotMatch(storyboardPrompt, /CHAT VIDEO|GLOBAL VIDEO OVERRIDE/);
+
+      const comicReferencePrompt = await loadGameVideoPrompt({
+        promptOverridesStorage,
+        meta: {},
+        templateId: COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID,
+        ctx: {
+          sceneTitle: "Rooftop pursuit",
+          narrationSummary:
+            "[0-2s] Establish the page and first panel. [2-5s] Push into the leap. [5-8s] Follow the landing and hold.",
+          illustrationPrompt: "Three-panel comic page in chronological reading order.",
+          charactersLine: "Mira",
+          settingLine: "rainy rooftop",
+          artStyleLine: "colored anime comic",
+          durationSeconds: 8,
+          aspectRatio: "16:9",
+          sourceIllustrationLine: "Use image-456 as the first frame/reference image.",
+        },
+      });
+
+      assert.match(comicReferencePrompt, /8-second 16:9 animation/);
+      assert.match(comicReferencePrompt, /comic or manga page reference/);
+      assert.match(comicReferencePrompt, /ordered temporal beats rather than simultaneous subjects/);
+      assert.match(comicReferencePrompt, /Do not merge panels, collapse gutters/);
+      assert.match(comicReferencePrompt, /Preserve deliberate comic lettering/);
+      assert.equal(
+        GAME_VIDEO_PROMPT_TEMPLATE,
+        [
+          "Create a ${durationSeconds}-second ${aspectRatio} animated game scene from the provided first-frame illustration.",
+          "${sourceIllustrationLine}",
+          "Scene: ${sceneTitle}",
+          "Story beat: ${narrationSummary}",
+          "Characters: ${charactersLine}",
+          "Setting: ${settingLine}",
+          "Art style: ${artStyleLine}",
+          "Reference prompt excerpt: ${illustrationPrompt}",
+          "Use the reference image as the visual anchor. Keep recognizable characters, setting, and mood while adding motion that feels natural for this moment.",
+          "You may choose the most cinematic camera drift, focus shift, gestures, atmospheric movement, and ending pose that fit the scene.",
+          "Avoid subtitles, captions, UI, logos, watermarks, unrelated new characters, distorted anatomy, and abrupt cuts.",
+        ].join("\n"),
+      );
+      assert.equal(
+        GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES.find(
+          (template) => template.id === COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID,
+        )?.promptTemplate,
+        COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE,
+      );
     },
   },
   {

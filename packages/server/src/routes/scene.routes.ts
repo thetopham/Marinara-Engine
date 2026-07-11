@@ -31,6 +31,7 @@ import type {
   ScenePromptPreferences,
   SceneFullPlan,
 } from "@marinara-engine/shared";
+import { resolveActivePersonaCandidate } from "./generate/generate-route-utils.js";
 
 const BG_DIR = join(DATA_DIR, "backgrounds");
 const ALLOWED_BG_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"]);
@@ -144,9 +145,7 @@ async function buildPersonaContext(
   chatMode?: string | null,
 ) {
   const allPersonas = await chars.listPersonas();
-  const persona =
-    (chatPersonaId ? allPersonas.find((p) => p.id === chatPersonaId) : null) ??
-    (chatMode !== "game" ? allPersonas.find((p) => p.isActive === "true") : null);
+  const persona = resolveActivePersonaCandidate(allPersonas, chatPersonaId, chatMode);
   if (!persona) return { personaName: "User", personaCtx: "No persona information available." };
   let ctx = `Name: ${persona.name}\n`;
   if (persona.description) ctx += `${persona.description}\n`;

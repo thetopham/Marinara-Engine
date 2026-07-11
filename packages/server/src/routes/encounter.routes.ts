@@ -24,6 +24,7 @@ import type {
   EncounterLogEntry,
   RPGStatsConfig,
 } from "@marinara-engine/shared";
+import { resolveActivePersonaCandidate } from "./generate/generate-route-utils.js";
 
 // ──────────────────────────────────────────────
 // Helpers
@@ -169,9 +170,7 @@ async function buildPersonaContext(
   chatMode?: string | null,
 ) {
   const allPersonas = await chars.listPersonas();
-  const persona =
-    (chatPersonaId ? allPersonas.find((p) => p.id === chatPersonaId) : null) ??
-    (chatMode !== "game" ? allPersonas.find((p) => p.isActive === "true") : null);
+  const persona = resolveActivePersonaCandidate(allPersonas, chatPersonaId, chatMode);
   if (!persona) return { personaName: "User", personaCtx: "No persona information available." };
   let ctx = `Name: ${persona.name}\n`;
   const description = cardPromptText(persona.description);

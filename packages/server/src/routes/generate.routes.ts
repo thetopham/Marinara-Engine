@@ -127,7 +127,10 @@ import {
 } from "../services/conversation/autonomous.service.js";
 import { buildIntentCooldownPatch, isMessageIntent } from "../services/conversation/intent.service.js";
 import { buildImpersonateInstruction } from "../services/conversation/impersonate-prompt.js";
-import { stripConversationPromptTimestamps } from "../services/conversation/transcript-sanitize.js";
+import {
+  stripConversationPromptTimestamps,
+  stripConversationResponseEnvelope,
+} from "../services/conversation/transcript-sanitize.js";
 import {
   formatZonedConversationDate,
   formatZonedConversationTime,
@@ -5440,15 +5443,19 @@ export async function generateRoutes(app: FastifyInstance) {
             }
           }
 
-          // ── Strip leaked timestamps from conversation mode responses ──
-          // Models sometimes echo [HH:MM] timestamps despite instructions not to.
-          // Strip them before storage to prevent compounding on future generations.
+          // ── Strip leaked timestamps/speaker envelopes from Conversation responses ──
+          // Models sometimes echo prompt-only metadata such as
+          // `[11.07 15:53] Character: Hello!`. Keep merged group speaker
+          // boundaries, but store single/individual replies as content only.
           if (chatMode === "conversation" && !input.impersonate) {
             const beforeStrip = fullResponse;
-            fullResponse = fullResponse
-              .replace(/^(\s*\[\d{1,2}[:.]\d{2}\]\s*)+/gm, "")
-              .replace(/^(\s*\[\d{1,2}\.\d{1,2}\.\d{4}\]\s*)+/gm, "")
-              .trim();
+            const conversationSpeakerName = targetCharId
+              ? (charInfo.find((character) => character.id === targetCharId)?.name ?? null)
+              : null;
+            fullResponse = stripConversationResponseEnvelope(fullResponse, {
+              speakerName: conversationSpeakerName,
+              preserveSpeakerPrefix: isGroupChat && groupChatMode !== "individual",
+            });
             if (fullResponse !== beforeStrip) {
               contentReplaced = true;
             }

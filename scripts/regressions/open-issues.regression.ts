@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { Chat, Message } from "../../packages/shared/src/types/chat.js";
+import { stripLeadingMessageTimestamps } from "../../packages/shared/src/utils/speaker-segments.js";
 import type { Lorebook } from "../../packages/shared/src/types/lorebook.js";
 import {
   createLorebookSchema,
@@ -19,6 +20,10 @@ import {
 import { isGitUpdateApplyAllowed } from "../../packages/server/src/services/updates/update-apply-policy.js";
 import { parseNoodleAvatarCrop } from "../../packages/server/src/services/storage/noodle.storage.js";
 import { sanitizeExampleDialoguePromptLeaf } from "../../packages/server/src/services/prompt/prompt-escaping.js";
+import {
+  stripConversationPromptTimestamps,
+  stripConversationResponseEnvelope,
+} from "../../packages/server/src/services/conversation/transcript-sanitize.js";
 import { resolveInitialGameGmConnectionId } from "../../packages/server/src/services/game/initial-game-setup.js";
 import {
   buildGameSessionReplayTurns,
@@ -34,6 +39,25 @@ import {
 assert.equal(resolveInitialGameGmConnectionId(undefined, "chat-connection"), "chat-connection");
 assert.equal(resolveInitialGameGmConnectionId("explicit-connection", "chat-connection"), "explicit-connection");
 assert.equal(resolveInitialGameGmConnectionId(undefined, null), null);
+
+assert.equal(stripLeadingMessageTimestamps("[11.07 15:53] Character: Hello!"), "Character: Hello!");
+assert.equal(stripLeadingMessageTimestamps("[11.07.2026 15:53] Character: Hello!"), "Character: Hello!");
+assert.equal(stripConversationPromptTimestamps("[11.07 15:53] Character: Hello!"), "Character: Hello!");
+assert.equal(
+  stripConversationResponseEnvelope("[11.07 15:53] Character: Hello!", { speakerName: "Character" }),
+  "Hello!",
+);
+assert.equal(
+  stripConversationResponseEnvelope("[11.07 15:53] Character: Hello!", {
+    speakerName: "Character",
+    preserveSpeakerPrefix: true,
+  }),
+  "Character: Hello!",
+);
+assert.equal(
+  stripLeadingMessageTimestamps("We meet at [11.07 15:53] by the station."),
+  "We meet at [11.07 15:53] by the station.",
+);
 
 assert.equal(parsePureTemperatureValue("15°C"), 15);
 assert.equal(parsePureTemperatureValue("59 Fahrenheit"), 15);

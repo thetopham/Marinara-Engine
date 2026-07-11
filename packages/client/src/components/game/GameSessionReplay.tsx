@@ -150,9 +150,12 @@ function ReplayStoryboardMedia({
       setPlayingVideoId(null);
       return;
     }
-    if (displayMode === "background") setMuted(false);
     setPlayingVideoId(frame.video.id);
-  }, [displayMode, frame?.video?.id]);
+  }, [frame?.video?.id]);
+
+  useEffect(() => {
+    if (displayMode === "background") setMuted(false);
+  }, [displayMode]);
 
   useEffect(() => {
     const video = videoRef.current;

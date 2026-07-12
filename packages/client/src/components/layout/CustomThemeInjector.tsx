@@ -5,6 +5,7 @@
 import { useEffect, useMemo } from "react";
 import { useThemes } from "../../hooks/use-themes";
 import { useExtensions } from "../../hooks/use-extensions";
+import { api } from "../../lib/api-client";
 import { sanitizeAppCss } from "../../lib/theme-css";
 import { useUIStore } from "../../stores/ui.store";
 import type { ExtensionStoragePatchInput, ExtensionStorageResponse } from "@marinara-engine/shared";
@@ -134,13 +135,11 @@ function ExtensionScriptRunner({ ext }: { ext: InjectableExtension }) {
         const normalized = path.startsWith("/") ? path : `/${path}`;
         const url = new URL(`/api${normalized}`, window.location.origin);
         const apiPath = url.pathname.replace(/^\/api(?=\/|$)/, "");
-        const isOwnStoragePath = apiPath === storageApiPath;
         const denied =
-          !isOwnStoragePath &&
-          (apiPath === "/extensions" ||
-            apiPath.startsWith("/extensions/") ||
-            apiPath === "/admin" ||
-            apiPath.startsWith("/admin/"));
+          apiPath === "/extensions" ||
+          apiPath.startsWith("/extensions/") ||
+          apiPath === "/admin" ||
+          apiPath.startsWith("/admin/");
         if (denied) {
           const message = `apiFetch denied: extensions cannot reach ${apiPath}`;
           console.warn(`[Extension:${ext.name}] ${message}`);
@@ -195,13 +194,10 @@ function ExtensionScriptRunner({ ext }: { ext: InjectableExtension }) {
         apiFetch,
 
         storage: Object.freeze({
-          get: () => apiFetch(storageApiPath) as Promise<ExtensionStorageResponse>,
+          get: () => api.get<ExtensionStorageResponse>(storageApiPath),
           patch: (patch: ExtensionStoragePatchInput) =>
-            apiFetch(storageApiPath, {
-              method: "PATCH",
-              body: JSON.stringify(patch),
-            }) as Promise<ExtensionStorageResponse>,
-          delete: () => apiFetch(storageApiPath, { method: "DELETE" }) as Promise<ExtensionStorageResponse>,
+            api.patch<ExtensionStorageResponse>(storageApiPath, patch),
+          delete: () => api.delete<ExtensionStorageResponse>(storageApiPath),
         }),
 
         // addEventListener with auto-cleanup

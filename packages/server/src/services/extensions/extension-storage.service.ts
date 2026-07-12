@@ -1,4 +1,4 @@
-import type { ExtensionStoragePatchInput } from "@marinara-engine/shared";
+import { extensionStoragePatchSchema, type ExtensionStoragePatchInput } from "@marinara-engine/shared";
 import type { createAppSettingsStorage } from "../storage/app-settings.storage.js";
 
 const EXTENSION_STORAGE_KEY_PREFIX = "extension-storage:";
@@ -13,8 +13,8 @@ function parseStoredExtensionStorage(raw: string | null): ExtensionStoragePatchI
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as ExtensionStoragePatchInput;
+    const validated = extensionStoragePatchSchema.safeParse(parsed);
+    return validated.success ? validated.data : {};
   } catch {
     return {};
   }
@@ -28,7 +28,7 @@ export function createExtensionSettingsStorage(appSettings: AppSettingsStorage) 
     get,
 
     async patch(extensionId: string, patch: ExtensionStoragePatchInput): Promise<ExtensionStoragePatchInput> {
-      const next = { ...(await get(extensionId)), ...patch };
+      const next = extensionStoragePatchSchema.parse({ ...(await get(extensionId)), ...patch });
       await appSettings.set(extensionStorageKey(extensionId), JSON.stringify(next));
       return next;
     },

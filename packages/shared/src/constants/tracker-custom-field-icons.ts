@@ -86,20 +86,23 @@ export function normalizeWorldCustomFieldIcon(value: unknown): SupportedWorldCus
   if (typeof value !== "string") return null;
   const normalized = normalizeIconNameFormat(value);
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(normalized)) return null;
-  return SUPPORTED_WORLD_CUSTOM_FIELD_ICON_SET.has(normalized)
-    ? (normalized as SupportedWorldCustomFieldIcon)
-    : null;
+  return SUPPORTED_WORLD_CUSTOM_FIELD_ICON_SET.has(normalized) ? (normalized as SupportedWorldCustomFieldIcon) : null;
 }
 
 export function normalizeWorldCustomFields(value: unknown): WorldCustomField[] {
   if (!Array.isArray(value)) return [];
   const fields: WorldCustomField[] = [];
+  const seenNames = new Set<string>();
   for (const raw of value) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const record = raw as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim() : "";
     if (!name) continue;
-    const fieldValue = typeof record.value === "string" ? record.value : record.value == null ? "" : String(record.value);
+    const comparableName = name.normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
+    if (seenNames.has(comparableName)) continue;
+    seenNames.add(comparableName);
+    const fieldValue =
+      typeof record.value === "string" ? record.value : record.value == null ? "" : String(record.value);
     fields.push({
       name,
       value: fieldValue,

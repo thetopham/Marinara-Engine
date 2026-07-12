@@ -2862,7 +2862,6 @@ export async function generateRoutes(app: FastifyInstance) {
             );
           }
 
-
           if (groupInstructions.length > 0) {
             const rawBlock = groupInstructions.join("\n");
             const instructionBlock = wrapFormat === "markdown" ? `\n## Group Chat\n${rawBlock}` : rawBlock;
@@ -6774,8 +6773,8 @@ export async function generateRoutes(app: FastifyInstance) {
                 let newTemperature =
                   coerceGameStateTextValue(gs.temperature) ?? coerceGameStateTextValue(prevSnap?.temperature);
 
-                // The world-state agent ONLY produces date/time/location/weather/temperature
-                // (and optionally recentEvents).  In batch mode the model often cross-
+                // The world-state agent produces date/time/location/weather/temperature,
+                // user-defined world fields, and optionally recentEvents. In batch mode the model often cross-
                 // contaminates the world-state result with fields from other agent task
                 // schemas (presentCharacters, personaStats, playerStats).  Even a partial
                 // cross-contaminated playerStats (e.g. { status: "...", activeQuests: [] })
@@ -6786,7 +6785,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 // them with authoritative data in their own handler blocks below.
                 const snapshotChars = parseJsonField<any[]>(prevSnap?.presentCharacters, []);
                 const snapshotWorldCustomFields = normalizeWorldCustomFields(
-                  parseJsonField<any[]>(prevSnap?.worldCustomFields, []),
+                  parseJsonField<unknown[]>(prevSnap?.worldCustomFields, []),
                 );
                 const snapshotPersonaStats = parseJsonField<any[] | null>(prevSnap?.personaStats, null);
                 const snapshotPlayerStats = parseJsonField<PlayerStats | null>(prevSnap?.playerStats, null);
@@ -6840,7 +6839,7 @@ export async function generateRoutes(app: FastifyInstance) {
                   null, // manual overrides are one-shot — never carry forward
                 );
                 // Send game state to client so HUD updates live
-                // ONLY send the fields world-state actually produces (date/time/location/weather/temperature).
+                // ONLY send the fields world-state actually produces.
                 // Do NOT spread the whole `gs` — in batch mode the model may cross-contaminate
                 // fields like presentCharacters:[] from other agent tasks, clobbering the HUD.
                 const worldStatePatch = {

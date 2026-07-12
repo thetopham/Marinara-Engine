@@ -32,14 +32,18 @@ import { WorldForecastTile } from "./WorldForecastTile";
 import { WorldLocationPlate } from "./WorldLocationPlate";
 
 function makeUniqueWorldCustomFieldName(fields: WorldCustomField[]) {
-  const names = new Set(fields.map((field) => field.name.trim().toLowerCase()).filter(Boolean));
+  const names = new Set(fields.map((field) => normalizeCustomFieldName(field.name)).filter(Boolean));
   let index = 1;
   let name = "New Field";
-  while (names.has(name.toLowerCase())) {
+  while (names.has(normalizeCustomFieldName(name))) {
     index += 1;
     name = `New Field ${index}`;
   }
   return name;
+}
+
+function normalizeCustomFieldName(value: string) {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
 }
 
 function WorldCustomFieldPlate({
@@ -50,6 +54,7 @@ function WorldCustomFieldPlate({
   deleteMode,
   onUpdate,
   onRemove,
+  isNameTaken,
 }: {
   field: WorldCustomField;
   fieldIndex: number;
@@ -58,6 +63,7 @@ function WorldCustomFieldPlate({
   deleteMode: boolean;
   onUpdate: (field: WorldCustomField) => void;
   onRemove: () => void;
+  isNameTaken: (name: string) => boolean;
 }) {
   const { fieldLocks, onUpdateFieldLocks } = useTrackerLockContext();
   const valueLockKey = worldCustomFieldTrackerLockKey(field, "value", fieldIndex);
@@ -70,6 +76,7 @@ function WorldCustomFieldPlate({
   const updateName = (nextName: string) => {
     const trimmedName = nextName.trim() || "Field";
     if (trimmedName === name) return;
+    if (isNameTaken(trimmedName)) return;
     const updated = { ...field, name: trimmedName };
     onUpdateFieldLocks?.((locks) =>
       renameTrackerFieldLockPrefix(locks, customPrefix, worldCustomFieldTrackerLockPrefix(updated, fieldIndex)),
@@ -82,9 +89,7 @@ function WorldCustomFieldPlate({
       <div
         className={cn(
           "relative z-[1] grid h-full items-center gap-1 px-1 py-1 text-left @min-[380px]:px-1.5",
-          addMode
-            ? "grid-cols-[1.7rem_minmax(0,0.42fr)_minmax(0,1fr)] @min-[380px]:grid-cols-[1.9rem_minmax(3rem,0.4fr)_minmax(0,1fr)]"
-            : "grid-cols-[1.7rem_minmax(0,1fr)] @min-[380px]:grid-cols-[1.9rem_minmax(0,1fr)]",
+          "grid-cols-[1.7rem_minmax(2.6rem,0.42fr)_minmax(0,1fr)] @min-[380px]:grid-cols-[1.9rem_minmax(3rem,0.4fr)_minmax(0,1fr)]",
           deleteMode && "pr-7",
         )}
       >
@@ -97,6 +102,7 @@ function WorldCustomFieldPlate({
             value={name}
             onSave={updateName}
             placeholder="Field"
+            ariaLabel={`${name} field name`}
             className="min-w-0 px-0.5 py-0 text-[0.625rem] font-semibold uppercase text-[var(--muted-foreground)]/88"
             previewClassName="truncate"
             scrollOnHover
@@ -105,10 +111,19 @@ function WorldCustomFieldPlate({
             lockMode={false}
           />
         )}
+        {!addMode && (
+          <span
+            className="min-w-0 truncate px-0.5 text-[0.625rem] font-semibold uppercase text-[var(--muted-foreground)]/88"
+            title={name}
+          >
+            {name}
+          </span>
+        )}
         <InlineEdit
           value={field.value}
           onSave={(value) => onUpdate({ ...field, value })}
           placeholder="Set value"
+          ariaLabel={`${name} value`}
           className={cn(
             "min-w-0 max-w-full pr-3 text-left font-bold text-[var(--foreground)]/92 drop-shadow-sm",
             valueIsLong ? "min-h-5 text-[0.625rem] leading-[0.75rem]" : "text-[0.75rem] leading-4",
@@ -129,7 +144,7 @@ function WorldCustomFieldPlate({
           }}
           title={`Remove ${name}`}
           aria-label={`Remove ${name}`}
-          className="absolute right-1 top-1/2 z-[4] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--background)]/85 text-[var(--destructive)] shadow-sm ring-1 ring-[var(--border)]/70 backdrop-blur-sm transition-all hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-[var(--border)] active:scale-90"
+          className="absolute right-1 top-1/2 z-[4] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--background)]/85 text-[var(--destructive)] shadow-sm ring-1 ring-[var(--border)]/70 backdrop-blur-sm transition-all hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-[var(--border)] active:scale-90 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6"
         >
           <X size="0.625rem" />
         </button>
@@ -250,6 +265,13 @@ export function WorldStatePanel({
                 onSaveField(
                   "worldCustomFields",
                   worldCustomFields.filter((_, fieldIndex) => fieldIndex !== index),
+                )
+              }
+              isNameTaken={(candidate) =>
+                worldCustomFields.some(
+                  (otherField, otherIndex) =>
+                    otherIndex !== index &&
+                    normalizeCustomFieldName(otherField.name) === normalizeCustomFieldName(candidate),
                 )
               }
             />

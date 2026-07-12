@@ -5832,8 +5832,7 @@ export async function gameRoutes(app: FastifyInstance) {
   app.post("/create", async (req) => {
     logger.info("[game/create] Received request");
     const parsedCreateGameInput = createGameSchema.parse(req.body);
-    const { name, connectionId, promptPresetId, chatId, preferences, shareLabels } =
-      parsedCreateGameInput;
+    const { name, connectionId, promptPresetId, chatId, preferences, shareLabels } = parsedCreateGameInput;
     const selectedPromptPresetId = promptPresetId || parsedCreateGameInput.setupConfig.promptPresetId || null;
     const customHudWidgets = sanitizeGameHudWidgets(parsedCreateGameInput.setupConfig.customHudWidgets);
     const gameSystemPrompt = parsedCreateGameInput.setupConfig.gameSystemPrompt?.trim() || null;
@@ -6647,7 +6646,7 @@ export async function gameRoutes(app: FastifyInstance) {
       const previousState = await stateStore.getLatest(latestSession.id);
       const previousPresentCharacters = parseJsonField<any[]>(previousState?.presentCharacters, []);
       const previousWorldCustomFields = normalizeWorldCustomFields(
-        parseJsonField<any[]>(previousState?.worldCustomFields, []),
+        parseJsonField<unknown[]>(previousState?.worldCustomFields, []),
       );
       const previousRecentEvents = parseJsonField<string[]>(previousState?.recentEvents, []);
       const previousPlayerStats = parseJsonField<Record<string, unknown> | null>(previousState?.playerStats, null);
@@ -9692,7 +9691,6 @@ export async function gameRoutes(app: FastifyInstance) {
                 logger.debug(`[game/scene-wrap] bg "${chosenBg}" not in manifest; generation will be deferred`);
               }
             }
-
 
             // ── NPC portrait generation ──
             // First, try to resolve avatars from the character library (cheap, in-memory).

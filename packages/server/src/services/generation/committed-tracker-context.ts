@@ -63,10 +63,12 @@ function formatStatSummary(stat: any): string | null {
   return `${name}: ${formatStatValue(stat?.value, stat?.max)}`;
 }
 
-function formatNamedValueLine(field: any): string | null {
-  const name = asText(field?.name);
+function formatNamedValueLine(field: unknown): string | null {
+  if (!field || typeof field !== "object" || Array.isArray(field)) return null;
+  const record = field as Record<string, unknown>;
+  const name = asText(record.name);
   if (!name) return null;
-  const value = asText(field?.value);
+  const value = asText(record.value);
   return value ? `${name}: ${value}` : null;
 }
 
@@ -163,7 +165,8 @@ export function buildCommittedTrackerContextBlock(args: {
     const presentChars = parseMaybeJson(snap.presentCharacters);
     if (Array.isArray(presentChars) && presentChars.length > 0) {
       const charLines = presentChars.map(formatCharacterLine).filter(isNonEmptyLine);
-      if (charLines.length > 0) trackerParts.push(wrapContent(charLines.join("\n"), "Present Characters", args.wrapFormat));
+      if (charLines.length > 0)
+        trackerParts.push(wrapContent(charLines.join("\n"), "Present Characters", args.wrapFormat));
     }
   }
 
@@ -207,7 +210,8 @@ export function buildCommittedTrackerContextBlock(args: {
     }
   }
 
-  const playerNotes = typeof args.chatMetadata.gamePlayerNotes === "string" ? args.chatMetadata.gamePlayerNotes.trim() : "";
+  const playerNotes =
+    typeof args.chatMetadata.gamePlayerNotes === "string" ? args.chatMetadata.gamePlayerNotes.trim() : "";
   if (playerNotes) {
     trackerParts.push(
       wrapContent(

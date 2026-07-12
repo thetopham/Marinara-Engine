@@ -70,9 +70,7 @@ function parseStoredManualOverrides(value: unknown): Record<string, string> | nu
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, string>)
-        : null;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : null;
     } catch {
       return null;
     }
@@ -385,13 +383,7 @@ export function createGameStateStorage(db: DB) {
         location: coerceGameStateTextValue(latest?.location),
         weather: coerceGameStateTextValue(latest?.weather),
         temperature: coerceGameStateTextValue(latest?.temperature),
-        worldCustomFields: normalizeWorldCustomFields(
-          latest?.worldCustomFields
-            ? typeof latest.worldCustomFields === "string"
-              ? JSON.parse(latest.worldCustomFields)
-              : latest.worldCustomFields
-            : [],
-        ),
+        worldCustomFields: normalizeWorldCustomFields(parseSnapshotJson(latest?.worldCustomFields, [])),
         presentCharacters: latest?.presentCharacters
           ? typeof latest.presentCharacters === "string"
             ? JSON.parse(latest.presentCharacters)
@@ -431,7 +423,10 @@ export function createGameStateStorage(db: DB) {
       if (fields.playerStats !== undefined) baseState.playerStats = fields.playerStats as any;
       if (fields.personaStats !== undefined) baseState.personaStats = fields.personaStats as any;
       if (fields.fieldLocks !== undefined) {
-        baseState.fieldLocks = normalizeTrackerFieldLocksForState(fields.fieldLocks, buildLockMigrationState(baseState));
+        baseState.fieldLocks = normalizeTrackerFieldLocksForState(
+          fields.fieldLocks,
+          buildLockMigrationState(baseState),
+        );
       }
 
       const manualOverrides = manual
@@ -448,11 +443,7 @@ export function createGameStateStorage(db: DB) {
     },
 
     /** Internal: apply field updates + optional manual-override tracking to a snapshot row. */
-    async _applyUpdate(
-      row: typeof gameStateSnapshots.$inferSelect,
-      fields: GameStateUpdateFields,
-      manual?: boolean,
-    ) {
+    async _applyUpdate(row: typeof gameStateSnapshots.$inferSelect, fields: GameStateUpdateFields, manual?: boolean) {
       const updates: Record<string, unknown> = {};
       const existingLockMigrationState = buildLockMigrationState(row);
       if (fields.date !== undefined) updates.date = coerceGameStateTextValue(fields.date);

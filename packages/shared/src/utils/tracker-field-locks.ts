@@ -9,7 +9,10 @@ import type {
   TrackerFieldLocks,
   WorldCustomField,
 } from "../types/game-state.js";
-import { normalizeWorldCustomFields } from "../constants/tracker-custom-field-icons.js";
+import {
+  DEFAULT_WORLD_CUSTOM_FIELD_ICON,
+  normalizeWorldCustomFields,
+} from "../constants/tracker-custom-field-icons.js";
 
 type WorldTrackerField = "date" | "time" | "location" | "weather" | "temperature";
 type TextCharacterField = "emoji" | "name" | "mood" | "appearance" | "outfit" | "thoughts";
@@ -843,30 +846,29 @@ function mergeWorldCustomFieldsWithLocks(
 ) {
   const current = normalizeWorldCustomFields(currentFields);
   const nextNormalizedFields = normalizeWorldCustomFields(nextFields);
-  const currentByName = new Map<string, { field: WorldCustomField; index: number }>();
-  current.forEach((field, index) => {
+  const nextByName = new Map<string, WorldCustomField>();
+  nextNormalizedFields.forEach((field) => {
     const key = normalizeComparableText(field.name);
-    if (key) currentByName.set(key, { field, index });
+    if (key) nextByName.set(key, field);
   });
 
-  const merged = nextNormalizedFields.map((field) => {
-    const currentMatch = currentByName.get(normalizeComparableText(field.name));
-    if (!currentMatch) return field;
-    const next = { ...field };
-    if (isTrackerFieldLocked(locks, worldCustomFieldTrackerLockKey(currentMatch.field, "name", currentMatch.index))) {
-      next.name = currentMatch.field.name;
-    }
-    if (isTrackerFieldLocked(locks, worldCustomFieldTrackerLockKey(currentMatch.field, "value", currentMatch.index))) {
-      next.value = currentMatch.field.value;
-    }
-    if (!next.icon && currentMatch.field.icon) next.icon = currentMatch.field.icon;
-    return next;
+  const currentNames = new Set(current.map((field) => normalizeComparableText(field.name)));
+  const merged = current.map((field, index) => {
+    const next = nextByName.get(normalizeComparableText(field.name));
+    if (!next) return field;
+    const valueLocked = isTrackerFieldLocked(locks, worldCustomFieldTrackerLockKey(field, "value", index));
+    return {
+      name: field.name,
+      value: valueLocked ? field.value : next.value,
+      icon:
+        field.icon && field.icon !== DEFAULT_WORLD_CUSTOM_FIELD_ICON
+          ? field.icon
+          : (next.icon ?? DEFAULT_WORLD_CUSTOM_FIELD_ICON),
+    };
   });
 
-  current.forEach((field, index) => {
-    const name = normalizeComparableText(field.name);
-    if (name && merged.some((candidate) => normalizeComparableText(candidate.name) === name)) return;
-    if (hasLockWithPrefix(locks, worldCustomFieldTrackerLockPrefix(field, index))) merged.push(field);
+  nextNormalizedFields.forEach((field) => {
+    if (!currentNames.has(normalizeComparableText(field.name))) merged.push(field);
   });
 
   return merged;
@@ -926,7 +928,7 @@ export function applyTrackerFieldLocksToGameStatePatch<T extends Record<string, 
   fieldLocks: TrackerFieldLocks | null | undefined = currentState?.fieldLocks,
 ): T {
   const locks = normalizeEffectiveTrackerFieldLocks(fieldLocks, currentState);
-  if (trackerFieldLocksAreEmpty(locks) || !currentState) return patch;
+  if (!currentState) return patch;
 
   const next = { ...patch } as Record<string, unknown>;
   for (const field of ["date", "time", "location", "weather", "temperature"] as const) {

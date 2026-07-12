@@ -72,14 +72,18 @@ const FEATURED_CUSTOM_FIELD_ROW_CLASS =
   "grid min-w-0 grid-cols-[minmax(3rem,0.42fr)_minmax(0,1fr)] items-center gap-1 border-b border-[var(--tracker-profile-rule)] px-0.5 py-px last:border-b-0";
 
 function makeUniqueCharacterCustomFieldName(customFields: Record<string, string> | null | undefined) {
-  const existing = new Set(Object.keys(customFields ?? {}).map((name) => name.trim().toLowerCase()));
+  const existing = new Set(Object.keys(customFields ?? {}).map(normalizeCharacterCustomFieldName));
   let index = 1;
   let name = "New Field";
-  while (existing.has(name.toLowerCase())) {
+  while (existing.has(normalizeCharacterCustomFieldName(name))) {
     index += 1;
     name = `New Field ${index}`;
   }
   return name;
+}
+
+function normalizeCharacterCustomFieldName(value: string) {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
 }
 
 export function FeaturedCharacterTrackerCard({
@@ -227,7 +231,15 @@ export function FeaturedCharacterTrackerCard({
     if (!onUpdate) return;
     const nextFields = { ...(character.customFields ?? {}) };
     const trimmedName = nextName.trim();
-    if (trimmedName && trimmedName !== oldName && Object.prototype.hasOwnProperty.call(nextFields, trimmedName)) {
+    if (
+      trimmedName &&
+      trimmedName !== oldName &&
+      Object.keys(nextFields).some(
+        (name) =>
+          name !== oldName &&
+          normalizeCharacterCustomFieldName(name) === normalizeCharacterCustomFieldName(trimmedName),
+      )
+    ) {
       return;
     }
     if (trimmedName && trimmedName !== oldName) {
@@ -391,6 +403,7 @@ export function FeaturedCharacterTrackerCard({
                   value={name}
                   onSave={(nextName) => updateCustomField(name, nextName, value)}
                   placeholder="Field"
+                  ariaLabel={`${name} field name`}
                   className="min-w-0 px-0.5 py-0 font-medium"
                   scrollOnHover
                   locked={isTrackerFieldLocked(
@@ -413,6 +426,7 @@ export function FeaturedCharacterTrackerCard({
                   value={value}
                   onSave={(nextValue) => updateCustomField(name, name, nextValue)}
                   placeholder="Value"
+                  ariaLabel={`${name} value`}
                   className="min-w-0 px-0.5 py-0"
                   scrollOnHover
                   locked={isTrackerFieldLocked(
@@ -438,7 +452,7 @@ export function FeaturedCharacterTrackerCard({
                   onClick={() => removeCustomField(name)}
                   title={`Remove ${name}`}
                   aria-label={`Remove ${name}`}
-                  className="flex h-4 w-4 items-center justify-center justify-self-end rounded text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border)] active:scale-90"
+                  className="flex h-5 w-5 items-center justify-center justify-self-end rounded text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border)] active:scale-90 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6"
                 >
                   <X size="0.625rem" />
                 </button>

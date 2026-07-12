@@ -248,9 +248,8 @@ export async function resolveIllustratorCharacterReferences(args: {
     }
   }
 
-  const orderedSources = [...selected.values()]
-    .sort((a, b) => a.sourceOrder - b.sourceOrder)
-    .slice(0, maxReferences);
+  const orderedSelectedSources = [...selected.values()].sort((a, b) => a.sourceOrder - b.sourceOrder);
+  const orderedSources = orderedSelectedSources.slice(0, maxReferences);
   const referenceImages: string[] = [];
   const referenceNames: string[] = [];
   const appearanceLines: string[] = [];
@@ -292,7 +291,10 @@ export async function resolveIllustratorCharacterReferences(args: {
   }
 
   return {
-    characterIds: orderedSources.map((source) => source.id),
+    // Gallery persistence is not constrained by the reference-image cap: every
+    // depicted character should receive the generated image even when only the
+    // first few likeness references can be sent to the provider.
+    characterIds: orderedSelectedSources.map((source) => source.id),
     personaId: args.persona && personaRequested ? args.persona.id : null,
     referenceImages,
     referenceNames,

@@ -1138,17 +1138,24 @@ const cases: RegressionCase[] = [
               data: { name: "Maukie", extensions: { appearance: "Wet brown hair." } },
               avatarPath: null,
             },
+            {
+              id: "character-dottore",
+              data: { name: "Dottore", extensions: { appearance: "A masked scientist." } },
+              avatarPath: null,
+            },
           ],
         },
         chatCharacters: [
           { id: "character-maukie", name: "Maukie", avatarPath: null, appearance: "Wet brown hair." },
+          { id: "character-dottore", name: "Dottore", avatarPath: null, appearance: "A masked scientist." },
         ],
         persona: { id: "persona-mari", name: "Mari", avatarPath: null, appearance: "Chubby woman." },
-        requestedNames: ["Maukie", "Mari"],
-        promptText: "Maukie carries Mari through the reeds.",
+        requestedNames: ["Maukie", "Dottore", "Mari"],
+        promptText: "Maukie and Dottore carry Mari through the reeds.",
         includeReferenceImages: false,
+        maxReferences: 1,
       });
-      assert.deepEqual(resolution.characterIds, ["character-maukie"]);
+      assert.deepEqual(resolution.characterIds, ["character-maukie", "character-dottore"]);
       assert.equal(resolution.personaId, "persona-mari");
       assert.deepEqual(resolution.referenceImages, []);
     },

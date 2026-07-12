@@ -9,6 +9,7 @@ import {
   type SessionSummary,
 } from "@marinara-engine/shared";
 import { buildGmSystemPrompt, type GmPromptContext } from "../game/gm-prompts.js";
+import { buildLocationContextBlock } from "../game/location-context.service.js";
 import { listPartySprites } from "../game/sprite.service.js";
 import { generatePerceptionHints, formatPerceptionHints, type PerceptionContext } from "../game/perception.service.js";
 import { getMoraleTier, formatMoraleContext } from "../game/morale.service.js";
@@ -356,6 +357,14 @@ export async function injectGameGmPromptRuntime(args: {
   const customGmPrompt =
     typeof args.chatMetadata.customGmPrompt === "string" ? args.chatMetadata.customGmPrompt.trim() : "";
   let fullGmPrompt = customGmPrompt ? `${builtGmPrompt}\n\n${customGmPrompt}` : builtGmPrompt;
+  const locationContextBlock = buildLocationContextBlock({
+    gameLocations: args.chatMetadata.gameLocations,
+    currentGameLocationId: args.chatMetadata.currentGameLocationId,
+    gameLocationRevision: args.chatMetadata.gameLocationRevision,
+  });
+  if (locationContextBlock) {
+    fullGmPrompt = `${fullGmPrompt}\n\n${locationContextBlock}`;
+  }
   fullGmPrompt = args.resolvePromptMacros(fullGmPrompt);
 
   const sysIdx = args.messages.findIndex((message) => message.role === "system");

@@ -3116,8 +3116,6 @@ export function ChatArea() {
   );
 }
 
-/** Animated typing indicator — three bouncing dots (currently unused, kept for future) */
-
 function AgentInjectionReviewModal({
   request,
   drafts,

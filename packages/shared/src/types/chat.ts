@@ -7,6 +7,7 @@ import type { GenerationGuideSource } from "../utils/generation-guide.js";
 import type { HapticFeedbackSensitivity } from "./haptic.js";
 import type { CustomEmojiSelectionPrefs } from "../schemas/custom-emoji.schema.js";
 import type { DiceRollResult } from "./game.js";
+import type { GameLocation, GameLocationTransition } from "./game-location.js";
 
 /** The four primary chat modes the engine supports. */
 export type ChatMode = "conversation" | "roleplay" | "visual_novel" | "game";
@@ -470,6 +471,16 @@ export interface ChatMetadata {
   gameMaps?: import("./game.js").GameMap[];
   /** ID of the map the party is currently on. */
   activeGameMapId?: string | null;
+  /** Normalized location graph for this game session/campaign. */
+  gameLocations?: GameLocation[];
+  /** ID of the location the party currently occupies. */
+  currentGameLocationId?: string | null;
+  /** ID of the location where this game session/campaign begins. */
+  startingGameLocationId?: string | null;
+  /** Monotonic revision for location graph/current-location updates. */
+  gameLocationRevision?: number;
+  /** Recorded location changes for the current game session/campaign. */
+  gameLocationTransitions?: GameLocationTransition[];
   /** Summaries of all previous sessions */
   gamePreviousSessionSummaries?: import("./game.js").SessionSummary[];
   /** GM-only: overarching story arc and plot (never sent to party agent) */

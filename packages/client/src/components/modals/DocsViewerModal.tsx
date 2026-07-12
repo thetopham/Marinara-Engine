@@ -93,6 +93,10 @@ function highlightTermNodes(text: string, term: string): ReactNode[] {
   if (term.length < 2) return [text];
   const needle = term.toLowerCase();
   const lower = text.toLowerCase();
+  // A few Unicode chars grow under toLowerCase() (e.g. İ -> i + U+0307), which
+  // would misalign indexes found in `lower` when sliced out of `text`. Degrade
+  // to no highlight rather than marking the wrong characters.
+  if (lower.length !== text.length || needle.length !== term.length) return [text];
   const out: ReactNode[] = [];
   let last = 0;
   let idx = lower.indexOf(needle);
@@ -201,17 +205,34 @@ export function DocsViewerModal({
     setPendingScrollTerm(scrollTerm);
   };
 
+  // The DOM-augmentation effects below (highlight + Copy buttons) mutate the
+  // committed DOM under `rendered`. That is only safe if React never RECONCILES
+  // the mutated subtree — it must always REMOUNT it. key={selected} alone does
+  // not guarantee that: useDocContent keeps the previous doc as placeholderData,
+  // so `doc` (and therefore `rendered`) can change identity without `selected`
+  // changing — when a newly-selected doc's fetch resolves, or when a refetch
+  // returns changed content. Reconciling against mutated DOM would patch
+  // detached text nodes (stale text) or crash on insertBefore. Keying the
+  // content container by the rendered tree's identity closes that gap.
+  const renderedVersionRef = useRef(0);
+  const renderedKey = useMemo(() => {
+    void rendered;
+    return ++renderedVersionRef.current;
+  }, [rendered]);
+
   // Highlight every occurrence of the live search term in the rendered doc by
   // wrapping matches in <mark> elements (docs-viewer only — the markdown
   // renderer is shared with chat, so like the Copy buttons below we augment
-  // the committed DOM instead). Mutating the memoized tree is safe for the
-  // same reason the Copy buttons are: `rendered`'s identity only changes with
-  // `doc`, which only changes with `selected`, which keys the container — so
-  // React never reconciles a mutated subtree, it remounts it. Declared BEFORE
+  // the committed DOM instead). Mutating the tree is safe because the content
+  // container is keyed on the tree's identity (renderedKey above): any change
+  // remounts, so React never reconciles a mutated subtree. Declared BEFORE
   // the scroll effect so marks exist when it looks for them in the same commit.
   useEffect(() => {
     if (!scrollEl || !rendered || highlightTerm.length < 2) return;
     const needle = highlightTerm.toLowerCase();
+    // Skip entirely if lowercasing changed the query's own length (see the
+    // walker filter below) — offsets couldn't be mapped back reliably.
+    if (needle.length !== highlightTerm.length) return;
     const created: HTMLElement[] = [];
 
     // Phase 1: walk read-only and collect matching text nodes — mutating
@@ -224,9 +245,13 @@ export function DocsViewerModal({
         if (parent.closest(".docs-copy-button") || parent.closest("mark.docs-search-mark")) {
           return NodeFilter.FILTER_REJECT;
         }
-        return (node.textContent ?? "").toLowerCase().includes(needle)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT;
+        const text = node.textContent ?? "";
+        const lower = text.toLowerCase();
+        // A few Unicode chars grow under toLowerCase() (e.g. İ -> i + U+0307),
+        // which would misalign indexes found in `lower` when sliced out of the
+        // original. Skip such nodes rather than marking the wrong characters.
+        if (lower.length !== text.length) return NodeFilter.FILTER_REJECT;
+        return lower.includes(needle) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
       },
     });
     const targets: Text[] = [];
@@ -538,6 +563,10 @@ export function DocsViewerModal({
                   <p className="py-2 text-xs text-[var(--muted-foreground)]">Could not load this guide.</p>
                 ) : (
                   <div
+                    // Keyed on the rendered tree's identity so React remounts
+                    // (never reconciles) the subtree the highlight/copy effects
+                    // mutate — see renderedKey above.
+                    key={renderedKey}
                     // Code blocks wrap instead of scrolling horizontally: the shared
                     // .mari-md-codeblock rule is unlayered CSS (beats the utilities
                     // layer, hence the !), and the corner-anchored lang tag + Copy

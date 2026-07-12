@@ -6267,7 +6267,7 @@ export function ChatSettingsDrawer({
                   <div className="space-y-1.5 rounded-lg bg-[var(--background)]/45 p-2 ring-1 ring-[var(--border)]">
                     <div className="flex items-center justify-between gap-2 px-1">
                       <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
-                        Individual trackers
+                        Individual tracker schedule
                       </span>
                       {metadata.manualTrackers === true && (
                         <span className="text-[0.5625rem] text-[var(--primary)]">All manual</span>
@@ -6300,7 +6300,7 @@ export function ChatSettingsDrawer({
                                   {globallyManual
                                     ? "Controlled by Manual Trackers"
                                     : manuallyTriggered
-                                      ? "Runs only from HUD retry"
+                                      ? "Runs only from HUD controls"
                                       : "Runs automatically"}
                                 </span>
                               </span>

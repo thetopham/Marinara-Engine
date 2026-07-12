@@ -2682,6 +2682,60 @@ export async function chatsRoutes(app: FastifyInstance) {
   const normalizeExportBoolean = (value: unknown): boolean =>
     value === true || value === "true" || value === "1" || value === 1;
 
+  const normalizeGameLocationRevision = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+
+  const normalizeGameLocationTransition = (value: unknown): Record<string, unknown> | null =>
+    isRecord(value) && typeof value.toLocationId === "string" && typeof value.createdAt === "string" ? value : null;
+
+  const resolveBranchedGameLocationMetadata = (
+    sourceMeta: Record<string, unknown>,
+    copiedSourceMessages: Array<{ id: string; createdAt?: string | null }>,
+    upToMessageId?: string,
+  ): Record<string, unknown> => {
+    if (!upToMessageId) return {};
+
+    const cutoffMessage = copiedSourceMessages.find((msg) => msg.id === upToMessageId);
+    const cutoffTime = cutoffMessage?.createdAt ? Date.parse(cutoffMessage.createdAt) : Number.NaN;
+    if (!Number.isFinite(cutoffTime)) return {};
+
+    const transitions = Array.isArray(sourceMeta.gameLocationTransitions)
+      ? sourceMeta.gameLocationTransitions
+          .map(normalizeGameLocationTransition)
+          .filter((item): item is Record<string, unknown> => !!item)
+      : [];
+    const transitionsAtCutoff = transitions.filter((transition) => {
+      const transitionTime = Date.parse(String(transition.createdAt));
+      return Number.isFinite(transitionTime) && transitionTime <= cutoffTime;
+    });
+
+    // Current location is chat metadata today, while transitions are timestamped but
+    // not message-anchored. For a branch cutoff, replay only the transition audit
+    // records visible at the cutoff; exact graph/revision history belongs in the
+    // persisted game snapshots/checkpoints rather than being inferred from latest
+    // source-chat metadata.
+    const latestTransition = transitionsAtCutoff.at(-1);
+    const currentGameLocationId =
+      typeof latestTransition?.toLocationId === "string"
+        ? latestTransition.toLocationId
+        : transitions.length === 0 && typeof sourceMeta.currentGameLocationId === "string"
+          ? sourceMeta.currentGameLocationId
+          : typeof sourceMeta.startingGameLocationId === "string"
+            ? sourceMeta.startingGameLocationId
+            : null;
+    const hasLatestRevision = typeof sourceMeta.gameLocationRevision === "number";
+    const latestRevision = normalizeGameLocationRevision(sourceMeta.gameLocationRevision);
+    const gameLocationRevision = hasLatestRevision
+      ? Math.min(latestRevision, transitionsAtCutoff.length)
+      : transitionsAtCutoff.length;
+
+    return {
+      currentGameLocationId,
+      gameLocationRevision,
+      gameLocationTransitions: transitionsAtCutoff,
+    };
+  };
+
   const parseExportCharacterIds = (raw: unknown): string[] => {
     if (Array.isArray(raw)) return raw.filter((id): id is string => typeof id === "string");
     if (typeof raw !== "string") return [];
@@ -3367,6 +3421,15 @@ export async function chatsRoutes(app: FastifyInstance) {
           await copyEngineSnapshot(engineBootstrap, "", 0);
         }
       }
+    }
+
+    const branchedLocationMetadata = resolveBranchedGameLocationMetadata(
+      sourceMeta,
+      copiedSourceMessages,
+      upToMessageId,
+    );
+    if (Object.keys(branchedLocationMetadata).length > 0) {
+      await storage.patchMetadata(newChat.id, branchedLocationMetadata);
     }
 
     // Return the fully-updated chat (including copied metadata)

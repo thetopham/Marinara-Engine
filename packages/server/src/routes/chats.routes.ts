@@ -1709,6 +1709,9 @@ export async function chatsRoutes(app: FastifyInstance) {
     }
 
     const rawSwipeIndex = req.query.swipeIndex;
+    if (typeof rawSwipeIndex === "string" && rawSwipeIndex.trim().length === 0) {
+      return reply.status(400).send({ error: "swipeIndex must be a non-negative integer" });
+    }
     const swipeIndex =
       rawSwipeIndex === undefined
         ? typeof message.activeSwipeIndex === "number"
@@ -1735,12 +1738,15 @@ export async function chatsRoutes(app: FastifyInstance) {
       location: row.location,
       weather: row.weather,
       temperature: row.temperature,
+      worldCustomFields: normalizeWorldCustomFields(parseSnapshotJson(row.worldCustomFields, [])),
       presentCharacters: parseSnapshotJson(row.presentCharacters, []),
       recentEvents: parseSnapshotJson(row.recentEvents, []),
       playerStats: parseSnapshotJson(row.playerStats, null),
       personaStats: parseSnapshotJson(row.personaStats, null),
       manualOverrides: parseSnapshotJson(row.manualOverrides, null),
       fieldLocks: parseTrackerFieldLocks(row.fieldLocks),
+      hiddenTrackerFields: parseTrackerHiddenFields(row.hiddenTrackerFields),
+      committed: (row.committed as any) === 1,
       createdAt: row.createdAt,
     };
   });

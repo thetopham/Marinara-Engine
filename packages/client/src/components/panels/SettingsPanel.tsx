@@ -2988,7 +2988,7 @@ function ImageGenerationSettings() {
           label="Queue image generation requests"
           checked={queueImageGenerationRequests}
           onChange={setQueueImageGenerationRequests}
-          help="Sends image generation jobs one at a time. Keep this on for providers that reject simultaneous background, illustration, or portrait requests."
+          help="Sends supported image generation jobs one at a time, including Game assets and Roleplay Gallery illustrations. Keep this on for providers that reject simultaneous requests."
         />
         <ToggleSetting
           anchorId={getSettingsControlAnchorId("image-prompt-review")}

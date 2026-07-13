@@ -2834,6 +2834,7 @@ export function useGenerate() {
             agentTypes,
             streaming: useUIStore.getState().enableStreaming,
             debugMode: retryDebugMode,
+            queueImageGenerationRequests: useUIStore.getState().queueImageGenerationRequests,
             musicPlayerEnabled: useUIStore.getState().musicPlayerEnabled,
             musicPlayerSource: useUIStore.getState().musicPlayerSource,
             lorebookKeeperBackfill: options?.lorebookKeeperBackfill === true,

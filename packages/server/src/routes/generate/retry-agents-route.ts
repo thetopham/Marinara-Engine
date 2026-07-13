@@ -66,6 +66,7 @@ import { resolveConnectionImageDefaults } from "../../services/image/image-gener
 import { loadImageGenerationUserSettings } from "../../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../../services/image/image-prompt-compiler.js";
 import { persistGeneratedImageToEntityGalleries } from "../../services/image/generated-image-entity-gallery.js";
+import { runImageGenerationRequest } from "../../services/image/image-generation-queue.js";
 import { createGameStateStorage } from "../../services/storage/game-state.storage.js";
 import { createLorebooksStorage } from "../../services/storage/lorebooks.storage.js";
 import { syncGameMapMetaPartyPosition } from "../../services/game/map-position.service.js";
@@ -2416,6 +2417,7 @@ async function applyRetryResultEffects(args: {
   conns: ReturnType<typeof createConnectionsStorage>;
   chars: ReturnType<typeof createCharactersStorage>;
   resolvedAgents: ResolvedRetryAgent[];
+  queueImageGenerationRequests: boolean;
   secretPlotRerollMode?: "full" | "turn_only";
 }) {
   const {
@@ -2433,6 +2435,7 @@ async function applyRetryResultEffects(args: {
     conns,
     chars,
     resolvedAgents,
+    queueImageGenerationRequests,
     secretPlotRerollMode,
   } = args;
   const sortedResults = [...results].sort(
@@ -3023,16 +3026,29 @@ async function applyRetryResultEffects(args: {
               compiledPrompt.negativePrompt,
             );
 
-            const imageResult = await generateImage(imgModel, imgBaseUrl, imgApiKey, imgServiceHint, {
-              prompt: compiledPrompt.prompt,
-              negativePrompt: finalNegativePrompt || undefined,
-              model: imgModel,
-              width: imgWidth,
-              height: imgHeight,
-              imageEndpointId: imgConnFull.imageEndpointId || undefined,
-              comfyWorkflow: (imgConnFull as any).comfyuiWorkflow || undefined,
-              imageDefaults,
-              referenceImages,
+            const imageConnectionQueueKey = imgConnFull.id?.trim() || `${imgServiceHint}:${imgBaseUrl}:${imgModel}`;
+            logger.debug(
+              "[retry-agents] Illustrator image request queue=%s connection=%s",
+              queueImageGenerationRequests ? "enabled" : "disabled",
+              imageConnectionQueueKey,
+            );
+            const imageResult = await runImageGenerationRequest({
+              connectionKey: imageConnectionQueueKey,
+              queue: queueImageGenerationRequests,
+              signal: agentContext.signal,
+              task: () =>
+                generateImage(imgModel, imgBaseUrl, imgApiKey, imgServiceHint, {
+                  prompt: compiledPrompt.prompt,
+                  negativePrompt: finalNegativePrompt || undefined,
+                  model: imgModel,
+                  width: imgWidth,
+                  height: imgHeight,
+                  imageEndpointId: imgConnFull.imageEndpointId || undefined,
+                  comfyWorkflow: (imgConnFull as any).comfyuiWorkflow || undefined,
+                  imageDefaults,
+                  referenceImages,
+                  signal: agentContext.signal,
+                }),
             });
 
             const filePath = saveImageToDisk(chatId, imageResult.base64, imageResult.ext);
@@ -3184,6 +3200,8 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       agentTypes: string[];
       streaming?: boolean;
       debugMode?: boolean;
+      /** Serialize Roleplay Illustrator provider calls when enabled. */
+      queueImageGenerationRequests?: boolean;
       lorebookKeeperBackfill?: boolean;
       /** When set, scope history and game state to this assistant message (as at original generation), not the latest turn. */
       forMessageId?: string;
@@ -3198,6 +3216,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       agentTypes,
       streaming = true,
       debugMode = false,
+      queueImageGenerationRequests = true,
       lorebookKeeperBackfill = false,
       forMessageId,
       musicPlayerSource = "spotify",
@@ -3593,6 +3612,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
         conns,
         chars,
         resolvedAgents: nonLorebookAgents,
+        queueImageGenerationRequests,
         secretPlotRerollMode,
       });
 

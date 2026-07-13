@@ -42,6 +42,9 @@ export const GAME_STORYBOARD_PROMPT_TEMPLATE_VARIABLES = [
   "aspectRatio",
 ] as const;
 
+export const GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE =
+  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }';
+
 const GAME_STORYBOARD_SHARED_STILL_PROMPT_LINES = [
   "Create exactly ${keyframeCount} ordered keyframes unless the narration is too short to support that many; never create more than 6.",
   "Every keyframe is a still ${aspectRatio} illustration prompt. Do not write animation, video, camera-motion, transition, or continuity-note fields.",
@@ -57,7 +60,7 @@ export const GAME_STORYBOARD_STILL_PROMPT_TEMPLATE = [
   "Image prompts must be compact and concrete: visible characters, action, expression, pose, camera angle, composition, setting, lighting, mood, and key props.",
   "Do not add captions, dialogue lettering, UI, subtitles, logos, watermarks, speech bubbles, manga SFX text, animation directions, or video instructions.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_NOVELAI_PROMPT_TEMPLATE = [
@@ -71,7 +74,7 @@ export const GAME_STORYBOARD_NOVELAI_PROMPT_TEMPLATE = [
   "Do not put the keyframe title, keyframe number, narrationBeat, commentary, Scene moment, Narrative purpose, Characters label, or any sentence inside imagePrompt.",
   "Do not add captions, dialogue lettering, UI, subtitles, logos, watermarks, speech bubbles, manga SFX text, or borders.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE = [
@@ -89,7 +92,7 @@ export const GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE = [
   "The prompt must include a short readable text plan: dialogue bubbles for spoken lines, captions for narration/reaction beats, and SFX lettering for action. Draw text from the scene and keep it brief.",
   "Use the negativePrompt: watermark, logo, signature, UI chrome, unreadable text, broken lettering, malformed speech bubbles, blurry, low quality.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE = [
@@ -112,7 +115,7 @@ export const GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE = [
   "Write narrationBeat as a complete, compact animation plan that uses the comic page as an ordered temporal reference. Allocate the full ${durationSeconds} seconds with natural-language time ranges, identify the primary subject motion, one simple camera move or panel transition at a time, and subtle secondary environmental motion. Reserve the final 0.4-0.7 seconds for the last panel's ending pose, expression, composition, or dramatic hold. Do not ask the video model to animate every panel at once, and never omit the final timed beat.",
   'End imagePrompt with this compact exclusion line: "Avoid: watermark, logo, signature, UI chrome, unreadable text, broken lettering, malformed speech bubbles, blurry, low quality, duplicated characters, merged panels, collapsed gutters, scrambled panel order."',
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE = [
@@ -150,7 +153,7 @@ export const GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE = [
   "",
   "Anchor every keyframe to the supplied turn_sections using sectionStartIndex, sectionEndIndex, anchorQuote, and anchorKind.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 const GAME_STORYBOARD_SHARED_SINGLE_SHOT_ANIMATION_PROMPT_LINES = [
@@ -176,7 +179,7 @@ export const GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE = [
   "Keep imagePrompt style-neutral so the campaign art style and Image Style profile can control the final rendering.",
   "Do not add captions, dialogue lettering, UI, subtitles, logos, watermarks, speech bubbles, manga SFX text, borders, multiple panels, animation directions, or video instructions to imagePrompt.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_NOVELAI_ANIMATION_PROMPT_TEMPLATE = [
@@ -189,7 +192,7 @@ export const GAME_STORYBOARD_NOVELAI_ANIMATION_PROMPT_TEMPLATE = [
   "Keep motion directions and timing in narrationBeat only. Do not put the keyframe title, keyframe number, narrationBeat, commentary, labels, sentences, later action states, or ending consequences inside imagePrompt.",
   "Do not add captions, dialogue lettering, UI, subtitles, logos, watermarks, speech bubbles, manga SFX text, borders, or multiple panels.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_COLORED_MANGA_ANIMATION_PROMPT_TEMPLATE = [
@@ -201,7 +204,7 @@ export const GAME_STORYBOARD_COLORED_MANGA_ANIMATION_PROMPT_TEMPLATE = [
   "Keep dialogue, captions, SFX, lettering, subtitles, logos, watermarks, UI, gutters, and multi-panel layouts out of imagePrompt so the video model receives one stable frame to animate.",
   "In narrationBeat, preserve the colored manga rendering while animating one dominant action, one simple camera behavior, subtle hair, fabric, particles, or lighting, and a clear ending hold.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_BW_MANGA_ANIMATION_PROMPT_TEMPLATE = [
@@ -213,7 +216,7 @@ export const GAME_STORYBOARD_BW_MANGA_ANIMATION_PROMPT_TEMPLATE = [
   "Keep color, dialogue, captions, SFX, lettering, subtitles, logos, watermarks, UI, gutters, and multi-panel layouts out of imagePrompt so the video model receives one stable frame to animate.",
   "In narrationBeat, preserve monochrome inks and screentone placement while animating one dominant action, one simple camera behavior, subtle hair, fabric, particles, or lighting, and a clear ending hold. Do not introduce color during the clip.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE = [
@@ -231,7 +234,7 @@ export const GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE = [
   "The prompt must include a short readable text plan: manga dialogue bubbles for spoken lines, captions for narration/reaction beats, and SFX for action. Use text from the scene and keep it brief.",
   "Use the negativePrompt: watermark, logo, signature, UI chrome, unreadable text, broken lettering, malformed speech bubbles, blurry, low quality.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE = [
@@ -249,7 +252,7 @@ export const GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE = [
   "The prompt must include a short readable text plan: dialogue bubbles for spoken lines, captions for narration/reaction beats, and SFX for action. Use text from the scene and keep it brief.",
   "Use the negativePrompt: watermark, logo, signature, UI chrome, unreadable text, broken lettering, malformed speech bubbles, blurry, low quality, color painting, full-color render.",
   "Return strict JSON only with this shape:",
-  '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }',
+  GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
 ].join("\n");
 
 export const GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES: AgentPromptTemplateOption[] = [

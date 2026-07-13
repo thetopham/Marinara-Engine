@@ -1,4 +1,7 @@
 import {
+  ANIME_GAME_PROMPT_TEMPLATE_ID,
+  COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID,
   STORYBOARD_OPTIMIZED_IMAGE_PROMPT_TEMPLATE_ID,
   type GameInitialSetupConnectionSnapshot,
   type GameSetupConfig,
@@ -125,11 +128,11 @@ function formatPresentation(config: GameSetupConfig): string {
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   if (selectedIds.length === 0) return "Standard";
   if (
-    config.gameGmPromptTemplateId === "anime-game-prompt" &&
-    config.gameStoryboardAnimationPromptTemplateId === "comic-page-animation" &&
+    config.gameGmPromptTemplateId === ANIME_GAME_PROMPT_TEMPLATE_ID &&
+    config.gameStoryboardAnimationPromptTemplateId === GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID &&
     (!config.gameStoryboardImagePromptTemplateId ||
       config.gameStoryboardImagePromptTemplateId === STORYBOARD_OPTIMIZED_IMAGE_PROMPT_TEMPLATE_ID) &&
-    config.gameStoryboardVideoPromptTemplateId === "comic-page-game-video"
+    config.gameStoryboardVideoPromptTemplateId === COMIC_PAGE_GAME_VIDEO_PROMPT_TEMPLATE_ID
   ) {
     return "Storyboard Optimized";
   }

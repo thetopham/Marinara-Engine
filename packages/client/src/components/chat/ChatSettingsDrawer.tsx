@@ -8313,7 +8313,7 @@ export function ChatSettingsDrawer({
                           onRemoveTemplate={removeGameStoryboardImagePromptTemplate}
                         />
                         <GameProviderPromptLibrary
-                          title="Edit Video Prompt Presets"
+                          title="Edit Storyboard Video Prompt Presets"
                           description="Built-in video prompts are read-only. Add a chat-local copy to change how storyboard motion plans are formatted for the video model."
                           emptyDescription="Add a copy, edit it here, then choose it from Storyboard Video Prompt above."
                           builtInTemplates={GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES}

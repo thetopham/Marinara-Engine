@@ -47,6 +47,7 @@ import {
   gameKeys,
   patchChatMetadata,
 } from "../../hooks/use-game";
+import { useGameLocations, useSetGameLocation } from "../../hooks/use-game-locations";
 import {
   gameStoryboardKeys,
   isGameTurnStoryboardRendering,
@@ -134,6 +135,8 @@ import {
   scoreAmbient,
 } from "@marinara-engine/shared";
 import { GameNarration, formatNarration, parseNarrationSegments, type NarrationSegment } from "./GameNarration";
+import { GameLocationBreadcrumb } from "./locations/GameLocationBreadcrumb";
+import { GameLocationPicker } from "./locations/GameLocationPicker";
 import { GameInput } from "./GameInput";
 import { GameMapPanel, MobileMapButton } from "./GameMap";
 import { GamePartyBar } from "./GamePartyBar";
@@ -2353,6 +2356,29 @@ function GameSurfaceComponent({
   const setGameTutorialDisabled = useUIStore((s) => s.setGameTutorialDisabled);
   const gameFullBodySpriteScale = useUIStore((s) => s.gameFullBodySpriteScale);
   const chatBackgroundBlur = useUIStore((s) => s.chatBackgroundBlur);
+  const { data: gameLocationState } = useGameLocations(activeChatId);
+  const setGameLocation = useSetGameLocation(activeChatId);
+  const gameLocations = gameLocationState?.locations ?? [];
+  const gameLocationLinks = gameLocationState?.links ?? [];
+  const currentGameLocationId = gameLocationState?.currentGameLocationId ?? null;
+  const handleSelectGameLocation = useCallback(
+    (toLocationId: string, linkId?: string | null) => {
+      setGameLocation.mutate(
+        {
+          toLocationId,
+          fromLocationId: currentGameLocationId,
+          linkId: linkId ?? null,
+          note: "Selected from Game Mode location picker",
+        },
+        {
+          onError: (error) => {
+            toast.error(error instanceof Error ? error.message : "Failed to update location.");
+          },
+        },
+      );
+    },
+    [currentGameLocationId, setGameLocation],
+  );
   const gameMiddleMouseNav = useUIStore((s) => s.gameMiddleMouseNav);
   const messagesPerPage = useUIStore((s) => s.messagesPerPage);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
@@ -10787,6 +10813,30 @@ function GameSurfaceComponent({
                     </div>
                   )}
                 </div>
+
+                {gameLocations.length > 0 && (
+                  <div
+                    className={cn(
+                      "pointer-events-auto absolute left-3 right-14 z-20 flex flex-col items-start gap-2 md:left-3 md:right-auto",
+                      "top-[calc(4.25rem+env(safe-area-inset-top))] md:top-[calc(7.25rem+env(safe-area-inset-top))]",
+                      replayActive && "hidden",
+                    )}
+                  >
+                    <GameLocationBreadcrumb
+                      locations={gameLocations}
+                      links={gameLocationLinks}
+                      currentLocationId={currentGameLocationId}
+                    />
+                    <GameLocationPicker
+                      locations={gameLocations}
+                      links={gameLocationLinks}
+                      currentLocationId={currentGameLocationId}
+                      disabled={isStreaming || !sessionInteractive}
+                      isPending={setGameLocation.isPending}
+                      onSelectLocation={handleSelectGameLocation}
+                    />
+                  </div>
+                )}
 
                 {/* Dynamic weather effects from tracked game state */}
                 {!replayActive &&

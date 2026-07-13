@@ -4,6 +4,20 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+### Changed
+
+- Changed Noodle participant selection so invited characters remain the primary cast while random-user accounts appear only occasionally as supporting activity.
+
+### Fixed
+
+- Fixed Android/Termux updates repeatedly forcing the entire dependency store to reinstall for the same stale build. The launcher now performs one rebuild, prunes unreferenced packages left by older releases, avoids irrelevant cross-platform binary downloads, and accepts the current Node 26 Termux runtime (#3540).
+- Fixed one malformed generated Noodle post, interaction, follow, or digest rejecting an otherwise valid refresh. Rows are now validated independently, while wholly malformed JSON or batches containing only invented account IDs receive one constrained retry with the exact active IDs (#3547, #3553).
+- Fixed XML agent prompt-template overrides escaping literal contract tags such as `<chat_summary>` and `<existing_entries>` while continuing to escape values inserted through macros (#3548).
+- Fixed Conversation group messages ignoring character-specific Convo display names in generation instructions, speaker parsing, sender labels, typing events, and historical base-name matching (#3550).
+- Added profile editing for directly invited Noodle characters, including display name, handle, bio, location, avatar, and banner; manual profile identity changes are preserved when the underlying character card is refreshed (#3551).
+- Fixed add-character searches in Conversation and Roleplay setup and Chat Settings ignoring card tags, descriptions, creator metadata, and title aliases (#3555).
+- Fixed Noodle's default generated-image path sending the post text and prompt-building meta-instructions directly to image providers. It now sends only the model's visual idea, character appearance, Noodle image direction, and selected image-generation style settings, with recovery for legacy or JSON-wrapped image prompts (#3554).
+
 ## [2.2.1]
 
 ### Changed

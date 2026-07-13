@@ -14,7 +14,6 @@ import {
   noodleBulkInviteSchema,
   noodleCreateInteractionSchema,
   noodleCreatePostSchema,
-  noodleGeneratedRefreshSchema,
   noodleInviteSchema,
   noodleInteractionOwnerSchema,
   noodleInteractionUpdateSchema,
@@ -84,6 +83,8 @@ import {
 import { chooseNoodleParticipantAccounts } from "../services/noodle/noodle-participant-selection.js";
 import { canCreateGeneratedNoodleInteraction } from "../services/noodle/noodle-interaction-policy.js";
 import { parseNoodleGeneratedProfiles } from "../services/noodle/noodle-generated-profiles.js";
+import { parseNoodleGeneratedRefresh } from "../services/noodle/noodle-generated-refresh.js";
+import { normalizeNoodleImagePrompt } from "../services/noodle/noodle-image-prompt.js";
 
 const NOODLE_ROUTE_DIR = dirname(fileURLToPath(import.meta.url));
 const CLIENT_PUBLIC_DIR = resolve(NOODLE_ROUTE_DIR, "../../../client/public");
@@ -141,6 +142,24 @@ function escapePromptAttribute(value: string) {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function generatedRefreshHasUsableAttribution(
+  generated: ReturnType<typeof parseNoodleGeneratedRefresh>["refresh"],
+  allowedActorEntityIds: ReadonlySet<string>,
+  knownEntityIds: ReadonlySet<string>,
+): boolean {
+  return (
+    generated.posts.some((post) => allowedActorEntityIds.has(post.authorEntityId)) ||
+    generated.interactions.some((interaction) => allowedActorEntityIds.has(interaction.actorEntityId)) ||
+    generated.follows.some(
+      (follow) => allowedActorEntityIds.has(follow.actorEntityId) && knownEntityIds.has(follow.targetEntityId),
+    )
+  );
+}
+
+function generatedRefreshHasActivity(generated: ReturnType<typeof parseNoodleGeneratedRefresh>["refresh"]): boolean {
+  return generated.posts.length + generated.interactions.length + generated.follows.length + generated.digests.length > 0;
 }
 
 const NOODLE_ADULT_PLATFORM_POLICY =
@@ -414,7 +433,10 @@ async function ensureProfessorMariAccount(
     invited: true,
     syncIdentity: true,
   });
-  if (account.bio !== PROFESSOR_MARI_NOODLE_BIO || !isProfileGenerated(account) || !account.settings.location) {
+  if (
+    account.settings.profileManuallyEdited !== true &&
+    (account.bio !== PROFESSOR_MARI_NOODLE_BIO || !isProfileGenerated(account) || !account.settings.location)
+  ) {
     await noodle.updateAccount(account.id, {
       handle: account.handle || "professor_mari",
       displayName: account.displayName || "Professor Mari",
@@ -1214,7 +1236,29 @@ export async function noodleRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const parsed = noodleAccountUpdateSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    const updated = await noodle.updateAccount(id, parsed.data);
+    const existing = await noodle.getAccountById(id);
+    if (!existing) return reply.code(404).send({ error: "Noodle account not found" });
+    const profileFieldsChanged =
+      existing.kind === "character" &&
+      (parsed.data.handle !== undefined ||
+        parsed.data.displayName !== undefined ||
+        parsed.data.bio !== undefined ||
+        parsed.data.avatarUrl !== undefined ||
+        parsed.data.settings?.bannerUrl !== undefined ||
+        parsed.data.settings?.location !== undefined);
+    const updated = await noodle.updateAccount(id, {
+      ...parsed.data,
+      ...(profileFieldsChanged
+        ? {
+            settings: {
+              ...existing.settings,
+              ...parsed.data.settings,
+              ...(parsed.data.avatarUrl !== undefined ? { avatarCrop: null } : {}),
+              profileManuallyEdited: true,
+            },
+          }
+        : {}),
+    });
     if (!updated) return reply.code(404).send({ error: "Noodle account not found" });
     return updated;
   });
@@ -1694,6 +1738,7 @@ export async function noodleRoutes(app: FastifyInstance) {
         debugMode,
         responseFormat: noodleResponseFormat(conn.model, "timeline"),
       } as const;
+      let requestMessages: ChatMessage[] = messages;
       let result: Awaited<ReturnType<typeof provider.chatComplete>>;
       try {
         result = await provider.chatComplete(messages, completionOptions);
@@ -1708,10 +1753,51 @@ export async function noodleRoutes(app: FastifyInstance) {
           "[debug/noodle] Text-only fallback prompt sent to model:\n%s",
           textOnlyPromptForLog,
         );
+        requestMessages = textOnlyMessages;
         result = await provider.chatComplete(textOnlyMessages, completionOptions);
       }
-      const content = result.content ?? "";
-      const generated = noodleGeneratedRefreshSchema.parse(parseGameJsonish(content));
+      let content = result.content ?? "";
+      let parsedGenerated: ReturnType<typeof parseNoodleGeneratedRefresh> | null = null;
+      let retryReason: string | null = null;
+      try {
+        parsedGenerated = parseNoodleGeneratedRefresh(parseGameJsonish(content));
+        const allowedActorEntityIds = new Set(selectedParticipants.map((account) => account.entityId));
+        const knownEntityIds = new Set(activeAccounts.map((account) => account.entityId));
+        if (
+          generatedRefreshHasActivity(parsedGenerated.refresh) &&
+          !generatedRefreshHasUsableAttribution(parsedGenerated.refresh, allowedActorEntityIds, knownEntityIds)
+        ) {
+          retryReason = "the response used no active account entityId";
+        }
+      } catch (error) {
+        retryReason = `the response was not valid timeline JSON (${getErrorMessage(error).slice(0, 180)})`;
+      }
+
+      if (retryReason) {
+        const allowedEntityIds = activeAccounts.map((account) => account.entityId);
+        logger.warn("[noodle] Retrying timeline generation because %s", retryReason);
+        const correction = [
+          "Your previous timeline response could not be used.",
+          `Reason: ${retryReason}.`,
+          `Regenerate the complete JSON object now. Use only these exact entityId values: ${allowedEntityIds.join(", ")}.`,
+          "Do not invent, rename, or omit the entityId field for an author or actor. Return JSON only.",
+        ].join("\n");
+        result = await provider.chatComplete([...requestMessages, { role: "user", content: correction }], completionOptions);
+        content = result.content ?? "";
+        parsedGenerated = parseNoodleGeneratedRefresh(parseGameJsonish(content));
+      }
+
+      if (!parsedGenerated) throw new Error("Noodle timeline generation returned no usable response.");
+      const generated = parsedGenerated.refresh;
+      for (const rejected of parsedGenerated.rejected) {
+        logger.warn(
+          "[noodle] Ignoring malformed generated %s item at index %d (%d validation issue%s)",
+          rejected.collection,
+          rejected.index,
+          rejected.issueCount,
+          rejected.issueCount === 1 ? "" : "s",
+        );
+      }
       const entityToAccount = new Map(activeAccounts.map((account) => [account.entityId, account]));
       const mutableAccountSettings = new Map(
         activeAccounts.map((account) => [account.id, { ...account.settings }] as const),
@@ -1747,7 +1833,7 @@ export async function noodleRoutes(app: FastifyInstance) {
           continue;
         }
         const imagePrompt =
-          remainingImagePrompts > 0 && generatedPost.imagePrompt?.trim() ? generatedPost.imagePrompt.trim() : null;
+          remainingImagePrompts > 0 ? normalizeNoodleImagePrompt(generatedPost.imagePrompt) : null;
         if (imagePrompt) remainingImagePrompts -= 1;
         let persistedImagePrompt = imagePrompt;
         let imageUrl: string | null = null;

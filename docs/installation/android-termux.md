@@ -69,6 +69,8 @@ cd Marinara-Engine
 ./start-termux.sh --skip-update
 ```
 
+The launcher also removes unreferenced packages from its local pnpm cache during dependency updates. This keeps old releases from accumulating several gigabytes on the phone; it does not touch Marinara chats, settings, or other user data.
+
 ## Access from another device
 
 By default, the launcher makes Marinara reachable on your local network. This means a laptop or another phone on the same Wi-Fi can open it. For step-by-step instructions on finding the right address, see the [Frequently Asked Questions](../FAQ.md).

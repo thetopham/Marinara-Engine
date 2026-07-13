@@ -131,7 +131,11 @@ import {
   parseCadenceInputValue,
   stepCadenceValue,
 } from "../../lib/agent-cadence";
-import { getCharacterTitle, parseCharacterDisplayData } from "../../lib/character-display";
+import {
+  characterMatchesSearch,
+  getCharacterTitle,
+  parseCharacterDisplayData,
+} from "../../lib/character-display";
 import { extractCreatorNotesCss } from "../../lib/creator-notes-css";
 import { isLorebookScopeActiveForChat } from "../../lib/lorebook-scope";
 import { addSilentGreetingSwipes } from "../../lib/message-swipes";
@@ -4125,9 +4129,7 @@ export function ChatSettingsDrawer({
                   {selectableCharacters
                     .filter((c) => !chatCharIds.includes(c.id))
                     .filter(
-                      (c) =>
-                        includesTextForMatch(charName(c), charSearch) ||
-                        includesTextForMatch(charTitle(c) ?? "", charSearch),
+                      (c) => characterMatchesSearch(getCharacterInfo(c), charSearch),
                     )
                     .map((c) => {
                       const name = charName(c);
@@ -4452,9 +4454,7 @@ export function ChatSettingsDrawer({
                   {selectableCharacters
                     .filter((c) => !chatCharIds.includes(c.id))
                     .filter(
-                      (c) =>
-                        includesTextForMatch(charName(c), charSearch) ||
-                        includesTextForMatch(charTitle(c) ?? "", charSearch),
+                      (c) => characterMatchesSearch(getCharacterInfo(c), charSearch),
                     )
                     .map((c) => {
                       const name = charName(c);
@@ -4498,9 +4498,7 @@ export function ChatSettingsDrawer({
                   {selectableCharacters
                     .filter((c) => !chatCharIds.includes(c.id))
                     .filter(
-                      (c) =>
-                        includesTextForMatch(charName(c), charSearch) ||
-                        includesTextForMatch(charTitle(c) ?? "", charSearch),
+                      (c) => characterMatchesSearch(getCharacterInfo(c), charSearch),
                     ).length === 0 && (
                     <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
                       {selectableCharacters.filter((c) => !chatCharIds.includes(c.id)).length === 0

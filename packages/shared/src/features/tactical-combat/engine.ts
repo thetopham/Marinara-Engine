@@ -676,6 +676,19 @@ export function isTerminal(state: TacticalCombatState): boolean {
 
 // ── Player-facing action entry point ──
 
+// The battle log is UI-only (never read back by engine logic), but the full
+// state round-trips through the server, whose request schema bounds the log
+// array. Cap it well under that envelope so a marathon battle can never grow
+// a state the server would reject.
+const MAX_LOG_ENTRIES = 1000;
+
+function appendLog(state: TacticalCombatState, events: TacticalEvent[]): void {
+  state.log.push(...events);
+  if (state.log.length > MAX_LOG_ENTRIES) {
+    state.log = state.log.slice(-MAX_LOG_ENTRIES);
+  }
+}
+
 function clone(state: TacticalCombatState): TacticalCombatState {
   // State is plain JSON (numbers/strings/arrays/objects) so a JSON round-trip is
   // a safe, deterministic deep clone and avoids depending on structuredClone lib types.
@@ -698,7 +711,7 @@ export function applyAction(state: TacticalCombatState, action: TacticalAction):
   if (action.type === "flee") {
     next.outcome = "fled";
     events.push({ kind: "flee", text: "The party retreats from battle." });
-    next.log.push(...events);
+    appendLog(next, events);
     return { ok: true, state: next, events };
   }
 
@@ -707,7 +720,7 @@ export function applyAction(state: TacticalCombatState, action: TacticalAction):
     for (const u of aliveUnits(next, "party")) u.hasActed = true;
     next.phase = "enemy";
     events.push({ kind: "phase", text: "Enemy Phase", phase: "enemy" });
-    next.log.push(...events);
+    appendLog(next, events);
     return { ok: true, state: next, events };
   }
 
@@ -798,7 +811,7 @@ export function applyAction(state: TacticalCombatState, action: TacticalAction):
     }
   }
 
-  next.log.push(...events);
+  appendLog(next, events);
   return { ok: true, state: next, events };
 }
 
@@ -833,4 +846,4 @@ export function buildTacticalSummary(state: TacticalCombatState): CombatSummary 
 
 // Internal helpers re-exported for the AI module (ai.ts imports these directly,
 // NOT via the feature's public index.ts — keeps the shared public surface clean).
-export { aliveUnits, canCounter, checkTerminal, clone, findSkill, forecastFrom, performUnitAction, skillReady, tickRound };
+export { aliveUnits, appendLog, canCounter, checkTerminal, clone, findSkill, forecastFrom, performUnitAction, skillReady, tickRound };

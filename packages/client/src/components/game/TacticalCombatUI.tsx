@@ -1153,7 +1153,12 @@ export function TacticalCombatUI({
         <p className="text-sm">{startError ?? "The battlefield failed to load."}</p>
         <button
           type="button"
-          onClick={() => onCombatEnd("flee", { outcome: "flee", rounds: 0, party: [], enemies: [] })}
+          onClick={() => {
+            // Clear any stale snapshot (e.g. the old terminal state after a failed
+            // restart) so the next battle can't restore — and auto-hand-off — it.
+            persistSnapshot(null);
+            onCombatEnd("flee", { outcome: "flee", rounds: 0, party: [], enemies: [] });
+          }}
           className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
         >
           Retreat to story

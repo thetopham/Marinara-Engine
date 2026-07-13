@@ -8808,8 +8808,10 @@ export async function gameRoutes(app: FastifyInstance) {
   app.post("/combat/tactical/start", async (req, reply) => {
     const schema = z.object({
       chatId: z.string().min(1),
-      party: z.array(tacticalCombatantSchema).min(1),
-      enemies: z.array(tacticalCombatantSchema).min(1),
+      // Caps mirror /action's units .max(40) so a battle /start accepts can
+      // never produce a state /action rejects.
+      party: z.array(tacticalCombatantSchema).min(1).max(20),
+      enemies: z.array(tacticalCombatantSchema).min(1).max(20),
       seed: z.number().int().optional(),
       // Scene-derived battlefield theming (Round 2). Unknown strings normalize
       // in the engine (environment → default, formation → "line").

@@ -13,6 +13,7 @@ import { effectiveSpeed, manhattan } from "./math.js";
 import { deterministicRng } from "./rng.js";
 import {
   aliveUnits,
+  appendLog,
   checkTerminal,
   clone,
   forecastFrom,
@@ -186,6 +187,6 @@ export function runEnemyPhase(state: TacticalCombatState): { state: TacticalComb
     }
   }
 
-  next.log.push(...events);
+  appendLog(next, events);
   return { state: next, events };
 }

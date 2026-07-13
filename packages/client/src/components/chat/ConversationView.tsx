@@ -34,6 +34,7 @@ import { PokerBoard } from "./PokerBoard";
 import { PokerSetup } from "./PokerSetup";
 import { EightBallBoard } from "./EightBallBoard";
 import { EightBallSetup } from "./EightBallSetup";
+import { ConversationGamesPicker } from "./ConversationGamesPicker";
 import { SceneBanner, EndSceneBar } from "./SceneBanner";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { ActiveLorebookEntriesButton } from "./ActiveLorebookEntriesButton";
@@ -48,6 +49,7 @@ import { useUnoGameStore } from "../../stores/uno-game.store";
 import { useChessGameStore } from "../../stores/chess-game.store";
 import { usePokerGameStore } from "../../stores/poker-game.store";
 import { useEightBallGameStore } from "../../stores/eightball-game.store";
+import { useConversationGamesStore } from "../../stores/conversation-games.store";
 import { useUIStore } from "../../stores/ui.store";
 import { playConfiguredNotificationPing } from "../../lib/notification-sound";
 import { playConversationCallRingingSoundOnce } from "../../lib/conversation-call-sounds";
@@ -335,6 +337,8 @@ export function ConversationView({
   );
   const eightBallSetupOpen = useEightBallGameStore((s) => s.setupChatId === chatId);
   const closeEightBallSetup = useEightBallGameStore((s) => s.closeSetup);
+  const gamesPickerOpen = useConversationGamesStore((s) => s.pickerChatId === chatId);
+  const closeGamesPicker = useConversationGamesStore((s) => s.closePicker);
   const isStreamCommitted = useChatStore((s) => s.committedStreamChatIds.has(chatId));
   const hasLiveStream = isStreaming && !isStreamCommitted;
   const streamBuffer = useThrottledStreamBuffer();
@@ -1545,6 +1549,12 @@ export function ConversationView({
       <ChessSetup key={`chess-${chatId}`} chatId={chatId} open={chessSetupOpen} onClose={closeChessSetup} />
       <PokerSetup key={`poker-${chatId}`} chatId={chatId} open={pokerSetupOpen} onClose={closePokerSetup} />
       <EightBallSetup key={`eightball-${chatId}`} chatId={chatId} open={eightBallSetupOpen} onClose={closeEightBallSetup} />
+      <ConversationGamesPicker
+        key={`games-${chatId}`}
+        chatId={chatId}
+        open={gamesPickerOpen}
+        onClose={closeGamesPicker}
+      />
 
       {/* ── Input area ── */}
       <ConversationInput

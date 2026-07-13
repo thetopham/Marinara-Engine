@@ -8771,8 +8771,12 @@ export async function gameRoutes(app: FastifyInstance) {
       party: z.array(tacticalCombatantSchema).min(1),
       enemies: z.array(tacticalCombatantSchema).min(1),
       seed: z.number().int().optional(),
+      // Scene-derived battlefield theming (Round 2). Unknown strings normalize
+      // in the engine (environment → default, formation → "line").
+      environment: z.string().optional(),
+      formation: z.string().optional(),
     });
-    const { chatId, party, enemies, seed } = schema.parse(req.body);
+    const { chatId, party, enemies, seed, environment, formation } = schema.parse(req.body);
 
     const chats = createChatsStorage(app.db);
     const chat = await chats.getById(chatId);
@@ -8786,6 +8790,8 @@ export async function gameRoutes(app: FastifyInstance) {
     const state = createTacticalCombat(party as unknown as Combatant[], enemies as unknown as Combatant[], {
       seed: resolvedSeed,
       difficulty,
+      environment,
+      formation,
     });
 
     logger.info(

@@ -11,6 +11,11 @@
 // Visual language mirrors GameCombatUI where practical: HP/MP bars, floating
 // damage numbers, crit flashes, sprite/emoji/initial tokens, SFX hooks, and the
 // same `onCombatEnd(outcome, CombatSummary)` contract that drives GM narration.
+//
+// The root is TRANSLUCENT over GameSurface's crossfaded scene background (like
+// classic GameCombatUI): a dark scrim + radial vignette let the scene art show
+// through while the grid stays readable. Terrain palettes are themed by the
+// authoritative `state.environment` so restored snapshots keep their look.
 // ──────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -21,6 +26,7 @@ import {
   Backpack,
   Hourglass,
   Wind,
+  Footprints,
   ScrollText,
   Crown,
   Skull,
@@ -66,6 +72,14 @@ interface TacticalCombatUIProps {
   enemies: Combatant[];
   /** Difficulty label from the game setup (engine normalizes unknowns to "normal"). */
   difficulty?: string;
+  /**
+   * Scene-derived battlefield environment (e.g. "forest", "snow", "spaceship").
+   * Drives the initial terrain theming; the authoritative palette source once
+   * the battle starts is `state.environment` (so restored snapshots keep theme).
+   */
+  environment?: string | null;
+  /** Scene-derived starting formation (e.g. "ambush", "surrounded"). Passed to the start endpoint. */
+  formation?: string | null;
   /** Restore an in-progress battle after a refresh (from chat metadata snapshot). */
   initialState?: TacticalCombatState | null;
   /** The party combatant that is the player's own persona (gets the crown marker). */
@@ -93,25 +107,200 @@ const SFX = {
   defeat: "sfx:ui:menu-cancel",
 } as const;
 
-// ── Terrain palette ──
+// ── Environment terrain palettes ──
+//
+// Keyed by plain string so the file compiles regardless of whether the shared
+// `TacticalEnvironment` union has landed yet. Every entry is a full terrain map;
+// unknown environments fall back to "default" (the original colours). The
+// resolved palette comes from the AUTHORITATIVE `state.environment` first, then
+// the `environment` prop, then "default".
 
-const TERRAIN_COLORS: Record<TacticalTerrain, string> = {
-  plains: "#40714a",
-  forest: "#274a30",
-  mountain: "#5c5142",
-  ruin: "#4a4f5c",
-  water: "#1f4f78",
-  wall: "#23232b",
+const TERRAIN_PALETTES: Record<string, Record<TacticalTerrain, string>> = {
+  default: {
+    plains: "#40714a",
+    forest: "#274a30",
+    mountain: "#5c5142",
+    ruin: "#4a4f5c",
+    water: "#1f4f78",
+    wall: "#23232b",
+  },
+  forest: {
+    plains: "#3a6b3f",
+    forest: "#1f3f26",
+    mountain: "#4f4a3a",
+    ruin: "#454b45",
+    water: "#215a6b",
+    wall: "#26241c",
+  },
+  plains: {
+    plains: "#4e8a4f",
+    forest: "#2f5c34",
+    mountain: "#6a5c44",
+    ruin: "#565b5f",
+    water: "#2a6187",
+    wall: "#2a2a2a",
+  },
+  mountains: {
+    plains: "#5a6650",
+    forest: "#37472f",
+    mountain: "#6b5f4c",
+    ruin: "#575a5f",
+    water: "#2b5570",
+    wall: "#312e28",
+  },
+  snow: {
+    plains: "#cdd8e3",
+    forest: "#8fa8a0",
+    mountain: "#aeb9c6",
+    ruin: "#9aa4b2",
+    water: "#7fb8d6",
+    wall: "#7d8794",
+  },
+  desert: {
+    plains: "#c9a55f",
+    forest: "#8a7a3e",
+    mountain: "#a8894f",
+    ruin: "#b09a6a",
+    water: "#3f8fa0",
+    wall: "#6e5a38",
+  },
+  wasteland: {
+    plains: "#8a7a53",
+    forest: "#6a6136",
+    mountain: "#7d6b4a",
+    ruin: "#7a6f5c",
+    water: "#4a6b63",
+    wall: "#4d4436",
+  },
+  volcanic: {
+    plains: "#5a3a34",
+    forest: "#4a3128",
+    mountain: "#6e3d2c",
+    ruin: "#5c453e",
+    water: "#b1441f",
+    wall: "#2a1c18",
+  },
+  water: {
+    plains: "#3d7a6a",
+    forest: "#245c4c",
+    mountain: "#4a6157",
+    ruin: "#456058",
+    water: "#1c6f8f",
+    wall: "#213a3c",
+  },
+  swamp: {
+    plains: "#4a5f3a",
+    forest: "#2f4529",
+    mountain: "#4e5240",
+    ruin: "#495046",
+    water: "#3a5f4a",
+    wall: "#25302a",
+  },
+  cave: {
+    plains: "#3e3a44",
+    forest: "#33403a",
+    mountain: "#4a4148",
+    ruin: "#454049",
+    water: "#2a4a5c",
+    wall: "#1b1920",
+  },
+  dungeon: {
+    plains: "#3d3a42",
+    forest: "#34413a",
+    mountain: "#4a4550",
+    ruin: "#4c4652",
+    water: "#274a5c",
+    wall: "#1a1820",
+  },
+  ruins: {
+    plains: "#5a5648",
+    forest: "#3f4a36",
+    mountain: "#5e564a",
+    ruin: "#63615a",
+    water: "#3a5a68",
+    wall: "#332f28",
+  },
+  city: {
+    plains: "#5c5f66",
+    forest: "#3f5240",
+    mountain: "#5e5a54",
+    ruin: "#6a6a72",
+    water: "#3a5c7a",
+    wall: "#33343c",
+  },
+  castle: {
+    plains: "#5a5850",
+    forest: "#3c4a38",
+    mountain: "#615a4c",
+    ruin: "#66625a",
+    water: "#385a72",
+    wall: "#302d2a",
+  },
+  mansion: {
+    plains: "#5b504a",
+    forest: "#3f4a3a",
+    mountain: "#5e544a",
+    ruin: "#665c52",
+    water: "#3f5a6a",
+    wall: "#332b26",
+  },
+  spaceship: {
+    plains: "#3a4550",
+    forest: "#31424c",
+    mountain: "#465562",
+    ruin: "#4a5763",
+    water: "#2f6a86",
+    wall: "#1e262e",
+  },
 };
 
-const TERRAIN_ICON: Record<TacticalTerrain, string> = {
-  plains: "",
-  forest: "🌲",
-  mountain: "⛰️",
-  ruin: "🏛️",
-  water: "🌊",
-  wall: "🧱",
+// ── Terrain icons ──
+// The painted tile textures carry the base terrain look, so only
+// environment-specific flavour overrides render as icons.
+const TERRAIN_ICON_OVERRIDES: Record<string, Partial<Record<TacticalTerrain, string>>> = {
+  desert: { forest: "🌵", mountain: "🏜️" },
+  wasteland: { forest: "🌵" },
+  volcanic: { mountain: "🌋", water: "🌋" },
+  snow: { forest: "🌲", mountain: "🏔️" },
+  swamp: { forest: "🌿", water: "💧" },
+  cave: { forest: "", mountain: "🪨" },
+  dungeon: { forest: "", mountain: "🪨" },
+  spaceship: { forest: "", mountain: "", ruin: "🛰️", water: "⚡" },
+  city: { forest: "🌳", ruin: "🏚️" },
+  castle: { ruin: "🏰" },
+  mansion: { ruin: "🏛️" },
 };
+
+function resolveTerrainIcon(env: string | undefined, terrain: TacticalTerrain): string {
+  return (env ? TERRAIN_ICON_OVERRIDES[env]?.[terrain] : undefined) ?? "";
+}
+
+// Per-tile depth: raised terrain (mountain/wall) reads embossed; the rest recessed.
+function tileShadow(terrain: TacticalTerrain): string {
+  if (terrain === "mountain" || terrain === "wall") {
+    return "inset 0 2px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.45)";
+  }
+  return "inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -3px 5px rgba(0,0,0,0.35)";
+}
+
+// ~0.88 alpha suffix so terrain colours stay readable but the scene shows through.
+const TILE_ALPHA = "e0";
+
+// Painted top-down tile textures (packages/client/public/tactical/). The palette
+// colour is layered over them as a tint so environment themes still recolour the field.
+const TILE_TEXTURES: Record<TacticalTerrain, string> = {
+  plains: "/tactical/plains.webp",
+  forest: "/tactical/forest.webp",
+  mountain: "/tactical/mountain.webp",
+  ruin: "/tactical/ruin.webp",
+  water: "/tactical/water.webp",
+  wall: "/tactical/wall.webp",
+};
+
+// Tint strength over the texture: a light wash for the default look, stronger
+// when an environment theme needs to recolour the painted art (e.g. snow, volcanic).
+const TILE_TINT_ALPHA = "3d";
+const TILE_TINT_ALPHA_THEMED = "73";
 
 // ── Animation timing (per event kind) ──
 
@@ -161,6 +350,12 @@ function ringColorFor(id: string, side: "party" | "enemy"): string {
   return `hsl(${hue % 360} 70% 55%)`;
 }
 
+// Read the authoritative environment off state without depending on the shared
+// type having the field yet (the engine agent adds `environment?: TacticalEnvironment`).
+function environmentOf(state: TacticalCombatState | null): string | undefined {
+  return (state as { environment?: string } | null)?.environment ?? undefined;
+}
+
 // ── Transient render state (positions + hp during animation) ──
 
 interface RenderUnit {
@@ -182,6 +377,11 @@ interface FloatingPopup {
   unitId: string;
   text: string;
   tone: "damage" | "crit" | "heal" | "miss" | "status";
+}
+
+interface PhaseBanner {
+  text: string;
+  tone: "player" | "enemy";
 }
 
 // A staged clone: the selected unit teleported to `to` so pure helpers
@@ -208,6 +408,8 @@ export function TacticalCombatUI({
   chatId,
   party,
   enemies,
+  environment,
+  formation,
   initialState,
   playerCombatantId,
   onCombatEnd,
@@ -232,7 +434,7 @@ export function TacticalCombatUI({
   // Animation state.
   const [animUnits, setAnimUnits] = useState<Map<string, RenderUnit> | null>(null);
   const [popups, setPopups] = useState<FloatingPopup[]>([]);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<PhaseBanner | null>(null);
   const [critFlash, setCritFlash] = useState(false);
   const animatingRef = useRef(false);
   const [animating, setAnimating] = useState(false);
@@ -265,8 +467,19 @@ export function TacticalCombatUI({
     let cancelled = false;
     setStarting(true);
     setStartError(null);
+    // Typed intermediate (not a fresh literal) so environment/formation reach the
+    // POST body even though the hook's mutationFn type predates these fields.
+    const startPayload: {
+      chatId: string;
+      party: Combatant[];
+      enemies: Combatant[];
+      environment?: string;
+      formation?: string;
+    } = { chatId, party, enemies };
+    if (environment) startPayload.environment = environment;
+    if (formation) startPayload.formation = formation;
     startMut
-      .mutateAsync({ chatId, party, enemies })
+      .mutateAsync(startPayload)
       .then((res) => {
         if (cancelled) return;
         // Engine does NOT set isPlayer — the client marks the persona's combatant.
@@ -295,6 +508,19 @@ export function TacticalCombatUI({
 
   // ── Derived: units currently rendered (anim positions during playback) ──
   const liveState = state;
+
+  // Authoritative environment → terrain palette (restored snapshots keep theme).
+  const activeEnvironment = useMemo(
+    () => environmentOf(liveState) ?? environment ?? undefined,
+    [liveState, environment],
+  );
+  const palette = useMemo(
+    () => TERRAIN_PALETTES[activeEnvironment ?? "default"] ?? TERRAIN_PALETTES.default,
+    [activeEnvironment],
+  );
+  // Stronger palette tint over the painted textures when a themed environment applies.
+  const tileTintAlpha =
+    activeEnvironment && TERRAIN_PALETTES[activeEnvironment] ? TILE_TINT_ALPHA_THEMED : TILE_TINT_ALPHA;
 
   const selectedUnitId = ui.kind === "idle" ? null : ui.unitId;
   const selectedUnit = useMemo(
@@ -417,7 +643,9 @@ export function TacticalCombatUI({
           break;
         }
         case "phase": {
-          setBanner(ev.text);
+          const tone: PhaseBanner["tone"] =
+            ev.phase === "enemy" || /enemy/i.test(ev.text) ? "enemy" : "player";
+          setBanner({ text: ev.text, tone });
           break;
         }
         case "damage":
@@ -502,13 +730,21 @@ export function TacticalCombatUI({
   // ── Event animation player ──
   // Plays the server-returned events sequentially over a working copy of the
   // pre-action render map, then reconciles to the authoritative final state.
+  // `onSettled` fires once, after the final state is committed (used to re-select
+  // a unit that only moved so the player can immediately pick its action).
   const playEvents = useCallback(
-    (events: TacticalEvent[], finalState: TacticalCombatState, preState: TacticalCombatState) => {
+    (
+      events: TacticalEvent[],
+      finalState: TacticalCombatState,
+      preState: TacticalCombatState,
+      onSettled?: (final: TacticalCombatState) => void,
+    ) => {
       clearTimers();
       if (events.length === 0) {
         setState(finalState);
         persistSnapshot(finalState);
         maybeEnd(finalState);
+        onSettled?.(finalState);
         return;
       }
       animatingRef.current = true;
@@ -536,6 +772,7 @@ export function TacticalCombatUI({
         setState(finalState);
         persistSnapshot(finalState);
         maybeEnd(finalState);
+        onSettled?.(finalState);
       }, finishAt);
       timersRef.current.push(done);
     },
@@ -551,14 +788,14 @@ export function TacticalCombatUI({
 
   // ── Send one action to the server ──
   const sendAction = useCallback(
-    (action: TacticalAction) => {
+    (action: TacticalAction, onSettled?: (final: TacticalCombatState) => void) => {
       if (!liveState || animatingRef.current) return;
       const preState = liveState;
       resetSelection();
       actionMut
         .mutateAsync({ chatId, state: preState, action })
         .then((res) => {
-          playEvents(res.events, res.state, preState);
+          playEvents(res.events, res.state, preState, onSettled);
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : "That action was rejected.";
@@ -618,6 +855,20 @@ export function TacticalCombatUI({
     },
     [liveState, animating, ui, targetIds, playSfx, resetSelection],
   );
+
+  // ── Commit a pure move, then re-select the same unit so it can still act. ──
+  const commitMove = useCallback(() => {
+    if (!selectedUnit || !stagedMove || selectedUnit.hasMoved) return;
+    const unitId = selectedUnit.id;
+    playSfx(SFX.select);
+    sendAction({ type: "move", unitId, to: stagedMove }, (final) => {
+      // Only re-open the action menu if the battle continues and the mover can still act.
+      if (final.outcome || final.phase !== "player") return;
+      const u = final.units.find((x) => x.id === unitId);
+      if (!u || u.hp <= 0 || u.hasActed) return;
+      setUi({ kind: "unit", unitId });
+    });
+  }, [selectedUnit, stagedMove, playSfx, sendAction]);
 
   const chooseAction = useCallback(
     (actionId: "attack" | "skills" | "item" | "defend" | "wait") => {
@@ -704,24 +955,34 @@ export function TacticalCombatUI({
 
   const gridW = liveState?.grid.width ?? 0;
   const gridH = liveState?.grid.height ?? 0;
+  const isPlayerPhaseNow = liveState?.phase === "player" && !animating;
 
   const renderUnits = useMemo(() => {
     if (!liveState) return [];
     return liveState.units.map((u) => {
       const anim = animUnits?.get(u.id);
+      let x = anim?.x ?? u.x;
+      let y = anim?.y ?? u.y;
+      // Staged-move preview: while nothing is animating, render the selected unit's
+      // token at its staged destination so the move reads as INSTANT feedback. The
+      // token tweens there via UnitToken's framer-motion animate on left/top.
+      if (!animUnits && stagedMove && selectedUnitId === u.id) {
+        x = stagedMove.x;
+        y = stagedMove.y;
+      }
       return {
         unit: u,
-        x: anim?.x ?? u.x,
-        y: anim?.y ?? u.y,
+        x,
+        y,
         hp: anim?.hp ?? u.hp,
       };
     });
-  }, [liveState, animUnits]);
+  }, [liveState, animUnits, stagedMove, selectedUnitId]);
 
-  // ── Loading / error states ──
+  // ── Loading / error states (translucent so the scene shows through) ──
   if (starting) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-b from-slate-950 to-slate-900 text-white/80">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950/60 text-white/80 backdrop-blur-sm">
         <Sword className="h-8 w-8 animate-pulse text-amber-300" />
         <p className="text-sm">Deploying the tactical battlefield…</p>
       </div>
@@ -730,7 +991,7 @@ export function TacticalCombatUI({
 
   if (startError || !liveState) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950 p-6 text-center text-white/80">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-950/70 p-6 text-center text-white/80 backdrop-blur-sm">
         <SkullIcon className="h-8 w-8 text-red-400" />
         <p className="text-sm">{startError ?? "The battlefield failed to load."}</p>
         <button
@@ -745,10 +1006,26 @@ export function TacticalCombatUI({
   }
 
   const outcome = liveState.outcome;
-  const isPlayerPhase = liveState.phase === "player" && !animating;
+  const isPlayerPhase = isPlayerPhaseNow;
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white select-none">
+    <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-950/60 text-white select-none">
+      {/* One-off keyframes for shimmer / range pulse / ready glow (self-contained). */}
+      <style>{`
+        @keyframes tc-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        @keyframes tc-move-range { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.55; } }
+        @keyframes tc-ready-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 9px 2px rgba(56,189,248,0.55); } }
+      `}</style>
+
+      {/* Radial vignette so the grid reads against the scene art without an opaque fill. */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          background:
+            "radial-gradient(120% 90% at 50% 40%, rgba(2,6,23,0.15) 0%, rgba(2,6,23,0.45) 60%, rgba(2,6,23,0.78) 100%)",
+        }}
+      />
+
       {/* Crit flash overlay */}
       {critFlash && <div className="pointer-events-none absolute inset-0 z-30 animate-pulse bg-white/25" />}
 
@@ -816,7 +1093,7 @@ export function TacticalCombatUI({
       </div>
 
       {/* Battlefield */}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-2 sm:p-4">
+      <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center overflow-auto p-2 sm:p-4">
         <div
           className="relative"
           style={{
@@ -840,6 +1117,7 @@ export function TacticalCombatUI({
                 const inThreat = threatKeys.has(key);
                 const isStaged = stagedMove?.x === x && stagedMove?.y === y;
                 const isInspected = inspectTile?.x === x && inspectTile?.y === y;
+                const icon = resolveTerrainIcon(activeEnvironment, terrain);
                 return (
                   <button
                     type="button"
@@ -847,24 +1125,56 @@ export function TacticalCombatUI({
                     onClick={() => onTileClick(x, y)}
                     className={cn(
                       "group relative overflow-hidden rounded-[3px] transition-all duration-150",
-                      isInspected && "ring-1 ring-white/60",
+                      isInspected && "ring-1 ring-white/70",
                     )}
-                    style={{ backgroundColor: TERRAIN_COLORS[terrain] }}
+                    style={{ backgroundColor: palette[terrain] + TILE_ALPHA, boxShadow: tileShadow(terrain) }}
                     title={TERRAIN_DATA[terrain].label}
                   >
-                    {TERRAIN_ICON[terrain] && (
-                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.7em] opacity-40">
-                        {TERRAIN_ICON[terrain]}
+                    {/* Painted terrain texture (rotated per-tile for variety) */}
+                    <span
+                      className="pointer-events-none absolute inset-0"
+                      style={{
+                        backgroundImage: `url(${TILE_TEXTURES[terrain]})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        transform: `rotate(${((x * 7 + y * 13) % 4) * 90}deg) scale(1.03)`,
+                      }}
+                    />
+                    {/* Environment palette tint over the texture */}
+                    <span
+                      className="pointer-events-none absolute inset-0"
+                      style={{ backgroundColor: palette[terrain] + tileTintAlpha }}
+                    />
+                    {/* Top-light depth gradient */}
+                    <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/25" />
+                    {/* Water shimmer (CSS only) */}
+                    {terrain === "water" && (
+                      <span
+                        className="pointer-events-none absolute inset-0"
+                        style={{
+                          background:
+                            "linear-gradient(115deg, transparent 30%, rgba(125,211,252,0.35) 50%, transparent 70%)",
+                          backgroundSize: "200% 200%",
+                          animation: "tc-shimmer 3.5s linear infinite",
+                        }}
+                      />
+                    )}
+                    {icon && (
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.7em] opacity-45">
+                        {icon}
                       </span>
                     )}
                     {inMove && !isStaged && (
-                      <span className="pointer-events-none absolute inset-0 bg-sky-400/30 ring-1 ring-inset ring-sky-300/50" />
+                      <span
+                        className="pointer-events-none absolute inset-0 bg-sky-400/40 ring-1 ring-inset ring-sky-300/60"
+                        style={{ animation: "tc-move-range 1.5s ease-in-out infinite" }}
+                      />
                     )}
                     {inThreat && (
                       <span className="pointer-events-none absolute inset-0 bg-red-500/20 ring-1 ring-inset ring-red-400/30" />
                     )}
                     {isStaged && (
-                      <span className="pointer-events-none absolute inset-0 bg-sky-300/50 ring-2 ring-inset ring-sky-200 animate-pulse" />
+                      <span className="pointer-events-none absolute inset-0 animate-pulse bg-sky-300/50 ring-2 ring-inset ring-sky-200" />
                     )}
                   </button>
                 );
@@ -878,6 +1188,13 @@ export function TacticalCombatUI({
             const isTarget = ui.kind === "target" && targetIds.has(unit.id);
             const isForecastTarget = forecastTargetId === unit.id;
             const dead = hp <= 0;
+            const ready =
+              !dead &&
+              !isSel &&
+              isPlayerPhase &&
+              unit.side === "party" &&
+              !unit.hasActed &&
+              !unit.hasMoved;
             return (
               <UnitToken
                 key={unit.id}
@@ -891,6 +1208,7 @@ export function TacticalCombatUI({
                 targetable={isTarget}
                 forecastTarget={isForecastTarget}
                 dead={dead}
+                ready={ready}
                 onClick={() => {
                   if (isTarget && ui.kind === "target" && ui.action !== "attack") {
                     const isSupport = ui.action === "item" || (ui.action === "skill" && ui.skill?.type !== "attack");
@@ -936,18 +1254,23 @@ export function TacticalCombatUI({
           </AnimatePresence>
         </div>
 
-        {/* Phase banner sweep */}
+        {/* Phase banner sweep (FE-style, tinted by side) */}
         <AnimatePresence>
           {banner && (
             <motion.div
-              key={banner}
+              key={banner.text}
               initial={{ x: "-100%", opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: "100%", opacity: 0 }}
               transition={{ duration: 0.45 }}
-              className="pointer-events-none absolute left-0 right-0 top-1/2 z-30 -translate-y-1/2 bg-gradient-to-r from-transparent via-black/70 to-transparent py-3 text-center text-2xl font-black uppercase tracking-widest text-white drop-shadow-lg"
+              className={cn(
+                "pointer-events-none absolute left-0 right-0 top-1/2 z-30 -translate-y-1/2 py-4 text-center text-2xl font-black uppercase tracking-widest text-white drop-shadow-lg",
+                banner.tone === "enemy"
+                  ? "bg-gradient-to-r from-red-950/0 via-red-800/70 to-red-950/0"
+                  : "bg-gradient-to-r from-sky-950/0 via-sky-700/70 to-sky-950/0",
+              )}
             >
-              {banner}
+              {banner.text}
             </motion.div>
           )}
         </AnimatePresence>
@@ -961,7 +1284,7 @@ export function TacticalCombatUI({
       {/* Action menu / target forecast (bottom sheet on mobile, side card on desktop) */}
       {isPlayerPhase && selectedUnit && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-2 sm:justify-end sm:p-4">
-          <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl backdrop-blur sm:w-72">
+          <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/15 bg-slate-900/85 p-3 shadow-2xl backdrop-blur-md sm:w-72">
             <div className="mb-2 flex items-center justify-between">
               <span className="truncate text-sm font-bold text-white">
                 {selectedUnit.isPlayer && <Crown className="mr-1 inline h-3.5 w-3.5 text-amber-300" />}
@@ -974,30 +1297,46 @@ export function TacticalCombatUI({
 
             {/* Action menu */}
             {ui.kind === "unit" && (
-              <div className="grid grid-cols-3 gap-1.5">
-                {getTargetsInRange(stagedState ?? liveState, selectedUnit.id, stagedMove ?? undefined).length > 0 && (
-                  <ActionButton icon={Sword} label="Attack" color="text-red-300" onClick={() => chooseAction("attack")} />
+              <>
+                {selectedUnit.hasMoved && !selectedUnit.hasActed && (
+                  <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-white/5 px-2 py-1.5 text-[0.7rem] italic text-white/60">
+                    <Footprints className="h-3.5 w-3.5 text-sky-300" />
+                    Already moved — choose an action.
+                  </p>
                 )}
-                {selectedUnit.skills.length > 0 && (
-                  <ActionButton
-                    icon={Sparkles}
-                    label="Skills"
-                    color="text-sky-300"
-                    onClick={() => chooseAction("skills")}
-                  />
-                )}
-                <ActionButton icon={Backpack} label="Item" color="text-emerald-300" onClick={() => chooseAction("item")} />
-                <ActionButton icon={Shield} label="Defend" color="text-amber-300" onClick={() => chooseAction("defend")} />
-                <ActionButton icon={Hourglass} label="Wait" color="text-white/70" onClick={() => chooseAction("wait")} />
-                {stagedMove && (
-                  <ActionButton
-                    icon={Wind}
-                    label="Reset Move"
-                    color="text-white/60"
-                    onClick={() => setStagedMove(null)}
-                  />
-                )}
-              </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {stagedMove && !selectedUnit.hasMoved && (
+                    <ActionButton
+                      icon={Footprints}
+                      label="Move"
+                      color="text-sky-300"
+                      onClick={commitMove}
+                    />
+                  )}
+                  {getTargetsInRange(stagedState ?? liveState, selectedUnit.id, stagedMove ?? undefined).length > 0 && (
+                    <ActionButton icon={Sword} label="Attack" color="text-red-300" onClick={() => chooseAction("attack")} />
+                  )}
+                  {selectedUnit.skills.length > 0 && (
+                    <ActionButton
+                      icon={Sparkles}
+                      label="Skills"
+                      color="text-sky-300"
+                      onClick={() => chooseAction("skills")}
+                    />
+                  )}
+                  <ActionButton icon={Backpack} label="Item" color="text-emerald-300" onClick={() => chooseAction("item")} />
+                  <ActionButton icon={Shield} label="Defend" color="text-amber-300" onClick={() => chooseAction("defend")} />
+                  <ActionButton icon={Hourglass} label="Wait" color="text-white/70" onClick={() => chooseAction("wait")} />
+                  {stagedMove && (
+                    <ActionButton
+                      icon={Wind}
+                      label="Reset Move"
+                      color="text-white/60"
+                      onClick={() => setStagedMove(null)}
+                    />
+                  )}
+                </div>
+              </>
             )}
 
             {/* Skill list */}
@@ -1013,7 +1352,7 @@ export function TacticalCombatUI({
                       disabled={!ready}
                       onClick={() => chooseSkill(skill)}
                       className={cn(
-                        "flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors",
+                        "flex items-center justify-between rounded-lg border px-2.5 py-2 text-left text-xs transition-colors",
                         ready
                           ? "border-sky-400/30 bg-sky-500/10 text-white hover:bg-sky-500/20"
                           : "border-white/10 bg-white/5 text-white/40",
@@ -1067,7 +1406,7 @@ export function TacticalCombatUI({
                     <button
                       type="button"
                       onClick={confirmTarget}
-                      className="flex-1 rounded-lg bg-red-500/80 px-3 py-1.5 text-sm font-bold text-white transition-colors hover:bg-red-500"
+                      className="flex-1 rounded-lg bg-red-500/80 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-red-500"
                     >
                       Confirm
                     </button>
@@ -1078,7 +1417,7 @@ export function TacticalCombatUI({
                       setForecastTargetId(null);
                       setUi({ kind: "unit", unitId: selectedUnit.id });
                     }}
-                    className="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-sm font-semibold text-white/70 hover:bg-white/10"
+                    className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-white/70 hover:bg-white/10"
                   >
                     Back
                   </button>
@@ -1182,10 +1521,24 @@ interface UnitTokenProps {
   targetable: boolean;
   forecastTarget: boolean;
   dead: boolean;
+  ready: boolean;
   onClick: () => void;
 }
 
-function UnitToken({ unit, hp, gridW, gridH, x, y, selected, targetable, forecastTarget, dead, onClick }: UnitTokenProps) {
+function UnitToken({
+  unit,
+  hp,
+  gridW,
+  gridH,
+  x,
+  y,
+  selected,
+  targetable,
+  forecastTarget,
+  dead,
+  ready,
+  onClick,
+}: UnitTokenProps) {
   const left = ((x + 0.5) / gridW) * 100;
   const top = ((y + 0.5) / gridH) * 100;
   const cellW = 100 / gridW;
@@ -1198,7 +1551,7 @@ function UnitToken({ unit, hp, gridW, gridH, x, y, selected, targetable, forecas
   const style: CSSProperties = {
     left: `${left}%`,
     top: `${top}%`,
-    width: `${cellW * 0.82}%`,
+    width: `${cellW * 0.9}%`,
   };
 
   return (
@@ -1206,17 +1559,18 @@ function UnitToken({ unit, hp, gridW, gridH, x, y, selected, targetable, forecas
       type="button"
       onClick={onClick}
       animate={{ left: `${left}%`, top: `${top}%` }}
-      transition={{ type: "tween", duration: 0.3 }}
+      whileHover={{ scale: dead ? 1 : 1.09 }}
+      transition={{ type: "tween", duration: 0.25 }}
       style={style}
       className={cn(
         "absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center",
         dead && "opacity-30 grayscale",
-        (unit.hasActed && unit.side === "party" && !dead) && "opacity-55",
+        unit.hasActed && unit.side === "party" && !dead && "opacity-60 grayscale",
       )}
     >
       <div
         className={cn(
-          "relative flex aspect-square w-full items-center justify-center rounded-full border-2 shadow-lg",
+          "relative flex aspect-square w-full items-center justify-center rounded-full border-2 shadow-lg drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]",
           selected && "ring-2 ring-sky-300 ring-offset-1 ring-offset-slate-900",
           targetable && "ring-2 ring-red-400 animate-pulse",
           forecastTarget && "ring-2 ring-red-300 ring-offset-1 ring-offset-slate-900",
@@ -1224,6 +1578,7 @@ function UnitToken({ unit, hp, gridW, gridH, x, y, selected, targetable, forecas
         style={{
           borderColor: ring,
           backgroundColor: unit.side === "party" ? "rgba(30,58,90,0.9)" : "rgba(90,30,40,0.9)",
+          animation: ready ? "tc-ready-glow 1.8s ease-in-out infinite" : undefined,
         }}
       >
         {sprite.kind === "url" ? (
@@ -1269,9 +1624,9 @@ function ActionButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1 py-2 text-[0.65rem] font-semibold text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+      className="flex flex-col items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-1 py-2.5 text-[0.68rem] font-semibold text-white/85 transition-colors hover:bg-white/15 active:scale-95"
     >
-      <Icon className={cn("h-4 w-4", color)} />
+      <Icon className={cn("h-5 w-5", color)} />
       {label}
     </button>
   );
@@ -1292,11 +1647,19 @@ function ForecastPanel({
       animate={{ opacity: 1, y: 0 }}
       className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/40 p-2 text-xs"
     >
-      <ForecastSide title={attackerName} tone="text-sky-300" damage={forecast.damage} hit={forecast.hitChance} crit={forecast.critChance} />
+      <ForecastSide
+        title={attackerName}
+        tone="text-sky-200"
+        headerBg="bg-sky-500/20"
+        damage={forecast.damage}
+        hit={forecast.hitChance}
+        crit={forecast.critChance}
+      />
       {forecast.counter ? (
         <ForecastSide
           title={defenderName}
-          tone="text-red-300"
+          tone="text-red-200"
+          headerBg="bg-red-500/20"
           label="counters"
           damage={forecast.counter.damage}
           hit={forecast.counter.hitChance}
@@ -1315,6 +1678,7 @@ function ForecastPanel({
 function ForecastSide({
   title,
   tone,
+  headerBg,
   label,
   damage,
   hit,
@@ -1322,24 +1686,27 @@ function ForecastSide({
 }: {
   title: string;
   tone: string;
+  headerBg: string;
   label?: string;
   damage: number;
   hit: number;
   crit: number;
 }) {
   return (
-    <div className="rounded-lg bg-white/5 p-1.5">
-      <div className={cn("truncate text-[0.65rem] font-bold", tone)}>
+    <div className="overflow-hidden rounded-lg bg-white/5">
+      <div className={cn("truncate px-1.5 py-1 text-[0.65rem] font-bold", headerBg, tone)}>
         {title}
-        {label && <span className="font-normal text-white/40"> {label}</span>}
+        {label && <span className="font-normal text-white/50"> {label}</span>}
       </div>
-      <div className="flex items-baseline gap-1">
-        <Sword className="h-3 w-3 text-white/50" />
-        <span className="text-base font-black text-white">{damage}</span>
-      </div>
-      <div className="flex justify-between text-[0.6rem] text-white/60">
-        <span>Hit {Math.round(hit)}%</span>
-        <span className="text-amber-300/80">Crit {Math.round(crit)}%</span>
+      <div className="px-1.5 pb-1.5 pt-1">
+        <div className="flex items-baseline gap-1">
+          <Sword className="h-3 w-3 text-white/50" />
+          <span className="text-base font-black text-white">{damage}</span>
+        </div>
+        <div className="flex justify-between text-[0.6rem] text-white/60">
+          <span>Hit {Math.round(hit)}%</span>
+          <span className="text-amber-300/80">Crit {Math.round(crit)}%</span>
+        </div>
       </div>
     </div>
   );

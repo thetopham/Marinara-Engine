@@ -30,8 +30,10 @@ import type {
   TacticalCombatState,
   TacticalCoord,
   TacticalDifficulty,
+  TacticalEnvironment,
   TacticalEvent,
   TacticalForecast,
+  TacticalFormation,
   TacticalUnit,
 } from "./types.js";
 
@@ -39,6 +41,37 @@ const DIFFICULTIES: TacticalDifficulty[] = ["casual", "normal", "hard", "brutal"
 
 function normalizeDifficulty(value: string): TacticalDifficulty {
   return DIFFICULTIES.includes(value as TacticalDifficulty) ? (value as TacticalDifficulty) : "normal";
+}
+
+const ENVIRONMENTS: TacticalEnvironment[] = [
+  "forest",
+  "dungeon",
+  "desert",
+  "cave",
+  "city",
+  "ruins",
+  "snow",
+  "water",
+  "castle",
+  "wasteland",
+  "plains",
+  "mountains",
+  "swamp",
+  "volcanic",
+  "spaceship",
+  "mansion",
+];
+
+const FORMATIONS: TacticalFormation[] = ["line", "ambush", "surrounded", "skirmish", "defense"];
+
+/** Unknown/absent environment strings normalize to undefined (default theming). */
+function normalizeEnvironment(value?: string): TacticalEnvironment | undefined {
+  return value && ENVIRONMENTS.includes(value as TacticalEnvironment) ? (value as TacticalEnvironment) : undefined;
+}
+
+/** Unknown/absent formation strings normalize to "line" (legacy behavior). */
+function normalizeFormation(value?: string): TacticalFormation {
+  return value && FORMATIONS.includes(value as TacticalFormation) ? (value as TacticalFormation) : "line";
 }
 
 // ── Unit construction ──
@@ -81,9 +114,11 @@ function combatantToUnit(c: Combatant, side: "party" | "enemy", isBoss: boolean)
 export function createTacticalCombat(
   party: Combatant[],
   enemies: Combatant[],
-  opts: { seed: number; difficulty: string },
+  opts: { seed: number; difficulty: string; environment?: string; formation?: string },
 ): TacticalCombatState {
   const difficulty = normalizeDifficulty(opts.difficulty);
+  const environment = normalizeEnvironment(opts.environment);
+  const formation = normalizeFormation(opts.formation);
   const seed = opts.seed >>> 0;
 
   // Heuristic boss: strongest enemy when the pack is 2+ deep.
@@ -105,8 +140,8 @@ export function createTacticalCombat(
   ];
 
   const setupRng = deterministicRng(seed, 0);
-  const grid = generateGrid(units.length, setupRng);
-  placeSpawns(grid, units);
+  const grid = generateGrid(units.length, setupRng, environment);
+  placeSpawns(grid, units, formation, setupRng);
 
   const state: TacticalCombatState = {
     schemaVersion: 1,
@@ -118,6 +153,8 @@ export function createTacticalCombat(
     actionCounter: 1,
     log: [{ kind: "phase", text: "Player Phase — Round 1", phase: "player" }],
     difficulty,
+    formation,
+    ...(environment ? { environment } : {}),
   };
   return state;
 }

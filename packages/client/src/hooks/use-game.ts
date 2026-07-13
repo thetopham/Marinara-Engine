@@ -801,6 +801,10 @@ export function useTacticalCombatStart() {
       party: Combatant[];
       enemies: Combatant[];
       seed?: number;
+      /** Blueprint scene context — themes the terrain (styleNotes.environmentType). */
+      environment?: string;
+      /** Blueprint battlefield.formation — drives spawn placement. */
+      formation?: string;
     }) => api.post<{ state: TacticalCombatState }>("/game/combat/tactical/start", data),
   });
 }

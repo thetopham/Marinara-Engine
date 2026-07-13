@@ -36,6 +36,32 @@ export const TERRAIN_DATA: Record<TacticalTerrain, TerrainInfo> = {
   wall: { moveCost: 99, defenseBonus: 0, avoidBonus: 0, impassable: true, label: "Wall" },
 };
 
+// ── Environment & formation ──
+// Round 2: the scene leading into combat themes the battlefield. `environment`
+// steers terrain-blob weights (grid-gen) + client palette; `formation` steers
+// spawn placement (grid-gen placeSpawns). Both are optional on state so old
+// snapshots (schemaVersion 1) keep working; unknown strings normalize away.
+
+export type TacticalEnvironment =
+  | "forest"
+  | "dungeon"
+  | "desert"
+  | "cave"
+  | "city"
+  | "ruins"
+  | "snow"
+  | "water"
+  | "castle"
+  | "wasteland"
+  | "plains"
+  | "mountains"
+  | "swamp"
+  | "volcanic"
+  | "spaceship"
+  | "mansion";
+
+export type TacticalFormation = "line" | "ambush" | "surrounded" | "skirmish" | "defense";
+
 // ── Grid ──
 
 export interface TacticalGrid {
@@ -167,6 +193,10 @@ export interface TacticalCombatState {
   log: TacticalEvent[];
   outcome?: TacticalOutcome;
   difficulty: TacticalDifficulty;
+  /** Scene-derived battlefield theme (Round 2). Optional — absent on legacy snapshots. */
+  environment?: TacticalEnvironment;
+  /** Scene-derived spawn arrangement (Round 2). Optional — defaults to "line" behavior when absent. */
+  formation?: TacticalFormation;
 }
 
 // ── Forecast (shown FE-style before confirming an attack) ──

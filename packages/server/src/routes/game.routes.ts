@@ -102,15 +102,18 @@ import {
   generationParametersSchema,
   VIDEO_GENERATION_SETTINGS_KEY,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_DEFAULT,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES,
   GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
   GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
   GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
   normalizeVideoGenerationUserSettings,
+  getGameStoryboardPromptTemplateKind,
   normalizeAgentPromptTemplateOptions,
   isClaudeAdaptiveOnlyNoSamplingModel,
   localAuthProviderBaseUrl,
@@ -1534,6 +1537,7 @@ const gameSetupConfigSchema = z.object({
     .optional(),
   gameGmPromptTemplateId: z.string().max(200).nullable().optional(),
   gameStoryboardAnimationPromptTemplateId: z.string().max(200).nullable().optional(),
+  gameStoryboardImagePromptTemplateId: z.string().max(200).nullable().optional(),
   gameStoryboardVideoPromptTemplateId: z.string().max(200).nullable().optional(),
   gameStoryboardUseDirectScenePrompt: z.boolean().optional(),
   artStylePrompt: z.string().max(500).optional(),
@@ -5249,9 +5253,16 @@ async function loadStoryboardIllustratorSystemPrompt(args: {
   generateVideos: boolean;
   ctx: GameStoryboardIllustratorCtx;
 }): Promise<string> {
+  const kind = args.generateVideos ? "animation" : "illustration";
+  const selectedAnimationTemplateId = readTrimmedString(args.meta.gameStoryboardAnimationPromptTemplateId);
+  const builtInTemplates = args.generateVideos
+    ? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES
+    : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES;
   const options = [
-    ...GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
-    ...normalizeGameStoryboardPromptTemplates(args.meta.gameStoryboardPromptTemplates),
+    ...builtInTemplates,
+    ...normalizeGameStoryboardPromptTemplates(args.meta.gameStoryboardPromptTemplates).filter(
+      (template) => getGameStoryboardPromptTemplateKind(template, selectedAnimationTemplateId) === kind,
+    ),
   ];
   const templateId = resolveGameStoryboardPromptTemplateId({
     meta: args.meta,
@@ -5263,7 +5274,7 @@ async function loadStoryboardIllustratorSystemPrompt(args: {
     : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID;
   const selectedTemplate =
     options.find((template) => template.id === templateId) ??
-    GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES.find((template) => template.id === fallbackTemplateId);
+    builtInTemplates.find((template) => template.id === fallbackTemplateId);
   if (!selectedTemplate?.promptTemplate.trim()) {
     return loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_ILLUSTRATION_DIRECTOR, args.ctx);
   }
@@ -5999,6 +6010,7 @@ export async function gameRoutes(app: FastifyInstance) {
       gameStoryboardKeyframeCount: storyboardKeyframeCount,
       gameGmPromptTemplateId: setupConfig.gameGmPromptTemplateId || null,
       gameStoryboardAnimationPromptTemplateId: setupConfig.gameStoryboardAnimationPromptTemplateId || null,
+      gameStoryboardImagePromptTemplateId: setupConfig.gameStoryboardImagePromptTemplateId || null,
       gameStoryboardVideoPromptTemplateId: setupConfig.gameStoryboardVideoPromptTemplateId || null,
       gameStoryboardUseDirectScenePrompt: setupConfig.gameStoryboardUseDirectScenePrompt === true,
       gameLastSceneVideoId: null,
@@ -10167,6 +10179,8 @@ export async function gameRoutes(app: FastifyInstance) {
               promptOverridesStorage,
               size: backgroundSize,
               useDirectScenePrompt: meta.gameStoryboardUseDirectScenePrompt === true,
+              storyboardImagePromptTemplateId: readTrimmedString(meta.gameStoryboardImagePromptTemplateId),
+              storyboardImagePromptTemplates: meta.gameStoryboardImagePromptTemplates,
               preserveFullScenePrompt: true,
             });
             if (debugLogsEnabled) {
@@ -10324,6 +10338,8 @@ export async function gameRoutes(app: FastifyInstance) {
             promptOverride: promptOverride?.prompt,
             negativePromptOverride: promptOverride?.negativePrompt,
             useDirectScenePrompt: meta.gameStoryboardUseDirectScenePrompt === true,
+            storyboardImagePromptTemplateId: readTrimmedString(meta.gameStoryboardImagePromptTemplateId),
+            storyboardImagePromptTemplates: meta.gameStoryboardImagePromptTemplates,
             preserveFullScenePrompt: true,
             onCompiledPrompt: (compiled) => {
               sentIllustrationPrompt = compiled.prompt;

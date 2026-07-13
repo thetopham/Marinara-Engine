@@ -1,7 +1,8 @@
-import type {
-  GameInitialSetupConnectionSnapshot,
-  GameSetupConfig,
-  GenerationParameters,
+import {
+  STORYBOARD_OPTIMIZED_IMAGE_PROMPT_TEMPLATE_ID,
+  type GameInitialSetupConnectionSnapshot,
+  type GameSetupConfig,
+  type GenerationParameters,
 } from "@marinara-engine/shared";
 
 export interface GameSetupShareLabels {
@@ -119,15 +120,18 @@ function formatPresentation(config: GameSetupConfig): string {
   const selectedIds = [
     config.gameGmPromptTemplateId,
     config.gameStoryboardAnimationPromptTemplateId,
+    config.gameStoryboardImagePromptTemplateId,
     config.gameStoryboardVideoPromptTemplateId,
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   if (selectedIds.length === 0) return "Standard";
   if (
     config.gameGmPromptTemplateId === "anime-game-prompt" &&
     config.gameStoryboardAnimationPromptTemplateId === "comic-page-animation" &&
+    (!config.gameStoryboardImagePromptTemplateId ||
+      config.gameStoryboardImagePromptTemplateId === STORYBOARD_OPTIMIZED_IMAGE_PROMPT_TEMPLATE_ID) &&
     config.gameStoryboardVideoPromptTemplateId === "comic-page-game-video"
   ) {
-    return "Anime Episode";
+    return "Storyboard Optimized";
   }
   return `Custom (${selectedIds.map(titleCaseToken).join(" + ")})`;
 }

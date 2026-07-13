@@ -24,6 +24,7 @@ import {
 } from "@marinara-engine/shared";
 import type { ImageGenerationSize } from "../image/image-generation-settings.js";
 import { compileImagePrompt } from "../image/image-prompt-compiler.js";
+import { loadGameStoryboardImagePrompt } from "../image/game-storyboard-image-prompt.js";
 
 const NPC_AVATAR_DIR = join(DATA_DIR, "avatars", "npc");
 const CHAT_BACKGROUND_DIR = join(DATA_DIR, "backgrounds");
@@ -822,6 +823,10 @@ export interface SceneIllustrationGenRequest {
   onCompiledPrompt?: (compiled: CompiledGameImagePrompt) => void;
   /** Use the storyboard illustrator's imagePrompt as the complete scene source, bypassing the scene-illustration prompt template. */
   useDirectScenePrompt?: boolean;
+  /** Selected provider-facing storyboard image prompt template. */
+  storyboardImagePromptTemplateId?: string | null;
+  /** Chat-local provider-facing storyboard image prompt templates. */
+  storyboardImagePromptTemplates?: unknown;
   /** Preserve the full generated scene prompt instead of distilling it into the selected tagged prompt grammar. */
   preserveFullScenePrompt?: boolean;
   /** Optional request-scoped abort signal. */
@@ -934,11 +939,20 @@ async function buildSceneIllustrationRawPrompt(req: SceneIllustrationGenRequest)
     artDirectionLine: styleHint ? `Art direction: ${styleHint}.` : "",
     imagePromptInstructionsLine,
   };
+  const hasStoryboardImagePromptSelection =
+    req.storyboardImagePromptTemplateId != null || req.storyboardImagePromptTemplates != null;
   const rawIllustrationPrompt = req.useDirectScenePrompt
     ? req.prompt.trim()
-    : req.promptOverridesStorage
-      ? await loadPrompt(req.promptOverridesStorage, GAME_SCENE_ILLUSTRATION, sceneIllustrationVars)
-      : GAME_SCENE_ILLUSTRATION.defaultBuilder(sceneIllustrationVars);
+    : hasStoryboardImagePromptSelection
+      ? await loadGameStoryboardImagePrompt({
+          promptOverridesStorage: req.promptOverridesStorage,
+          templateId: req.storyboardImagePromptTemplateId,
+          customTemplates: req.storyboardImagePromptTemplates,
+          ctx: sceneIllustrationVars,
+        })
+      : req.promptOverridesStorage
+        ? await loadPrompt(req.promptOverridesStorage, GAME_SCENE_ILLUSTRATION, sceneIllustrationVars)
+        : GAME_SCENE_ILLUSTRATION.defaultBuilder(sceneIllustrationVars);
   const finalPrompt =
     imagePromptInstructionsLine && !rawIllustrationPrompt.includes(imagePromptInstructionsLine)
       ? `${rawIllustrationPrompt}\n${imagePromptInstructionsLine}`

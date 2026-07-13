@@ -7571,6 +7571,14 @@ function GameSurfaceComponent({
   );
 
   const combatUiActive = gameState === "combat" && !!combatParty && !!combatEnemies;
+  // Effective combat style: runtime metadata override (settings drawer) ??
+  // wizard setup choice ?? legacy default "classic".
+  const combatSetupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
+  const effectiveCombatStyle: GameCombatStyle =
+    (chatMeta.gameCombatStyle as GameCombatStyle | undefined) ??
+    (combatSetupConfig?.combatStyle as GameCombatStyle | undefined) ??
+    "classic";
+  const tacticalCombatActive = combatUiActive && effectiveCombatStyle === "tactical";
   const topOverlayOffsetClass = "top-3";
   const queuedCombatMatchesLatest =
     !!queuedCombatGeneration?.messageId &&
@@ -10540,7 +10548,7 @@ function GameSurfaceComponent({
                 data-tracker-panel-anchor="roleplay-hud"
                 className={cn(
                   "pointer-events-none absolute right-3 z-50",
-                  topOverlayOffsetClass,
+                  tacticalCombatActive ? "top-14" : topOverlayOffsetClass,
                   replayActive && "hidden",
                 )}
               >
@@ -11277,14 +11285,6 @@ function GameSurfaceComponent({
                         </button>
                       </>
                     );
-
-                    // Effective combat style: runtime metadata override (settings drawer) ??
-                    // wizard setup choice ?? legacy default "classic".
-                    const combatSetupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
-                    const effectiveCombatStyle: GameCombatStyle =
-                      (chatMeta.gameCombatStyle as GameCombatStyle | undefined) ??
-                      (combatSetupConfig?.combatStyle as GameCombatStyle | undefined) ??
-                      "classic";
 
                     return (
                       <div className="relative h-full min-h-0">

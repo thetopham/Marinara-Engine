@@ -26,7 +26,7 @@ import {
   type CSSProperties,
   type RefObject,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue } from "framer-motion";
 import {
   Sword,
   Sparkles,
@@ -473,6 +473,11 @@ export function TacticalCombatUI({
   // Root element — the drag constraints boundary for the draggable inspect card.
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Action-menu drag offset lives at component level so the card keeps its
+  // position across unit selections (the card unmounts on deselect).
+  const actionMenuX = useMotionValue(0);
+  const actionMenuY = useMotionValue(0);
+
   // Animation state.
   const [animUnits, setAnimUnits] = useState<Map<string, RenderUnit> | null>(null);
   const [popups, setPopups] = useState<FloatingPopup[]>([]);
@@ -860,10 +865,12 @@ export function TacticalCombatUI({
     resetSelection();
     setInspectTile(null);
     setFleeConfirm(false);
+    actionMenuX.set(0);
+    actionMenuY.set(0);
     endedRef.current = false;
     setState(null);
     launchBattle();
-  }, [clearTimers, resetSelection, launchBattle]);
+  }, [clearTimers, resetSelection, launchBattle, actionMenuX, actionMenuY]);
 
   // ── Send one action to the server ──
   const sendAction = useCallback(
@@ -1417,11 +1424,19 @@ export function TacticalCombatUI({
       {/* Action menu / target forecast (bottom sheet on mobile, side card on desktop) */}
       {isPlayerPhase && selectedUnit && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-2 sm:justify-end sm:p-4">
-          <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-[var(--border)] bg-slate-900/85 p-3 shadow-2xl backdrop-blur-md sm:w-72">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="truncate text-sm font-bold text-white">
-                {selectedUnit.isPlayer && <Crown className="mr-1 inline h-3.5 w-3.5 text-amber-300" />}
-                {selectedUnit.name}
+          <motion.div
+            drag
+            dragMomentum={false}
+            dragElastic={0}
+            dragConstraints={rootRef}
+            style={{ x: actionMenuX, y: actionMenuY }}
+            className="pointer-events-auto w-full max-w-md rounded-2xl border border-[var(--border)] bg-slate-900/85 p-3 shadow-2xl backdrop-blur-md sm:w-72"
+          >
+            <div className="mb-2 flex cursor-grab items-center justify-between active:cursor-grabbing">
+              <span className="flex min-w-0 items-center text-sm font-bold text-white">
+                <GripVertical className="mr-1 h-3 w-3 shrink-0 text-white/40" />
+                {selectedUnit.isPlayer && <Crown className="mr-1 inline h-3.5 w-3.5 shrink-0 text-amber-300" />}
+                <span className="truncate">{selectedUnit.name}</span>
               </span>
               <button type="button" onClick={resetSelection} className="text-white/50 hover:text-white">
                 <X size={16} />
@@ -1582,7 +1597,7 @@ export function TacticalCombatUI({
                 </div>
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       )}
 

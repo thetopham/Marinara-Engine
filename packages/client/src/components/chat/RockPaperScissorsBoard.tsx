@@ -7,7 +7,7 @@
 // when it's your turn, a "waiting" state once you've thrown, and a strip of
 // resolved rounds. Your own pending throw is safe to show (only the
 // opponent's is ever hidden — see the engine's hidden-information contract).
-import { X } from "lucide-react";
+import { MessageCircle, RotateCcw, X } from "lucide-react";
 import type { RpsChoice } from "@marinara-engine/shared";
 import { useChatStore } from "../../stores/chat.store";
 import { useRockPaperScissorsGameStore } from "../../stores/rock-paper-scissors-game.store";
@@ -26,6 +26,7 @@ const CHOICE_LABEL: Record<RpsChoice, string> = { rock: "Rock", paper: "Paper", 
 
 export function RockPaperScissorsBoard({ chatId }: Props) {
   const current = useRockPaperScissorsGameStore((s) => s.current);
+  const openSetup = useRockPaperScissorsGameStore((s) => s.openSetup);
   const streaming = useChatStore((s) => s.isStreaming);
   const streamingChatId = useChatStore((s) => s.streamingChatId);
   const isStreaming = streaming && streamingChatId === chatId;
@@ -49,6 +50,11 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   const onThrow = (choice: RpsChoice) => {
     if (!isMyTurn || disabled) return;
     rpsThrow.mutate({ move: { type: "throw", choice } });
+  };
+
+  const onPlayAgain = () => {
+    if (disabled) return;
+    resign.mutate(undefined, { onSuccess: () => openSetup(chatId) });
   };
 
   const seatChip = (seat: typeof you) =>
@@ -81,24 +87,46 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
               Round {view.roundNumber} · first to {view.roundsToWin}
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm("Resign and end this match?")) resign.mutate();
-            }}
-            className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] active:scale-90"
-            title="Resign"
-            aria-label="Resign and end match"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          {view.status !== "finished" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Resign and end this match?")) resign.mutate();
+              }}
+              className="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--muted)] active:scale-90"
+              title="Resign"
+              aria-label="Resign and end match"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Finished banner */}
       {view.status === "finished" && (
         <div className="mb-2 rounded-lg bg-[var(--primary)]/10 px-3 py-2 text-center text-sm font-semibold text-[var(--primary)]">
-          {winner ? `${winner.displayName} wins the match! 🏆` : "Match over."}
+          <div>{winner ? `${winner.displayName} wins the match! 🏆` : "Match over."}</div>
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={onPlayAgain}
+              disabled={disabled}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] transition-transform active:scale-95 disabled:opacity-50"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Play again
+            </button>
+            <button
+              type="button"
+              onClick={() => resign.mutate()}
+              disabled={disabled}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--background)] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] transition-transform active:scale-95 disabled:opacity-50"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Continue chat
+            </button>
+          </div>
         </div>
       )}
 

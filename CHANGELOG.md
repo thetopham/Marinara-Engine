@@ -19,6 +19,11 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Began the v2.2.2 development cycle and synchronized version metadata across packages, the PWA manifest, Windows installer sources, Android APK metadata, and shared update checks.
 - Android `versionName` is `2.2.2` with `versionCode 34`.
 
+### Fixed
+
+- Fixed Noodle profile text edits resetting character avatars from their configured crop to the full source image. Unchanged avatars now preserve their crop, and previously lost crops recover from the matching character card on the next profile save.
+- Fixed a blank `TZ=` forcing server-side schedules and date-sensitive Conversation context into the synthetic `Etc/Unknown` UTC timezone. Blank values now inherit the host timezone, Noodle warns when timezone detection is unresolved, and chats remember the browser timezone for autonomous scheduling, temporal awareness, daily memories, and tool macros (#3590).
+
 ## [2.2.1]
 
 ### Added

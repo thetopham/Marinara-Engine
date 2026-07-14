@@ -18,6 +18,7 @@ import { createLorebooksStorage } from "../storage/lorebooks.storage.js";
 import { GAME_LOREBOOK_KEEPER_SOURCE_ID } from "./game-lorebook-scope.js";
 import {
   scanForActivatedEntries,
+  passesForcedEntryActivationGates,
   type ScanMessage,
   type ScanOptions,
   type GameStateForScanning,
@@ -1099,12 +1100,14 @@ export async function processLorebooks(
         }, 1)
       : 3;
 
-  const forcedActivatedEntries: ActivatedEntry[] = forcedEntries.map((entry) => ({
-    entry,
-    matchedKeys: ["[current_location]"],
-    activationSources: ["current_location"],
-    injectionOrder: entry.order,
-  }));
+  const forcedActivatedEntries: ActivatedEntry[] = forcedEntries
+    .filter((entry) => passesForcedEntryActivationGates(entry, scanOpts))
+    .map((entry) => ({
+      entry,
+      matchedKeys: ["[current_location]"],
+      activationSources: ["current_location"],
+      injectionOrder: entry.order,
+    }));
   const locationBudgetResult = applyCurrentLocationLoreBudget(forcedActivatedEntries, relevantLorebooksById);
   const ordinaryActivatedEntries = scanForActivatedEntries(messages, allEntries, scanOpts);
   const initialActivatedEntries = mergeActivatedEntries(

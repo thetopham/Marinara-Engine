@@ -1091,7 +1091,7 @@ export function useGenerate() {
       const pendingAttachments = params.attachments ?? [];
 
       // Optimistically show the user message in the chat immediately
-      if ((params.userMessage || pendingAttachments.length > 0) && !params.impersonate) {
+      if ((params.userMessage || pendingAttachments.length > 0 || params.pendingSpatialTransition) && !params.impersonate) {
         // Build persona snapshot for per-message persona tracking
         const cachedPersonas = qc.getQueryData<
           Array<{

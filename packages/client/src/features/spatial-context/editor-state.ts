@@ -103,7 +103,11 @@ function normalizeChildPresentation(
   parentId: string,
   presentation: SpatialChildPresentation,
 ): SpatialContextDefinition {
-  let layerOrder = 0;
+  const orderedChildIds = definition.locations
+    .filter((location) => location.parentId === parentId)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+    .map((location) => location.id);
+  const layerOrderById = new Map(orderedChildIds.map((id, index) => [id, index]));
   return {
     ...definition,
     locations: definition.locations.map((location) => {
@@ -112,7 +116,7 @@ function normalizeChildPresentation(
         return { ...location, placement: location.placement ?? { x: 50, y: 50 }, layerOrder: undefined };
       }
       if (presentation === "layers") {
-        return { ...location, placement: undefined, layerOrder: layerOrder++ };
+        return { ...location, placement: undefined, layerOrder: layerOrderById.get(location.id) ?? 0 };
       }
       return { ...location, placement: undefined, layerOrder: undefined };
     }),

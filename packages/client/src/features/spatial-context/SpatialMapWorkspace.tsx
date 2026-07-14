@@ -415,7 +415,12 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
   const applyGeneratedDraft = useCallback(
     (generated: SpatialContextDefinition) => {
       if (!draft) return;
-      const normalizedGenerated = spatialContextDefinitionSchema.parse(generated);
+      const parsedGenerated = spatialContextDefinitionSchema.safeParse(generated);
+      if (!parsedGenerated.success) {
+        toast.error(parsedGenerated.error.issues[0]?.message ?? "The AI draft was not a valid hierarchical map.");
+        return;
+      }
+      const normalizedGenerated = parsedGenerated.data;
       const previousIds = new Set(draft.locations.map((location) => location.id));
       const next = {
         ...cloneSpatialDefinition(normalizedGenerated),

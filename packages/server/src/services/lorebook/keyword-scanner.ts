@@ -199,6 +199,33 @@ function passesActivationGate(
   return true;
 }
 
+/** Apply non-keyword activation safeguards to an explicitly selected entry. */
+export function passesForcedEntryActivationGates(entry: LorebookEntry, options: ScanOptions = {}): boolean {
+  const filterContext: LorebookFilterValueContext = {
+    activeCharacterIds: makeValueSet(options.activeCharacterIds),
+    activeCharacterTags: makeValueSet(options.activeCharacterTags),
+    generationTriggers: makeValueSet(
+      options.generationTriggers && options.generationTriggers.length > 0 ? options.generationTriggers : ["chat"],
+    ),
+  };
+  if (
+    !passesActivationGate(
+      entry,
+      options.timingStates?.get(entry.id),
+      filterContext,
+      options.gameState ?? null,
+      options.ignoreTiming,
+    )
+  ) {
+    return false;
+  }
+  const existingDecision = options.probabilityDecisions?.get(entry.id);
+  if (existingDecision !== undefined) return existingDecision;
+  const passes = passesProbabilityGate(entry, options.random ?? Math.random);
+  options.probabilityDecisions?.set(entry.id, passes);
+  return passes;
+}
+
 function normalizeProbability(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : null;
   if (parsed === null || !Number.isFinite(parsed)) return null;

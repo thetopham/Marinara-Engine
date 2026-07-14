@@ -613,6 +613,13 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       chatId,
       regenerateMessageId ? { beforeMessageId: regenerateMessageId } : {},
     );
+    const promptSpatialProjection =
+      (ownerSpatialProjection?.ownerMode === "game" && chatMode === "game") ||
+      (ownerSpatialProjection?.ownerMode === "roleplay" &&
+        (chatMode === "roleplay" || chatMode === "visual_novel"))
+        ? ownerSpatialProjection
+        : null;
+    const ownerSpatialLorebookEntryIds = promptSpatialProjection?.lorebookEntryIds ?? [];
     const visibleGameStateAnchor = regenerateMessageId
       ? resolveRegenerationGameStateAnchor(scopedMessages, regenerateMessageId)
       : resolveVisibleGameStateAnchor(allChatMessages);
@@ -1030,8 +1037,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
               characterIds: promptCharacterIds,
               personaId,
               activeLorebookIds,
-              forcedEntryIds:
-                chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
+              forcedEntryIds: ownerSpatialLorebookEntryIds,
               excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
               excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
               tokenBudget: lorebookTokenBudget,
@@ -1237,8 +1243,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
             ? (chatMeta.activeLorebookIds as string[])
             : []
           : [],
-        forcedLorebookEntryIds:
-          chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
+        forcedLorebookEntryIds: ownerSpatialLorebookEntryIds,
         excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
         excludedLorebookSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
         chatEmbedding: null,
@@ -1388,8 +1393,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         chatId,
         characterIds: promptCharacterIds,
         personaId,
-        forcedEntryIds:
-          chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
+        forcedEntryIds: ownerSpatialLorebookEntryIds,
         activeLorebookIds,
         excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
         excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
@@ -1500,7 +1504,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       // rejects a final assistant message ending in whitespace.
       finalMessages.push({ role: "assistant", content: assistantPrefill.trimEnd() });
     }
-    finalMessages = injectOwnerSpatialPrompt(finalMessages, ownerSpatialProjection);
+    finalMessages = injectOwnerSpatialPrompt(finalMessages, promptSpatialProjection);
     dedupeLastMessageWrappers(finalMessages);
 
     // ── Parameter normalization (mirror /api/generate) ──

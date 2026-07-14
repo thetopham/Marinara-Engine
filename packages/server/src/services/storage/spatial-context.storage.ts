@@ -1,8 +1,8 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, or } from "drizzle-orm";
 import type { SpatialContextSnapshot, SpatialSnapshotSource } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
 import { spatialContextSnapshots } from "../../db/schema/index.js";
-import { newId, now } from "../../utils/id-generator.js";
+import { newTimeSortableId, now } from "../../utils/id-generator.js";
 
 type SpatialSnapshotConnection = Pick<DB, "select" | "insert" | "delete" | "update">;
 
@@ -65,6 +65,30 @@ export function createSpatialContextStorage(db: SpatialSnapshotConnection) {
       return rows[0] ? mapSnapshot(rows[0]) : null;
     },
 
+    async listByAnchors(
+      chatId: string,
+      anchors: Array<{ messageId: string; swipeIndex: number }>,
+    ): Promise<SpatialContextSnapshot[]> {
+      if (anchors.length === 0) return [];
+      const rows = await db
+        .select()
+        .from(spatialContextSnapshots)
+        .where(
+          and(
+            eq(spatialContextSnapshots.chatId, chatId),
+            or(
+              ...anchors.map((anchor) =>
+                and(
+                  eq(spatialContextSnapshots.messageId, anchor.messageId),
+                  eq(spatialContextSnapshots.swipeIndex, anchor.swipeIndex),
+                ),
+              ),
+            ),
+          ),
+        );
+      return rows.map(mapSnapshot);
+    },
+
     async listForChat(chatId: string): Promise<SpatialContextSnapshot[]> {
       const rows = await db.select().from(spatialContextSnapshots).where(eq(spatialContextSnapshots.chatId, chatId));
       return rows.map(mapSnapshot);
@@ -101,7 +125,7 @@ export function createSpatialContextStorage(db: SpatialSnapshotConnection) {
 
     async create(input: CreateSpatialSnapshotInput): Promise<SpatialContextSnapshot> {
       const row: typeof spatialContextSnapshots.$inferInsert = {
-        id: newId(),
+        id: newTimeSortableId(),
         chatId: input.chatId,
         messageId: input.messageId ?? "",
         swipeIndex: input.swipeIndex ?? 0,

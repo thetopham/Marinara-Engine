@@ -6,11 +6,11 @@ Audience: Product, design, and Marinara Engine contributors
 
 Supersedes: Nothing; the original Game-focused proposal remains available as `hierarchical-locations-prd.md`
 
-Initial scope: Shared hierarchy for Roleplay, Visual Novel, and Game Mode, with connected Conversation awareness
+Initial MVP scope: Shared hierarchy for Roleplay and Game Mode. Visual Novel support and connected Conversation projection are deferred follow-up proposals.
 
 ## Summary
 
-Add a shared Spatial Context feature that gives Marinara chats an authoritative hierarchy of places, a current location, location-scoped memory, and validated movement. Roleplay, Visual Novel, and Game Mode can own and change spatial state. A connected Conversation can consume that state so users can text characters who remain aware of where they are in the linked story.
+Add a shared Spatial Context feature that gives Marinara chats an authoritative hierarchy of places, a current location, location-scoped memory, and validated movement. The MVP lets Roleplay and Game Mode own and change spatial state. Visual Novel ownership and read-only projection into connected Conversations remain future work.
 
 The first release is intentionally non-visual. It provides the spatial model and prompt behavior that a visual map, floor selector, creator template, or 3D renderer could use later.
 
@@ -37,10 +37,10 @@ Spatial ownership and spatial awareness are different capabilities.
 | --- | ---: | ---: | ---: | ---: |
 | Game | Yes | Yes | Yes | Yes |
 | Roleplay | Yes | Yes | Yes | Yes |
-| Visual Novel | Yes | Yes | Yes | Yes |
-| Conversation | Not in the MVP | No | No | Yes, from a connected story chat |
+| Visual Novel | Deferred | Deferred | Deferred | Deferred |
+| Conversation | No | No | No | Deferred connected-story projection |
 
-Conversation is included because connected chats let users text characters from an ongoing Roleplay or Game. Those characters should be able to say where they are, describe what is happening around them, and remain consistent with the linked story. Conversation must not maintain a second, competing location pointer.
+Future connected-Conversation projection may let users text characters from an ongoing Roleplay or Game without creating a second location pointer. That projection is not part of the MVP. Visual Novel support is likewise deferred until the Roleplay and Game ownership model is proven.
 
 ## Problem
 
@@ -57,13 +57,11 @@ Marinara already has generated Game maps, scene state, lorebooks, connected chat
 
 ## Goals
 
-- Give Roleplay, Visual Novel, and Game a shared, persistent model of place.
+- Give Roleplay and Game a shared, persistent model of place.
 - Let creators define worlds, regions, cities, buildings, floors, rooms, and other nested spaces without drawing a map.
 - Inject detailed memory only for the authoritative current location.
 - Allow location identity, rather than keyword coincidence, to activate attached lorebook entries.
 - Validate every stored movement against the location graph.
-- Let a connected Conversation know the linked story's current location and relevant character presence.
-- Prevent Conversation from silently moving the linked story or forking spatial truth.
 - Preserve spatial state across reload, branch, checkpoint, session continuation, import, and export.
 - Establish a data model that can later support visual maps and independent character positions.
 
@@ -77,6 +75,7 @@ Marinara already has generated Game maps, scene state, lorebooks, connected chat
 - Arbitrary Boolean flag expressions, timed events, or probabilistic events.
 - Independent persistent positions for every NPC.
 - Conversation-owned movement or a separate Conversation location tree.
+- Connected Conversation projection or Visual Novel ownership in the MVP.
 - Inferring movement from arbitrary prose without a structured request.
 - Automatically exposing GM-only location secrets in Conversation.
 
@@ -84,11 +83,11 @@ Marinara already has generated Game maps, scene state, lorebooks, connected chat
 
 ### Story chat
 
-A Roleplay, Visual Novel, or Game chat that owns Spatial Context.
+A Roleplay or Game chat that owns Spatial Context in the MVP.
 
 ### Connected Conversation
 
-A Conversation linked to a story chat through Marinara's existing connected-chat relationship.
+A future Conversation projection linked to a story chat through Marinara's existing connected-chat relationship; deferred beyond the MVP.
 
 ### Spatial owner
 

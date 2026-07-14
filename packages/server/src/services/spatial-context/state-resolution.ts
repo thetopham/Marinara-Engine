@@ -93,11 +93,16 @@ export async function resolveEffectiveSpatialState(
 
   const visibleMessage = end >= 0 ? ordered[end] : undefined;
   const visibleAnchor = visibleMessage ? anchorForMessage(visibleMessage) : null;
+  const eligibleAnchors = ordered.slice(0, end + 1).map(anchorForMessage);
+  const snapshots = await storage.listByAnchors(chatId, eligibleAnchors);
+  const snapshotsByAnchor = new Map(
+    snapshots.map((snapshot) => [`${snapshot.messageId}\u0000${snapshot.swipeIndex}`, snapshot]),
+  );
   for (let index = end; index >= 0; index -= 1) {
     const message = ordered[index];
     if (!message) continue;
     const anchor = anchorForMessage(message);
-    const snapshot = await storage.getByAnchor(chatId, anchor.messageId, anchor.swipeIndex);
+    const snapshot = snapshotsByAnchor.get(`${anchor.messageId}\u0000${anchor.swipeIndex}`);
     if (!snapshot) continue;
     return {
       definition,

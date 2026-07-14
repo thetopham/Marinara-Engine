@@ -46,6 +46,13 @@ const GAME_MAP_FIELD_CLASS =
 const GAME_MAP_ACTION_ITEM_CLASS =
   "text-[var(--marinara-chat-chrome-button-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-button-bg-hover)] hover:text-[var(--marinara-chat-chrome-button-text-hover)] disabled:cursor-not-allowed disabled:opacity-35";
 
+function hasActiveSpatialWorldMap(spatialContext?: SpatialContextResponse | null): boolean {
+  return Boolean(
+    spatialContext?.definition?.enabled &&
+      spatialContext.definition.locations.some((location) => location.status === "active"),
+  );
+}
+
 type EditableTimePhase = "dawn" | "morning" | "afternoon" | "evening" | "night" | "midnight";
 type TimePhase = EditableTimePhase | "noon";
 
@@ -606,9 +613,7 @@ export function GameMapPanel({
   const selectedMapId = viewedMapId ?? getMapId(map);
   const activeMap = activeMapId == null || selectedMapId === activeMapId;
   const mapInteractionDisabled = disabled || !activeMap;
-  const hasWorldMap = Boolean(
-    spatialContext?.definition?.enabled && spatialContext.definition.locations.length > 0,
-  );
+  const hasWorldMap = hasActiveSpatialWorldMap(spatialContext);
   const effectiveMapView = hasWorldMap ? mapViewMode : "local";
   const zoomControls = (
     <MapZoomControls
@@ -717,7 +722,7 @@ export function GameMapPanel({
           {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
         </span>
       </div>
-      {!collapsed && hasWorldMap && map && (
+      {!collapsed && hasWorldMap && (
         <GameMapViewTabs value={effectiveMapView} onChange={setMapViewMode} />
       )}
       {!collapsed && effectiveMapView === "local" && mapOptions.length > 1 && (
@@ -740,11 +745,27 @@ export function GameMapPanel({
           </select>
         </div>
       )}
-      {!collapsed && effectiveMapView === "world" && spatialContext && (
-        <GameWorldMap chatId={chatId} spatial={spatialContext} disabled={disabled} />
-      )}
-      {!collapsed && effectiveMapView === "local" && map &&
-        (map.type === "grid" ? (
+      {!collapsed &&
+        (effectiveMapView === "world" && spatialContext ? (
+          <GameWorldMap chatId={chatId} spatial={spatialContext} disabled={disabled} />
+        ) : !map ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-3">
+            <span className="text-[0.625rem] text-[var(--marinara-chat-chrome-panel-muted)]">
+              {spatialContextLoading ? "Loading maps…" : "No local map yet"}
+            </span>
+            {onGenerateMap && (
+              <button
+                type="button"
+                onClick={onGenerateMap}
+                disabled={generateMapDisabled || disabled}
+                className="flex items-center gap-1 rounded-md border border-[var(--marinara-chat-chrome-button-border)] bg-[var(--marinara-chat-chrome-button-bg)] px-2 py-1 text-[0.625rem] font-medium text-[var(--marinara-chat-chrome-button-text-hover)] transition-colors hover:border-[var(--marinara-chat-chrome-button-border-hover)] hover:bg-[var(--marinara-chat-chrome-button-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Wand2 size={10} />
+                Generate
+              </button>
+            )}
+          </div>
+        ) : map.type === "grid" ? (
           <GameGridMap
             map={map}
             onCellClick={(x, y) => onMove({ x, y })}
@@ -828,9 +849,7 @@ export function MobileMapButton({
   const selectedMapId = viewedMapId ?? getMapId(map);
   const activeMap = activeMapId == null || selectedMapId === activeMapId;
   const mapInteractionDisabled = disabled || !activeMap;
-  const hasWorldMap = Boolean(
-    spatialContext?.definition?.enabled && spatialContext.definition.locations.length > 0,
-  );
+  const hasWorldMap = hasActiveSpatialWorldMap(spatialContext);
   const effectiveMapView = hasWorldMap ? mapViewMode : "local";
   const zoomControls = (
     <MapZoomControls

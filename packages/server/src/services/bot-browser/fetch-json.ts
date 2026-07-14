@@ -24,7 +24,7 @@ export async function fetchBotBrowserJson(
   } = options;
   const target = new URL(url);
   const normalizedHosts = new Set(allowedHosts.map((host) => host.toLowerCase()));
-  if (target.protocol !== "https:" || !normalizedHosts.has(target.hostname.toLowerCase())) {
+  if (target.protocol !== "https:" || !normalizedHosts.has(target.hostname)) {
     throw new Error(`Bot Browser JSON request rejected untrusted host: ${target.hostname || "(missing)"}`);
   }
 
@@ -46,7 +46,7 @@ export async function fetchBotBrowserJson(
       const text = await response.text().catch(() => "");
       throw new Error(`Upstream ${response.status}: ${text.slice(0, 300)}`);
     }
-    return response.json();
+    return await response.json();
   } finally {
     clearTimeout(timeout);
     callerSignal?.removeEventListener("abort", abortFromCaller);

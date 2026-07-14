@@ -20,7 +20,7 @@ import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useGameAssetStore } from "../../stores/game-asset.store";
-import { useGameAssetManifest } from "../../hooks/use-game-assets";
+import { gameAssetKeys, useGameAssetManifest, type GameAssetManifest } from "../../hooks/use-game-assets";
 import { isSameNpcAvatarResource } from "../../lib/game-npc-avatar";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
@@ -2590,10 +2590,6 @@ function GameSurfaceComponent({
     [activeChatId, queryClient],
   );
   const { data: assetManifest, refetch: fetchManifest } = useGameAssetManifest();
-  const assetManifestRef = useRef(assetManifest);
-  useEffect(() => {
-    assetManifestRef.current = assetManifest;
-  }, [assetManifest]);
   const currentBackground = useGameAssetStore((s) => s.currentBackground);
   const gameAssetExcludedFolders = useMemo(
     () => parseGameAssetExcludedFolders(chatMeta.gameAssetSelection),
@@ -2604,8 +2600,11 @@ function GameSurfaceComponent({
     [assetManifest?.assets, gameAssetExcludedFolders],
   );
   const getScopedAssetMap = useCallback(
-    () => filterGameAssetMap(assetManifestRef.current?.assets ?? null, gameAssetExcludedFolders),
-    [gameAssetExcludedFolders],
+    () => {
+      const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
+      return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
+    },
+    [gameAssetExcludedFolders, queryClient],
   );
   const audioMuted = useGameAssetStore((s) => s.audioMuted);
 

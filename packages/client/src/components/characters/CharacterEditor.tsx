@@ -2273,7 +2273,7 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
                       <a
                         href={image.url}
                         download
-	                        className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
+                        className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
                         title="Download"
                         onClick={(e) => e.stopPropagation()}
                       >

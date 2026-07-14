@@ -197,22 +197,10 @@ export async function botBrowserChartavernRoutes(app: FastifyInstance) {
     if (hasLorebook === "true") params.set("hasLorebook", "true");
     if (isOC === "true") params.set("isOC", "true");
 
-    // Use cookie-aware headers for authenticated NSFW search
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(`${CT_API_BASE}/search/cards?${params}`, {
-        headers: ctHeaders(),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Upstream ${res.status}: ${text.slice(0, 300)}`);
-      }
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
-    }
+    return fetchBotBrowserJson(`${CT_API_BASE}/search/cards?${params}`, {
+      allowedHosts: ["character-tavern.com"],
+      headers: ctHeaders(),
+    });
   });
 
   /** Get full character detail from CharacterTavern */
@@ -220,21 +208,13 @@ export async function botBrowserChartavernRoutes(app: FastifyInstance) {
     const { author, slug } = req.params;
     if (!author || !slug) throw new Error("Missing author or slug");
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(`${CT_API_BASE}/character/${encodeURIComponent(author)}/${encodeURIComponent(slug)}`, {
+    return fetchBotBrowserJson(
+      `${CT_API_BASE}/character/${encodeURIComponent(author)}/${encodeURIComponent(slug)}`,
+      {
+        allowedHosts: ["character-tavern.com"],
         headers: ctHeaders(),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Upstream ${res.status}: ${text.slice(0, 300)}`);
-      }
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
-    }
+      },
+    );
   });
 
   /** Fetch top tags from CharacterTavern */

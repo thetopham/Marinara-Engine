@@ -26,12 +26,13 @@ export const NOODLE_CREATIVE_FORMAT_INSTRUCTIONS = [
 ] as const;
 const NOODLE_CHARACTER_ONLY_POLL_INSTRUCTION =
   "- Characters may create polls in their own posts and vote in polls. Occasionally use a poll when an audience question or set of choices fits naturally with the account and current activity; polls are optional, not a quota.";
+const NOODLE_CHARACTER_ONLY_CREATIVE_FORMAT_INSTRUCTIONS = [
+  NOODLE_CHARACTER_ONLY_POLL_INSTRUCTION,
+  ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS.slice(1),
+] as const;
 
 export function noodleCreativeFormatInstructions(allowRandomUsers: boolean): readonly string[] {
-  return [
-    allowRandomUsers ? NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[0] : NOODLE_CHARACTER_ONLY_POLL_INSTRUCTION,
-    ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS.slice(1),
-  ];
+  return allowRandomUsers ? NOODLE_CREATIVE_FORMAT_INSTRUCTIONS : NOODLE_CHARACTER_ONLY_CREATIVE_FORMAT_INSTRUCTIONS;
 }
 /** Legacy single-line tone instruction, used when `enableEnhancedTimelineWriting` is off. */
 export const NOODLE_LEGACY_TONE_INSTRUCTION =

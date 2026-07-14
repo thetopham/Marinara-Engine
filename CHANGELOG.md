@@ -29,6 +29,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Restored swipe-to-dismiss for mobile web toasts in both horizontal directions and upward, so touch users no longer need to target the small close control (#3625).
 - Renamed the Connections **Illustrator** defaults category to **Images**, hid image/video generation settings and `/illustrate` or `/selfie` commands until Illustrator is installed, kept `/help` first in slash suggestions, and refreshed `/help` and `/macros` feedback with chroma-aware styling.
 - Fixed Gallery generation controls appearing without an active Illustrator package. Illustrate, Selfie, Storyboard, Video, Animate, and Background actions now require Illustrator to be installed and enabled for that chat in every mode, while Roleplay Gallery replaces the separate Browse Images window with its asset search directly in the Gallery.
 - Unified Chat Settings → Agents and Conversation command toggles with the same accessible chroma-aware control styling used by the rest of Chat Settings, restored spacing between installed Conversation Calls settings and schedule-generation preferences, and changed Game setup's selected SFW/NSFW rating from green/red status colors to the selected accent color.

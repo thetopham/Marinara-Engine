@@ -55,3 +55,18 @@ try {
   releaseWrite();
   rmSync(storageDir, { recursive: true, force: true });
 }
+
+const failingStorageDir = mkdtempSync(join(tmpdir(), "marinara-file-close-failure-"));
+process.env.FILE_STORAGE_DIR = failingStorageDir;
+try {
+  const expectedFailure = new Error("simulated persistent write failure");
+  const db = await createFileNativeDB([], {
+    beforeTableWrite: (table) => {
+      if (table === "app_settings") throw expectedFailure;
+    },
+  });
+  await db.insert(appSettings).values({ key: "must-report-failure", value: "one", updatedAt: "2026-07-14" });
+  await assert.rejects(db._fileStore.close(), expectedFailure);
+} finally {
+  rmSync(failingStorageDir, { recursive: true, force: true });
+}

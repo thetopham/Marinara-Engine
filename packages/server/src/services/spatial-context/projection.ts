@@ -47,6 +47,7 @@ export function buildOwnerSpatialProjection(
       ? boundedText(current.modelMemory, SPATIAL_CONTEXT_LIMITS.maxModelMemoryLength) || null
       : null,
     destinations,
+    lorebookEntryIds: current.lorebookEntryIds,
     omittedDestinationCount: Math.max(0, allDestinations.length - destinations.length),
   };
 }

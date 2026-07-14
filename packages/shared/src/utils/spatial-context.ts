@@ -22,6 +22,7 @@ export const SPATIAL_CONTEXT_LIMITS = {
   maxLinkLabelLength: 200,
   maxCommandIdLength: 200,
   maxPromptDestinations: 50,
+  maxLorebookEntryIdsPerLocation: 50,
 } as const;
 
 export function buildSpatialLocationIndex(
@@ -147,6 +148,21 @@ export function validateSpatialContextDefinition(
         ),
       );
     }
+    const seenLorebookEntryIds = new Set<string>();
+    location.lorebookEntryIds.forEach((entryId, entryIndex) => {
+      if (seenLorebookEntryIds.has(entryId)) {
+        issues.push(
+          issue(
+            "duplicate_lorebook_entry_id",
+            "A lorebook entry can be attached to a location only once.",
+            ["locations", index, "lorebookEntryIds", entryIndex],
+            location.id,
+          ),
+        );
+      }
+      seenLorebookEntryIds.add(entryId);
+    });
+
 
     const seenLinkTargets = new Set<string>();
     location.links.forEach((link, linkIndex) => {

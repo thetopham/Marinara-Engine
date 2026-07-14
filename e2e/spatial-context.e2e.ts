@@ -225,12 +225,13 @@ async function openGameSetupMapDraftReview(page: Page, testInfo: TestInfo) {
   await expect(page.getByRole("heading", { name: "New Game" })).toBeVisible();
   const wizard = page.getByRole("dialog", { name: "New Game" });
   await wizard.locator("select").first().selectOption(connection.id);
-  for (let step = 0; step < 5; step += 1) {
+  for (let step = 0; step < 4; step += 1) {
     await wizard.getByRole("button", { name: "Next" }).click();
   }
-  await expect(wizard.getByRole("heading", { name: "Features" })).toBeVisible();
-  await wizard.getByRole("button", { name: /Draft a Hierarchical World Map/ }).click();
+  await expect(wizard.getByRole("heading", { name: "Lorebooks" })).toBeVisible();
+  await wizard.getByRole("button", { name: /Draft with AI/ }).click();
   await wizard.getByRole("button", { name: /Small About 8 places/ }).click();
+  await wizard.getByRole("button", { name: "Next" }).click();
   await wizard.getByRole("button", { name: "Next" }).click();
   await wizard.getByRole("button", { name: "Start Game" }).click();
 

@@ -1030,6 +1030,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
               characterIds: promptCharacterIds,
               personaId,
               activeLorebookIds,
+              forcedEntryIds:
+                chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
               excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
               excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
               tokenBudget: lorebookTokenBudget,
@@ -1235,6 +1237,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
             ? (chatMeta.activeLorebookIds as string[])
             : []
           : [],
+        forcedLorebookEntryIds:
+          chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
         excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
         excludedLorebookSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
         chatEmbedding: null,
@@ -1384,6 +1388,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         chatId,
         characterIds: promptCharacterIds,
         personaId,
+        forcedEntryIds:
+          chatMode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
         activeLorebookIds,
         excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
         excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,

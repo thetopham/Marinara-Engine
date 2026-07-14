@@ -7,6 +7,10 @@ import {
   pendingSpatialTransitionSchema,
   updateSpatialContextRequestSchema,
   type GenerateSpatialMapDraftResponse,
+  type LorebookEntry,
+  type SpatialMapGroundingMode,
+  type SpatialMapGroundingSummary,
+  type SpatialMapLocationProvenance,
   type SpatialOwnerMode,
 } from "@marinara-engine/shared";
 import { isDebugAgentsEnabled } from "../config/runtime-config.js";
@@ -18,6 +22,7 @@ import {
   buildSpatialMapExpansionPrompt,
   normalizeSpatialMapExpansionPlan,
   normalizeSpatialMapPlan,
+  readSpatialMapPlanProvenance,
 } from "../services/spatial-context/ai-draft.js";
 import {
   createSpatialContextService,
@@ -26,7 +31,9 @@ import {
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
+import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { commitSpatialOwnerTurn, SpatialOwnerTurnError } from "../services/spatial-context/owner-turn.js";
+import { resolveLorebookScopeExclusions } from "../services/lorebook/game-lorebook-scope.js";
 
 interface ChatSpatialParams {
   chatId: string;
@@ -76,6 +83,146 @@ function excerpt(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+const SPATIAL_LORE_CATALOG_ENTRY_LIMIT = 100;
+const SPATIAL_LORE_CATALOG_CHARACTER_LIMIT = 24_000;
+
+interface SpatialLoreCatalogItem {
+  sourceKey: string;
+  entryId: string;
+  lorebookId: string;
+  lorebookName: string;
+  entryName: string;
+  excerpt: string;
+}
+
+interface BuiltSpatialLoreCatalog {
+  prompt: string;
+  sourceEntryIdsByKey: Map<string, string>;
+  itemsByEntryId: Map<string, SpatialLoreCatalogItem>;
+  grounding: SpatialMapGroundingSummary;
+}
+
+async function buildSpatialLoreCatalog(
+  storage: ReturnType<typeof createLorebooksStorage>,
+  mode: SpatialMapGroundingMode,
+  sourceLorebookIds: string[],
+  sourceEntryIds: string[],
+  exclusions: { excludedLorebookIds: string[]; excludedSourceAgentIds: string[] },
+): Promise<BuiltSpatialLoreCatalog> {
+  const selectedLorebookIds = Array.from(new Set(sourceLorebookIds));
+  const selectedEntryIds = Array.from(new Set(sourceEntryIds));
+  if (mode === "setup") {
+    return {
+      prompt: "",
+      sourceEntryIdsByKey: new Map(),
+      itemsByEntryId: new Map(),
+      grounding: {
+        mode,
+        selectedLorebookCount: 0,
+        selectedEntryCount: 0,
+        consideredEntryCount: 0,
+        omittedEntryCount: 0,
+      },
+    };
+  }
+
+  const bookEntries = (await storage.listEntriesByLorebooks(selectedLorebookIds)) as unknown as LorebookEntry[];
+  const directEntries = (
+    await Promise.all(selectedEntryIds.map((entryId) => storage.getEntry(entryId)))
+  ).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)) as unknown as LorebookEntry[];
+  const requestedEntries = Array.from(
+    new Map([...bookEntries, ...directEntries].map((entry) => [entry.id, entry])).values(),
+  );
+  const eligibleEntries = (await storage.listEligibleEntriesByIds(
+    requestedEntries.map((entry) => entry.id),
+    exclusions,
+  )) as unknown as LorebookEntry[];
+  const eligibleById = new Map(eligibleEntries.map((entry) => [entry.id, entry]));
+  const orderedEntries = requestedEntries.flatMap((entry) => eligibleById.get(entry.id) ?? []);
+  const books = (await storage.list()) as unknown as Array<{ id: string; name: string }>;
+  const bookNameById = new Map(books.map((book) => [book.id, book.name]));
+  const items: SpatialLoreCatalogItem[] = [];
+  let usedCharacters = 0;
+
+  for (const entry of orderedEntries) {
+    if (items.length >= SPATIAL_LORE_CATALOG_ENTRY_LIMIT) break;
+    const item: SpatialLoreCatalogItem = {
+      sourceKey: `source_${items.length + 1}`,
+      entryId: entry.id,
+      lorebookId: entry.lorebookId,
+      lorebookName: bookNameById.get(entry.lorebookId) ?? "Unknown lorebook",
+      entryName: entry.name,
+      excerpt: (excerpt(entry.content, 1_000) ?? excerpt(entry.description, 1_000) ?? "").trim(),
+    };
+    const promptItem = JSON.stringify({
+      sourceKey: item.sourceKey,
+      lorebook: item.lorebookName,
+      entry: item.entryName,
+      content: item.excerpt,
+    });
+    if (usedCharacters + promptItem.length > SPATIAL_LORE_CATALOG_CHARACTER_LIMIT) break;
+    items.push(item);
+    usedCharacters += promptItem.length;
+  }
+
+  return {
+    prompt: JSON.stringify(
+      items.map((item) => ({
+        sourceKey: item.sourceKey,
+        lorebook: item.lorebookName,
+        entry: item.entryName,
+        content: item.excerpt,
+      })),
+      null,
+      2,
+    ),
+    sourceEntryIdsByKey: new Map(items.map((item) => [item.sourceKey, item.entryId])),
+    itemsByEntryId: new Map(items.map((item) => [item.entryId, item])),
+    grounding: {
+      mode,
+      selectedLorebookCount: selectedLorebookIds.length,
+      selectedEntryCount: selectedEntryIds.length,
+      consideredEntryCount: items.length,
+      omittedEntryCount: Math.max(0, orderedEntries.length - items.length),
+    },
+  };
+}
+
+function buildSpatialMapProvenance(
+  plan: unknown,
+  generatedLocations: Array<{ id: string; lorebookEntryIds: string[] }>,
+  catalog: BuiltSpatialLoreCatalog,
+  mode: SpatialMapGroundingMode,
+): Record<string, SpatialMapLocationProvenance> | undefined {
+  if (mode === "setup") return undefined;
+  const planProvenance = readSpatialMapPlanProvenance(plan);
+  return Object.fromEntries(
+    generatedLocations.map((location, index) => {
+      const sources = location.lorebookEntryIds.flatMap((entryId) => {
+        const item = catalog.itemsByEntryId.get(entryId);
+        return item
+          ? [
+              {
+                entryId: item.entryId,
+                lorebookId: item.lorebookId,
+                lorebookName: item.lorebookName,
+                entryName: item.entryName,
+                excerpt: item.excerpt,
+              },
+            ]
+          : [];
+      });
+      const kind =
+        sources.length > 0
+          ? "lore_backed"
+          : planProvenance[index]?.origin === "inferred"
+            ? "inferred"
+            : "added_by_ai";
+      return [location.id, { kind, sources } satisfies SpatialMapLocationProvenance];
+    }),
+  );
 }
 
 async function resolveDraftConnection(
@@ -165,6 +312,7 @@ export async function spatialContextRoutes(app: FastifyInstance) {
   const chats = createChatsStorage(app.db);
   const connections = createConnectionsStorage(app.db);
   const characters = createCharactersStorage(app.db);
+  const lorebooks = createLorebooksStorage(app.db);
 
   app.get<{ Params: ChatSpatialParams }>("/:chatId/spatial-context", async (req, reply) => {
     try {
@@ -299,6 +447,23 @@ export async function spatialContextRoutes(app: FastifyInstance) {
     }
 
     const sourceContext = await buildDraftSourceContext(chat, characters);
+    const groundingMode = parsed.data.groundingMode;
+    const lorebookScopeExclusions = resolveLorebookScopeExclusions(chat.mode, record(chat.metadata));
+    const loreCatalog = await buildSpatialLoreCatalog(
+      lorebooks,
+      groundingMode,
+      parsed.data.sourceLorebookIds,
+      parsed.data.sourceEntryIds,
+      lorebookScopeExclusions,
+    );
+    if (groundingMode !== "setup" && loreCatalog.grounding.consideredEntryCount === 0) {
+      return reply.status(400).send({
+        error:
+          "None of the selected lore entries are available. Check disabled books, entries, folders, or chat exclusions.",
+        code: "spatial_ai_lore_sources_unavailable",
+      });
+    }
+
     let prompt;
     try {
       prompt =
@@ -307,12 +472,16 @@ export async function spatialContextRoutes(app: FastifyInstance) {
               definition: existingDefinition!,
               targetLocationId: parsed.data.targetLocationId!,
               size: parsed.data.size,
+              groundingMode,
+              loreCatalog: loreCatalog.prompt,
               sourceContext,
               instructions: parsed.data.instructions,
             })
           : buildSpatialMapDraftPrompt({
               ownerMode,
               size: parsed.data.size,
+              groundingMode,
+              loreCatalog: loreCatalog.prompt,
               sourceContext,
               instructions: parsed.data.instructions,
             });
@@ -363,6 +532,8 @@ export async function spatialContextRoutes(app: FastifyInstance) {
           ? normalizeSpatialMapExpansionPlan(parsedPlan, {
               definition: existingDefinition!,
               targetLocationId: parsed.data.targetLocationId!,
+              sourceEntryIdsByKey: loreCatalog.sourceEntryIdsByKey,
+              requireLoreSource: groundingMode === "lore_strict",
               size: parsed.data.size,
             })
           : normalizeSpatialMapPlan(parsedPlan, {
@@ -370,11 +541,18 @@ export async function spatialContextRoutes(app: FastifyInstance) {
               revision: existingDefinition?.revision ?? 0,
               enabled: existingDefinition?.enabled ?? false,
               size: parsed.data.size,
+              sourceEntryIdsByKey: loreCatalog.sourceEntryIdsByKey,
+              requireLoreSource: groundingMode === "lore_strict",
             });
       const generatedLocationCount =
         operation === "expand"
           ? definition.locations.length - existingDefinition!.locations.length
           : definition.locations.length;
+      const generatedLocations =
+        operation === "expand"
+          ? definition.locations.slice(existingDefinition!.locations.length)
+          : definition.locations;
+      const provenance = buildSpatialMapProvenance(parsedPlan, generatedLocations, loreCatalog, groundingMode);
       logger.info(
         "[spatial/map-draft] Generated %d %s locations for chat %s with model %s",
         generatedLocationCount,
@@ -389,6 +567,8 @@ export async function spatialContextRoutes(app: FastifyInstance) {
         source: ownerMode === "game" ? "game_setup" : "roleplay_setup",
         generatedLocationCount,
         ...(operation === "expand" ? { targetLocationId: parsed.data.targetLocationId } : {}),
+        ...(provenance ? { provenance } : {}),
+        grounding: loreCatalog.grounding,
       } satisfies GenerateSpatialMapDraftResponse;
     } catch (error) {
       logger.error(error, "[spatial/map-draft] Generation failed for chat %s", chat.id);

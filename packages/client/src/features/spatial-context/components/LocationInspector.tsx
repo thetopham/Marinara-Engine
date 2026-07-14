@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Archive, Link2, MapPin, Plus, Trash2 } from "lucide-react";
+import { Archive, BookOpen, Link2, MapPin, Plus, Search, Trash2 } from "lucide-react";
 import type {
+  Lorebook,
+  LorebookEntry,
   GameMap,
   SpatialContextDefinition,
   SpatialDefinitionIssue,
@@ -46,6 +48,11 @@ interface LocationInspectorProps {
   issues: SpatialDefinitionIssue[];
   currentLocationId: string | null;
   onUpdate: (patch: Partial<SpatialLocation>) => void;
+  lorebooks?: Lorebook[];
+  lorebookEntries?: LorebookEntry[];
+  excludedLorebookIds?: string[];
+  lorebooksLoading?: boolean;
+  onOpenLorebook?: (lorebookId: string) => void;
   onReparent: (parentId: string | null) => void;
   onSetStarting: () => void;
   onArchive: () => void;
@@ -63,10 +70,16 @@ export function LocationInspector({
   currentLocationId,
   onUpdate,
   onReparent,
+  lorebooks = [],
+  lorebookEntries = [],
+  excludedLorebookIds = [],
+  lorebooksLoading = false,
+  onOpenLorebook,
   onSetStarting,
   onArchive,
   gameBinding,
 }: LocationInspectorProps) {
+  const [loreSearch, setLoreSearch] = useState("");
   const [newLinkTarget, setNewLinkTarget] = useState("");
   const descendants = useMemo(
     () => (location ? getSpatialDescendantIds(definition, location.id) : new Set<string>()),
@@ -81,6 +94,35 @@ export function LocationInspector({
         candidate.id !== location?.id && location?.links.every((existing) => existing.targetId !== candidate.id),
     )
     .sort((left, right) => left.name.localeCompare(right.name));
+
+  const lorebookById = useMemo(
+    () => new Map(lorebooks.map((lorebook) => [lorebook.id, lorebook])),
+    [lorebooks],
+  );
+  const loreEntryById = useMemo(
+    () => new Map(lorebookEntries.map((entry) => [entry.id, entry])),
+    [lorebookEntries],
+  );
+  const candidateLoreGroups = useMemo(() => {
+    const attachedIds = new Set(location?.lorebookEntryIds ?? []);
+    const query = loreSearch.trim().toLocaleLowerCase();
+    return lorebooks
+      .map((lorebook) => ({
+        lorebook,
+        entries: lorebookEntries
+          .filter((entry) => entry.lorebookId === lorebook.id && !attachedIds.has(entry.id))
+          .filter(
+            (entry) =>
+              !query ||
+              entry.name.toLocaleLowerCase().includes(query) ||
+              entry.description.toLocaleLowerCase().includes(query) ||
+              entry.keys.some((key) => key.toLocaleLowerCase().includes(query)),
+          )
+          .slice(0, 20),
+      }))
+      .filter((group) => group.entries.length > 0);
+  }, [location?.lorebookEntryIds, loreSearch, lorebookEntries, lorebooks]);
+  const excludedLorebookIdSet = useMemo(() => new Set(excludedLorebookIds), [excludedLorebookIds]);
 
   if (!location) {
     return (
@@ -201,6 +243,137 @@ export function LocationInspector({
           />
         </Field>
 
+
+        <details className="rounded-xl border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--marinara-chat-chrome-panel-bg)]">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-semibold text-[var(--marinara-chat-chrome-panel-title)]">
+            <BookOpen size="0.8125rem" className="text-[var(--marinara-chat-chrome-accent)]" />
+            <span className="flex-1">Linked lore</span>
+            <span className="rounded-full bg-[var(--marinara-chat-chrome-highlight-bg)] px-2 py-0.5 text-[0.625rem] font-medium text-[var(--marinara-chat-chrome-panel-muted)]">
+              {location.lorebookEntryIds.length}
+            </span>
+          </summary>
+          <div className="space-y-3 border-t border-[var(--marinara-chat-chrome-panel-divider)] p-3">
+            <p className="text-[0.6875rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-muted)]">
+              These entries activate only while this exact location is current. Parent and child locations do not inherit them.
+            </p>
+
+            {location.lorebookEntryIds.length > 0 && (
+              <div className="space-y-2">
+                {location.lorebookEntryIds.map((entryId) => {
+                  const entry = loreEntryById.get(entryId);
+                  const lorebook = entry ? lorebookById.get(entry.lorebookId) : undefined;
+                  const excluded = Boolean(lorebook && excludedLorebookIdSet.has(lorebook.id));
+                  const disabled = entry?.enabled === false || lorebook?.enabled === false;
+                  return (
+                    <div
+                      key={entryId}
+                      className={cn(
+                        "rounded-lg border px-3 py-2",
+                        !entry
+                          ? "border-red-500/30 bg-red-500/10"
+                          : excluded || disabled
+                            ? "border-amber-500/30 bg-amber-500/10"
+                            : "border-[var(--marinara-chat-chrome-panel-border)]",
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-[var(--marinara-chat-chrome-panel-title)]">
+                            {entry?.name ?? "Missing lore entry"}
+                          </p>
+                          <p className="mt-0.5 truncate text-[0.625rem] text-[var(--marinara-chat-chrome-panel-muted)]">
+                            {!entry
+                              ? entryId
+                              : excluded
+                                ? `${lorebook?.name ?? "Lorebook"} · excluded from this chat`
+                                : disabled
+                                  ? `${lorebook?.name ?? "Lorebook"} · disabled`
+                                  : lorebook?.name ?? "Unknown lorebook"}
+                          </p>
+                        </div>
+                        {entry && lorebook && onOpenLorebook && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenLorebook(lorebook.id)}
+                            className="mari-chrome-control min-h-11 px-2 text-[0.625rem]"
+                          >
+                            Open
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdate({
+                              lorebookEntryIds: location.lorebookEntryIds.filter((id) => id !== entryId),
+                            })
+                          }
+                          className="mari-chrome-control min-h-11 px-2 text-[0.625rem]"
+                        >
+                          Detach
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="relative">
+              <Search
+                size="0.75rem"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--marinara-chat-chrome-panel-muted)]"
+              />
+              <input
+                className={`${INPUT_CLASS} min-h-11 pl-8`}
+                value={loreSearch}
+                placeholder="Search lore entries"
+                onChange={(event) => setLoreSearch(event.target.value)}
+              />
+            </div>
+
+            {lorebooksLoading ? (
+              <p className="py-3 text-center text-xs text-[var(--marinara-chat-chrome-panel-muted)]">Loading lore…</p>
+            ) : candidateLoreGroups.length === 0 ? (
+              <p className="py-3 text-center text-xs text-[var(--marinara-chat-chrome-panel-muted)]">
+                No available entries match this search.
+              </p>
+            ) : (
+              <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                {candidateLoreGroups.map(({ lorebook, entries }) => {
+                  const bookUnavailable = lorebook.enabled === false || excludedLorebookIdSet.has(lorebook.id);
+                  return (
+                    <div key={lorebook.id}>
+                      <p className="mb-1 truncate text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--marinara-chat-chrome-panel-muted)]">
+                        {lorebook.name}
+                        {bookUnavailable ? " · unavailable" : ""}
+                      </p>
+                      <div className="space-y-1">
+                        {entries.map((entry) => {
+                          const unavailable = bookUnavailable || entry.enabled === false;
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              disabled={unavailable}
+                              title={unavailable ? "Enable this entry and lorebook, and remove chat exclusions, before attaching." : undefined}
+                              onClick={() =>
+                                onUpdate({ lorebookEntryIds: [...location.lorebookEntryIds, entry.id] })
+                              }
+                              className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-[var(--marinara-chat-chrome-panel-border)] px-3 py-2 text-left text-xs hover:bg-[var(--marinara-chat-chrome-highlight-bg)] disabled:cursor-not-allowed disabled:opacity-45"
+                            >
+                              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                              <Plus size="0.75rem" className="shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
         {gameBinding && (
           <GameMapBindingsPanel
             chatId={gameBinding.chatId}

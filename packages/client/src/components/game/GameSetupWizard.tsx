@@ -41,6 +41,7 @@ import {
   type GameInitialSetupLabels,
   type GameSetupConfig,
   type GameGmMode,
+  type SpatialMapGroundingMode,
   type SpatialMapDraftSize,
 } from "@marinara-engine/shared";
 import { getCharacterTitle } from "../../lib/character-display";
@@ -79,7 +80,11 @@ interface GameSetupWizardProps {
     preferences: string,
     connections: { gmConnectionId?: string; shareLabels?: GameInitialSetupLabels },
     gameName?: string,
-    mapDraft?: { size: SpatialMapDraftSize },
+    mapDraft?: {
+      size: SpatialMapDraftSize;
+      groundingMode: SpatialMapGroundingMode;
+      sourceLorebookIds: string[];
+    },
   ) => void;
   onCancel: () => void;
   isLoading: boolean;
@@ -463,6 +468,7 @@ export function GameSetupWizard({
   const [startMuted, setStartMuted] = useState(false);
   const [draftSpatialMap, setDraftSpatialMap] = useState(false);
   const [spatialMapDraftSize, setSpatialMapDraftSize] = useState<SpatialMapDraftSize>("medium");
+  const [spatialMapGroundingMode, setSpatialMapGroundingMode] = useState<SpatialMapGroundingMode>("setup");
   const [expandedLearnedOptions, setExpandedLearnedOptions] = useState<Record<LearnedOptionGroup, boolean>>({
     genres: false,
     tones: false,
@@ -607,6 +613,11 @@ export function GameSetupWizard({
   const toggleLorebook = useCallback((lbId: string) => {
     setActiveLorebookIds((prev) => (prev.includes(lbId) ? prev.filter((id) => id !== lbId) : [...prev, lbId]));
   }, []);
+
+  useEffect(() => {
+    if (activeLorebookIds.length > 0 || spatialMapGroundingMode === "setup") return;
+    setSpatialMapGroundingMode("setup");
+  }, [activeLorebookIds.length, spatialMapGroundingMode]);
 
   const filteredPersonas = useMemo(
     () =>
@@ -903,7 +914,13 @@ export function GameSetupWizard({
         },
       },
       gameName.trim() || undefined,
-      draftSpatialMap ? { size: spatialMapDraftSize } : undefined,
+      draftSpatialMap
+        ? {
+            size: spatialMapDraftSize,
+            groundingMode: spatialMapGroundingMode,
+            sourceLorebookIds: spatialMapGroundingMode === "setup" ? [] : activeLorebookIds,
+          }
+        : undefined,
     );
   };
 
@@ -1614,79 +1631,6 @@ export function GameSetupWizard({
                 <div>
                   <button
                     type="button"
-                    aria-pressed={draftSpatialMap}
-                    onClick={() => setDraftSpatialMap((enabled) => !enabled)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
-                      draftSpatialMap
-                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                        : "bg-[var(--secondary)] ring-1 ring-transparent hover:ring-[var(--border)]",
-                    )}
-                  >
-                    <span className="flex min-w-0 flex-1 items-center gap-2.5">
-                      <MapIcon
-                        size={14}
-                        className={draftSpatialMap ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-xs font-medium text-[var(--foreground)]">
-                          Draft a Hierarchical World Map
-                        </span>
-                        <span className="block text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
-                          After the world is created, AI drafts nested regions and places for you to review.
-                        </span>
-                      </span>
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                        draftSpatialMap ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "block h-4 w-4 rounded-full bg-white transition-transform",
-                          draftSpatialMap && "translate-x-3.5",
-                        )}
-                      />
-                    </span>
-                  </button>
-
-                  {draftSpatialMap && (
-                    <div className="mt-2 rounded-lg bg-[var(--background)]/55 p-3 ring-1 ring-[var(--border)]">
-                      <fieldset>
-                        <legend className="text-[0.625rem] font-medium text-[var(--foreground)]">Map size</legend>
-                        <div className="mt-2 grid grid-cols-3 gap-2">
-                          {SPATIAL_MAP_DRAFT_SIZE_OPTIONS.map((option) => (
-                            <button
-                              key={option.value}
-                              type="button"
-                              aria-pressed={spatialMapDraftSize === option.value}
-                              onClick={() => setSpatialMapDraftSize(option.value)}
-                              className={cn(
-                                "min-h-12 rounded-lg px-2 py-2 text-left transition-colors",
-                                spatialMapDraftSize === option.value
-                                  ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/35"
-                                  : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]",
-                              )}
-                            >
-                              <span className="block text-[0.6875rem] font-semibold">{option.label}</span>
-                              <span className="mt-0.5 block text-[0.55rem] leading-tight">{option.detail}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </fieldset>
-                      <p className="mt-2 text-[0.5625rem] leading-relaxed text-[var(--muted-foreground)]">
-                        The draft stays disabled and unsaved until you apply, enable, and save it in the map editor.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <button
-                    type="button"
                     onClick={() => setEnableSpotifyDj((prev) => !prev)}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
@@ -2297,6 +2241,116 @@ export function GameSetupWizard({
                   )}
                 </div>
               </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">
+                <MapIcon size={12} className="mr-1 inline" />
+                Hierarchical world map
+              </label>
+              <button
+                type="button"
+                aria-pressed={draftSpatialMap}
+                onClick={() => setDraftSpatialMap((enabled) => !enabled)}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
+                  draftSpatialMap
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] ring-1 ring-transparent hover:ring-[var(--border)]",
+                )}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <MapIcon
+                    size={14}
+                    className={draftSpatialMap ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-[var(--foreground)]">Draft with AI</span>
+                    <span className="block text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
+                      After setup, AI builds nested regions and places for you to review.
+                    </span>
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                    draftSpatialMap ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "block h-4 w-4 rounded-full bg-white transition-transform",
+                      draftSpatialMap && "translate-x-3.5",
+                    )}
+                  />
+                </span>
+              </button>
+
+              {draftSpatialMap && (
+                <div className="mt-2 space-y-3 rounded-lg bg-[var(--background)]/55 p-3 ring-1 ring-[var(--border)]">
+                  <fieldset>
+                    <legend className="text-[0.625rem] font-medium text-[var(--foreground)]">Map size</legend>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      {SPATIAL_MAP_DRAFT_SIZE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={spatialMapDraftSize === option.value}
+                          onClick={() => setSpatialMapDraftSize(option.value)}
+                          className={cn(
+                            "min-h-12 rounded-lg px-2 py-2 text-left transition-colors",
+                            spatialMapDraftSize === option.value
+                              ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-1 ring-[var(--primary)]/35"
+                              : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:text-[var(--foreground)]",
+                          )}
+                        >
+                          <span className="block text-[0.6875rem] font-semibold">{option.label}</span>
+                          <span className="mt-0.5 block text-[0.55rem] leading-tight">{option.detail}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <fieldset>
+                    <legend className="text-[0.625rem] font-medium text-[var(--foreground)]">Build from</legend>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      {([
+                        { value: "setup", label: "Game setup" },
+                        { value: "lore_strict", label: "Strict lore" },
+                        { value: "lore_expand", label: "Lore + AI" },
+                      ] as const).map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          aria-pressed={spatialMapGroundingMode === option.value}
+                          disabled={option.value !== "setup" && activeLorebookIds.length === 0}
+                          onClick={() => setSpatialMapGroundingMode(option.value)}
+                          className={cn(
+                            "min-h-11 rounded-lg px-2 py-2 text-left text-[0.625rem] font-semibold ring-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                            spatialMapGroundingMode === option.value
+                              ? "bg-[var(--primary)]/12 text-[var(--foreground)] ring-[var(--primary)]/35"
+                              : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[0.5625rem] leading-relaxed text-[var(--muted-foreground)]">
+                      {spatialMapGroundingMode === "setup"
+                        ? "Uses the generated game world and party."
+                        : spatialMapGroundingMode === "lore_strict"
+                          ? `Only creates places supported by the ${activeLorebookIds.length} selected lorebook${activeLorebookIds.length === 1 ? "" : "s"}.`
+                          : `Uses the ${activeLorebookIds.length} selected lorebook${activeLorebookIds.length === 1 ? "" : "s"} as canon and may add fitting places.`}
+                    </p>
+                  </fieldset>
+
+                  <p className="text-[0.5625rem] leading-relaxed text-[var(--muted-foreground)]">
+                    The draft stays disabled until you review, apply, enable, and save it in the map editor.
+                  </p>
+                </div>
+              )}
             </div>
           </>
         )}

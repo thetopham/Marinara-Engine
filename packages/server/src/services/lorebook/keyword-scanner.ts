@@ -6,6 +6,7 @@
 // ──────────────────────────────────────────────
 import type {
   ActivationCondition,
+  LorebookActivationSource,
   LorebookEntry,
   LorebookFilterMode,
   LorebookMatchingSource,
@@ -42,6 +43,8 @@ export interface ActivatedEntry {
   rawContent?: string;
   /** Which key(s) matched */
   matchedKeys: string[];
+  /** Every mechanism that activated this entry in this generation. */
+  activationSources: LorebookActivationSource[];
   /** True when a primary key matched the latest user message directly. */
   matchedLatestUserMessage?: boolean;
   /** Priority order for injection */
@@ -501,6 +504,7 @@ export function scanForActivatedEntries(
         entry,
         matchedKeys: ["[sticky]"],
         injectionOrder: entry.order,
+        activationSources: ["sticky"],
         sticky: true,
       });
       activatedIds.add(entry.id);
@@ -517,6 +521,7 @@ export function scanForActivatedEntries(
         entry,
         matchedKeys: ["[constant]"],
         injectionOrder: entry.order,
+        activationSources: [recursionPass ? "recursive" : "constant"],
       });
       activatedIds.add(entry.id);
       continue;
@@ -549,6 +554,7 @@ export function scanForActivatedEntries(
       entry,
       matchedKeys,
       matchedLatestUserMessage,
+      activationSources: [recursionPass ? "recursive" : "keyword"],
       injectionOrder: entry.order,
     });
     activatedIds.add(entry.id);
@@ -604,6 +610,7 @@ export function scanForActivatedEntries(
         entry: candidate.entry,
         matchedKeys: [`[semantic:${candidate.similarity.toFixed(3)}]`],
         injectionOrder: candidate.entry.order,
+        activationSources: [recursionPass ? "recursive" : "semantic"],
       });
       activatedIds.add(candidate.entry.id);
       semanticCountsByLorebookId.set(lorebookId, selectedCount + 1);

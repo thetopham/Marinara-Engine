@@ -16,6 +16,7 @@ export const spatialLocationStatusSchema = z.enum(["active", "archived"]);
 export const spatialLinkStateSchema = z.enum(["available", "hidden", "blocked"]);
 export const spatialMapDraftSizeSchema = z.enum(["small", "medium", "large"]);
 export const spatialMapDraftOperationSchema = z.enum(["create", "replace", "expand"]);
+export const spatialMapGroundingModeSchema = z.enum(["setup", "lore_strict", "lore_expand"]);
 
 export const spatialLocationPlacementSchema = z
   .object({
@@ -43,6 +44,10 @@ export const spatialLocationSchema = z
     modelMemory: z.string().max(SPATIAL_CONTEXT_LIMITS.maxModelMemoryLength).optional(),
     awarenessSummary: z.string().max(SPATIAL_CONTEXT_LIMITS.maxAwarenessSummaryLength).optional(),
     icon: z.string().trim().min(1).max(64).optional(),
+    lorebookEntryIds: z
+      .array(z.string().trim().min(1))
+      .max(SPATIAL_CONTEXT_LIMITS.maxLorebookEntryIdsPerLocation)
+      .default([]),
     childPresentation: spatialChildPresentationSchema.default("list"),
     placement: spatialLocationPlacementSchema.optional(),
     layerOrder: z.number().int().safe().optional(),
@@ -125,6 +130,9 @@ export const generateSpatialMapDraftRequestSchema = z
     targetLocationId: spatialIdSchema.optional(),
     instructions: z.string().trim().max(4_000).optional(),
     connectionId: z.string().trim().min(1).optional(),
+    groundingMode: spatialMapGroundingModeSchema.optional().default("setup"),
+    sourceLorebookIds: z.array(z.string().trim().min(1)).max(20).optional().default([]),
+    sourceEntryIds: z.array(z.string().trim().min(1)).max(100).optional().default([]),
     debugMode: z.boolean().optional().default(false),
   })
   .strict()
@@ -141,6 +149,24 @@ export const generateSpatialMapDraftRequestSchema = z
         code: z.ZodIssueCode.custom,
         message: "A target location is used only when expanding an existing map.",
         path: ["targetLocationId"],
+      });
+    }
+    if (request.groundingMode === "setup" && (request.sourceLorebookIds.length > 0 || request.sourceEntryIds.length > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Lorebook sources require a lore-grounded map mode.",
+        path: ["groundingMode"],
+      });
+    }
+    if (
+      request.groundingMode !== "setup" &&
+      request.sourceLorebookIds.length === 0 &&
+      request.sourceEntryIds.length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Choose at least one lorebook or lore entry for a lore-grounded map.",
+        path: ["sourceLorebookIds"],
       });
     }
   });

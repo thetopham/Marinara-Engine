@@ -33,6 +33,8 @@ export interface SpatialLocation {
   modelMemory?: string;
   awarenessSummary?: string;
   icon?: string;
+  /** Stable lorebook entry IDs activated only while this exact location is current. */
+  lorebookEntryIds: string[];
   childPresentation: SpatialChildPresentation;
   placement?: SpatialLocationPlacement;
   layerOrder?: number;
@@ -97,6 +99,7 @@ export interface ResolvedOwnerSpatialProjection {
   breadcrumb: Array<{ id: string; name: string }>;
   description: string;
   modelMemory: string | null;
+  lorebookEntryIds: string[];
   destinations: SpatialDestination[];
   omittedDestinationCount: number;
 }
@@ -114,6 +117,8 @@ export type SpatialDefinitionIssueCode =
   | "link_target_missing"
   | "self_link"
   | "duplicate_link_target"
+  | "duplicate_lorebook_entry_id"
+  | "lorebook_entry_missing"
   | "layer_order_missing"
   | "duplicate_layer_order"
   | "stored_definition_invalid";
@@ -177,11 +182,39 @@ export type SpatialMapDraftSize = "small" | "medium" | "large";
 
 export type SpatialMapDraftOperation = "create" | "replace" | "expand";
 
+export type SpatialMapGroundingMode = "setup" | "lore_strict" | "lore_expand";
+
+export type SpatialMapLocationProvenanceKind = "lore_backed" | "inferred" | "added_by_ai";
+
+export interface SpatialMapLocationProvenanceSource {
+  entryId: string;
+  lorebookId: string;
+  lorebookName: string;
+  entryName: string;
+  excerpt: string;
+}
+
+export interface SpatialMapLocationProvenance {
+  kind: SpatialMapLocationProvenanceKind;
+  sources: SpatialMapLocationProvenanceSource[];
+}
+
+export interface SpatialMapGroundingSummary {
+  mode: SpatialMapGroundingMode;
+  selectedLorebookCount: number;
+  selectedEntryCount: number;
+  consideredEntryCount: number;
+  omittedEntryCount: number;
+}
+
 export interface GenerateSpatialMapDraftRequest {
   operation: SpatialMapDraftOperation;
   size: SpatialMapDraftSize;
   targetLocationId?: string;
   instructions?: string;
+  groundingMode?: SpatialMapGroundingMode;
+  sourceLorebookIds?: string[];
+  sourceEntryIds?: string[];
   connectionId?: string;
   debugMode?: boolean;
 }
@@ -193,4 +226,6 @@ export interface GenerateSpatialMapDraftResponse {
   source: "game_setup" | "roleplay_setup";
   generatedLocationCount: number;
   targetLocationId?: string;
+  provenance?: Record<string, SpatialMapLocationProvenance>;
+  grounding?: SpatialMapGroundingSummary;
 }

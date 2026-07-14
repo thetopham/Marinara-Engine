@@ -126,6 +126,7 @@ import type {
   HudWidget,
   SceneSpotifyTrackCandidate,
   SceneSpotifyTrackSelection,
+  SpatialMapGroundingMode,
   SpatialMapDraftSize,
   PendingSpatialTransition,
 } from "@marinara-engine/shared";
@@ -6391,6 +6392,8 @@ function GameSurfaceComponent({
   const startSessionResetRef = useRef(startSession.reset);
   const pendingSetupMapDraftRef = useRef<{
     size: SpatialMapDraftSize;
+    groundingMode: SpatialMapGroundingMode;
+    sourceLorebookIds: string[];
     connectionId?: string;
   } | null>(null);
   createGameResetRef.current = createGame.reset;
@@ -6419,6 +6422,8 @@ function GameSurfaceComponent({
           chatId,
           operation: "create",
           size: request.size,
+          groundingMode: request.groundingMode,
+          sourceLorebookIds: request.sourceLorebookIds,
           connectionId: request.connectionId,
           debugMode: useUIStore.getState().debugMode,
         });
@@ -9652,7 +9657,12 @@ function GameSurfaceComponent({
             onComplete={(config, preferences, conns, wizardGameName, mapDraft) => {
               const runSetup = (chatId: string) => {
                 pendingSetupMapDraftRef.current = mapDraft
-                  ? { size: mapDraft.size, connectionId: conns.gmConnectionId }
+                  ? {
+                      size: mapDraft.size,
+                      groundingMode: mapDraft.groundingMode,
+                      sourceLorebookIds: mapDraft.sourceLorebookIds,
+                      connectionId: conns.gmConnectionId,
+                    }
                   : null;
                 gameSetup.mutate(
                   {

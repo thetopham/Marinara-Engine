@@ -43,6 +43,7 @@ function location(
     parentId: null,
     kind: "place",
     description: `Description for ${name}.`,
+    lorebookEntryIds: [],
     childPresentation: "list",
     links: [],
     status: "active",
@@ -91,6 +92,7 @@ const validDefinition = definition(
       parentId: "capital",
       kind: "building",
       childPresentation: "layers",
+      lorebookEntryIds: ["lore_parent"],
       placement: { x: 72, y: 30 },
       sortOrder: 1,
     }),
@@ -106,6 +108,7 @@ const validDefinition = definition(
       layerOrder: 1,
       sortOrder: 1,
       modelMemory: "The restricted shelf conceals a key.",
+      lorebookEntryIds: ["lore_library"],
       links: [
         {
           targetId: "tower",
@@ -141,6 +144,12 @@ const validDefinition = definition(
 
 assert.deepEqual(validateSpatialContextDefinition(validDefinition), { valid: true, issues: [] });
 assert.equal(spatialContextDefinitionSchema.safeParse(validDefinition).success, true);
+const legacyDefinitionWithoutLoreRefs = JSON.parse(JSON.stringify(validDefinition)) as Record<string, unknown>;
+for (const legacyLocation of legacyDefinitionWithoutLoreRefs.locations as Array<Record<string, unknown>>) {
+  delete legacyLocation.lorebookEntryIds;
+}
+const parsedLegacyDefinition = spatialContextDefinitionSchema.parse(legacyDefinitionWithoutLoreRefs);
+assert.ok(parsedLegacyDefinition.locations.every((entry) => entry.lorebookEntryIds.length === 0));
 
 const aiPrompt = buildSpatialMapDraftPrompt({
   ownerMode: "game",
@@ -248,6 +257,77 @@ assert.deepEqual(
 );
 assert.equal(aiDraft.locations.find((entry) => entry.name === "Cycle A")?.parentId, null);
 assert.equal(aiDraft.locations.find((entry) => entry.name === "Cycle B")?.parentId, null);
+
+const loreSourceMap = new Map([["source_1", "entry_lighthouse"]]);
+const strictLorePrompt = buildSpatialMapDraftPrompt({
+  ownerMode: "game",
+  size: "small",
+  sourceContext: '{"setting":"foggy coast"}',
+  groundingMode: "lore_strict",
+  loreCatalog: "source_1 | Coast Canon | Blackglass Lighthouse | A black lighthouse guards the harbor.",
+});
+assert.match(strictLorePrompt.messages[0]!.content, /Strict canon mode/);
+assert.match(strictLorePrompt.messages[1]!.content, /source_1 \| Coast Canon \| Blackglass Lighthouse/);
+
+const groundedDraft = normalizeSpatialMapPlan(
+  {
+    startingLocationKey: "lighthouse",
+    locations: [
+      {
+        key: "lighthouse",
+        name: "Blackglass Lighthouse",
+        description: "A black lighthouse guards the harbor.",
+        sourceKeys: ["source_1", "source_missing", "source_1"],
+      },
+    ],
+  },
+  {
+    ownerMode: "game",
+    revision: 0,
+    enabled: false,
+    size: "small",
+    sourceEntryIdsByKey: loreSourceMap,
+    requireLoreSource: true,
+  },
+);
+assert.deepEqual(groundedDraft.locations[0]?.lorebookEntryIds, ["entry_lighthouse"]);
+assert.throws(
+  () =>
+    normalizeSpatialMapPlan(
+      { locations: [{ key: "invented", name: "Invented Plaza", sourceKeys: ["source_missing"] }] },
+      {
+        ownerMode: "game",
+        revision: 0,
+        enabled: false,
+        size: "small",
+        sourceEntryIdsByKey: loreSourceMap,
+        requireLoreSource: true,
+      },
+    ),
+  /did not cite a valid lore source/,
+);
+
+const groundedExpansion = normalizeSpatialMapExpansionPlan(
+  {
+    locations: [
+      {
+        key: "canon-annex",
+        name: "Canon Annex",
+        description: "A source-backed annex.",
+        sourceKeys: ["source_1"],
+      },
+    ],
+  },
+  {
+    definition: validDefinition,
+    targetLocationId: "capital",
+    size: "small",
+    sourceEntryIdsByKey: loreSourceMap,
+    requireLoreSource: true,
+  },
+);
+assert.deepEqual(groundedExpansion.locations.slice(0, validDefinition.locations.length), validDefinition.locations);
+assert.deepEqual(groundedExpansion.locations.at(-1)?.lorebookEntryIds, ["entry_lighthouse"]);
 
 const cappedAiDraft = normalizeSpatialMapPlan(
   {
@@ -437,6 +517,14 @@ const duplicateIds = definition([location("same", "First"), location("same", "Se
 assert.ok(issueCodes(duplicateIds).includes("duplicate_location_id"));
 assert.equal(spatialContextDefinitionSchema.safeParse(duplicateIds).success, false);
 
+const duplicateLoreRefs = definition([
+  location("duplicate_lore", "Duplicate Lore", {
+    lorebookEntryIds: ["entry_same", "entry_same"],
+  }),
+]);
+assert.ok(issueCodes(duplicateLoreRefs).includes("duplicate_lorebook_entry_id"));
+assert.equal(spatialContextDefinitionSchema.safeParse(duplicateLoreRefs).success, false);
+
 const missingParent = definition([location("orphan", "Orphan", { parentId: "missing" })]);
 assert.ok(issueCodes(missingParent).includes("parent_missing"));
 
@@ -618,6 +706,7 @@ assert.ok(ownerProjection);
 assert.equal(ownerProjection.chatId, "chat-roleplay");
 assert.equal(ownerProjection.currentLocationId, "tower_library");
 assert.equal(ownerProjection.modelMemory, "The restricted shelf conceals a key.");
+assert.deepEqual(ownerProjection.lorebookEntryIds, ["lore_library"]);
 assert.deepEqual(
   ownerProjection.destinations.map(({ id }) => id),
   ["tower", "tower_observatory"],

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertCircle,
   ArrowLeft,
   Check,
   ChevronRight,
   CornerDownRight,
+  Download,
   List,
   Loader2,
   Map,
@@ -12,12 +13,14 @@ import {
   RefreshCw,
   Save,
   Sparkles,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   resolveSpatialBreadcrumb,
   validateSpatialArchive,
   type GameMap,
+  spatialContextDefinitionSchema,
   type SpatialContextDefinition,
   type SpatialDefinitionIssue,
   type SpatialOwnerMode,
@@ -25,9 +28,11 @@ import {
 import { useChat } from "../../hooks/use-chats";
 import { getSpatialContextProblem, useSpatialContext, useUpdateSpatialContext } from "../../hooks/use-spatial-context";
 import { showConfirmDialog } from "../../lib/app-dialogs";
+import { useEntriesAcrossLorebooks, useLorebooks } from "../../hooks/use-lorebooks";
 import { cn } from "../../lib/utils";
 import { useUIStore } from "../../stores/ui.store";
 import { HierarchyNavigator } from "./components/HierarchyNavigator";
+import { getChatExcludedLorebookIds } from "../../lib/chat-lorebooks";
 import { LayerSelector } from "./components/LayerSelector";
 import { LocalMapCanvas } from "./components/LocalMapCanvas";
 import { LocationInspector } from "./components/LocationInspector";
@@ -94,7 +99,14 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
   const [reviewConflict, setReviewConflict] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [archiveRequestId, setArchiveRequestId] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [archiveReplacementId, setArchiveReplacementId] = useState("");
+  const { data: lorebooks = [] } = useLorebooks();
+  const lorebookEntriesQuery = useEntriesAcrossLorebooks(lorebooks.map((lorebook) => lorebook.id));
+  const excludedLorebookIds = useMemo(
+    () => (chat ? getChatExcludedLorebookIds(chat) : []),
+    [chat],
+  );
   const [replacementCurrentLocationId, setReplacementCurrentLocationId] = useState<string | null>(null);
   const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
 
@@ -140,6 +152,7 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
     setDraft(nextDraft);
     setSelectedId(nextDraft.startingLocationId ?? nextDraft.locations[0]?.id ?? null);
     setEnteredParentId(null);
+    setServerIssues(spatial.data.warnings);
     setInitialized(true);
   }, [initialized, ownerMode, spatial.data, spatial.isSuccess]);
 
@@ -271,6 +284,60 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
     [currentLocationId, draft, finishArchive],
   );
 
+  const handleExport = useCallback(() => {
+    if (!draft) return;
+    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeName = (chat?.name ?? "hierarchical-map")
+      .replace(/[^a-z0-9._-]+/gi, "-")
+      .replace(/^-+|-+$/g, "") || "hierarchical-map";
+    link.href = url;
+    link.download = `${safeName}.hierarchical-map.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [chat?.name, draft]);
+
+  const handleImport = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file || !draft) return;
+      try {
+        const raw = JSON.parse(await file.text()) as unknown;
+        const candidate =
+          raw && typeof raw === "object" && !Array.isArray(raw) && "definition" in raw
+            ? (raw as { definition: unknown }).definition
+            : raw;
+        const parsed = spatialContextDefinitionSchema.safeParse(candidate);
+        if (!parsed.success) {
+          throw new Error(parsed.error.issues[0]?.message ?? "This file is not a valid hierarchical map.");
+        }
+        const importedIds = new Set(parsed.data.locations.map((location) => location.id));
+        if (
+          spatial.data?.hasCommittedSpatialHistory &&
+          draft.locations.some((location) => !importedIds.has(location.id))
+        ) {
+          throw new Error("Campaign history uses this map. Imported maps must retain every existing location ID.");
+        }
+        const imported: SpatialContextDefinition = {
+          ...parsed.data,
+          ownerMode,
+          enabled: draft.enabled,
+          revision: baseDefinition?.revision ?? 0,
+        };
+        applyDraft(imported);
+        setSelectedId(imported.startingLocationId ?? imported.locations[0]?.id ?? null);
+        setEnteredParentId(null);
+        setMobilePane("hierarchy");
+        toast.success("Map imported into the working copy. Review it, then Save.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "The map could not be imported.");
+      }
+    },
+    [applyDraft, baseDefinition?.revision, draft, ownerMode, spatial.data?.hasCommittedSpatialHistory],
+  );
+
   const handleClose = useCallback(async () => {
     if (dirty) {
       const discard = await showConfirmDialog({
@@ -301,6 +368,7 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
       if (!saved) throw new Error("The server did not return the saved map.");
       setBaseDefinition(cloneSpatialDefinition(saved));
       setDraft(cloneSpatialDefinition(saved));
+      setServerIssues(response.warnings);
       setReplacementCurrentLocationId(null);
       setSavedFlash(true);
       setEditorDirty(false);
@@ -340,19 +408,20 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
     setEnteredParentId(null);
     setConflict(false);
     setReviewConflict(false);
-    setServerIssues([]);
+    setServerIssues(result.data.warnings);
     setReplacementCurrentLocationId(null);
   }, [ownerMode, spatial]);
 
   const applyGeneratedDraft = useCallback(
     (generated: SpatialContextDefinition) => {
       if (!draft) return;
+      const normalizedGenerated = spatialContextDefinitionSchema.parse(generated);
       const previousIds = new Set(draft.locations.map((location) => location.id));
       const next = {
-        ...cloneSpatialDefinition(generated),
+        ...cloneSpatialDefinition(normalizedGenerated),
         ownerMode,
         enabled: draft.enabled,
-        revision: baseDefinition?.revision ?? generated.revision,
+        revision: baseDefinition?.revision ?? normalizedGenerated.revision,
       };
       const firstAddedLocation = next.locations.find((location) => !previousIds.has(location.id));
       const expandedExistingMap =
@@ -577,6 +646,11 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
       issues={issues.filter((issue) => issue.locationId === selected?.id)}
       currentLocationId={currentLocationId}
       onUpdate={(patch) => selected && applyDraft(updateSpatialLocation(draft, selected.id, patch))}
+      lorebooks={lorebooks}
+      lorebookEntries={lorebookEntriesQuery.entries ?? []}
+      excludedLorebookIds={excludedLorebookIds}
+      lorebooksLoading={lorebookEntriesQuery.isLoading}
+      onOpenLorebook={(lorebookId) => useUIStore.getState().openLorebookDetail(lorebookId)}
       onReparent={(parentId) => selected && applyDraft(reparentSpatialLocation(draft, selected.id, parentId))}
       onSetStarting={() => selected && applyDraft({ ...draft, startingLocationId: selected.id })}
       onArchive={() => selected && requestArchive(selected.id)}
@@ -593,8 +667,8 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
   );
 
   return (
-    <div className="mari-editor-shell mari-editor-legacy-bridge flex flex-1 flex-col overflow-hidden">
-      <div className="mari-editor-header">
+    <div className="mari-editor-shell mari-editor-legacy-bridge relative z-[46] flex flex-1 flex-col overflow-hidden">
+      <div className="mari-editor-header relative z-50">
         <button
           type="button"
           onClick={() => void handleClose()}
@@ -622,6 +696,32 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
           >
             <Sparkles size="0.8125rem" /> {draft.locations.length > 0 ? "Expand with AI" : "Build with AI"}
           </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="mari-editor-action inline-flex min-h-11 px-3 text-xs"
+            aria-label="Export hierarchical map"
+          >
+            <Download size="0.8125rem" /> Export
+          </button>
+          <button
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            disabled={conflict || updateSpatial.isPending}
+            className="mari-editor-action inline-flex min-h-11 px-3 text-xs disabled:opacity-45"
+            aria-label="Import hierarchical map"
+          >
+            <Upload size="0.8125rem" /> Import
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(event) => void handleImport(event)}
+          />
           <span className={cn("mari-editor-status mr-2", status.className)}>
             {status.icon}
             {status.label}
@@ -656,6 +756,8 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
         dirty={dirty}
         initialResult={pendingSetupReview?.result}
         setupReview={Boolean(pendingSetupReview)}
+        lorebooks={lorebooks}
+        excludedLorebookIds={excludedLorebookIds}
         onClose={closeAiBuilder}
         onApply={applyGeneratedDraft}
       />

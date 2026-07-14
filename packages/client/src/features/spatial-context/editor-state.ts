@@ -79,6 +79,7 @@ export function createSpatialLocation(
     name: options.name ?? (parentId === null ? "New world" : "New location"),
     kind: options.kind ?? (parentId === null ? "region" : "place"),
     description: "",
+    lorebookEntryIds: [],
     childPresentation: "list",
     links: [],
     status: "active",

@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import type { DB } from "../../db/connection.js";
 import { chats } from "../../db/schema/index.js";
 import { now } from "../../utils/id-generator.js";
+import { createLorebooksStorage } from "../storage/lorebooks.storage.js";
 import { withChatMetadataPatchQueue } from "../storage/chats.storage.js";
 import { createSpatialContextStorage } from "../storage/spatial-context.storage.js";
 import { resolveEffectiveSpatialState } from "./state-resolution.js";
@@ -62,7 +63,6 @@ function readDefinition(metadata: Record<string, unknown>): {
     ? { definition: parsed.data as SpatialContextDefinition, corrupt: false }
     : { definition: null, corrupt: true };
 }
-
 function assertSupportedMode(mode: string | null): asserts mode is "roleplay" | "game" {
   if (mode !== "roleplay" && mode !== "game") {
     throw new SpatialContextServiceError(
@@ -78,6 +78,7 @@ function buildResponse(
   currentLocationId: string | null,
   corrupt = false,
   hasCommittedSpatialHistory = false,
+  referenceWarnings: SpatialContextResponse["warnings"] = [],
 ): SpatialContextResponse {
   if (!definition) {
     return {
@@ -106,9 +107,39 @@ function buildResponse(
     currentLocationId: effectiveCurrentId,
     breadcrumb: resolveSpatialBreadcrumb(definition, effectiveCurrentId).map(({ id, name }) => ({ id, name })),
     destinations: resolveSpatialDestinations(definition, effectiveCurrentId),
-    warnings: [],
+    warnings: referenceWarnings,
     hasCommittedSpatialHistory,
   };
+}
+
+async function resolveLoreReferenceWarnings(
+  db: DB,
+  definition: SpatialContextDefinition,
+): Promise<SpatialContextResponse["warnings"]> {
+  const entryIds = Array.from(
+    new Set(definition.locations.flatMap((location) => location.lorebookEntryIds ?? [])),
+  );
+  if (entryIds.length === 0) return [];
+  const storage = createLorebooksStorage(db);
+  const existingIds = new Set(
+    (
+      await Promise.all(entryIds.map(async (entryId) => ((await storage.getEntry(entryId)) ? entryId : null)))
+    ).filter((entryId): entryId is string => Boolean(entryId)),
+  );
+  return definition.locations.flatMap((location, locationIndex) =>
+    (location.lorebookEntryIds ?? []).flatMap((entryId, entryIndex) =>
+      existingIds.has(entryId)
+        ? []
+        : [
+            {
+              code: "lorebook_entry_missing" as const,
+              message: `Linked lore entry ${entryId} no longer exists. Detach it or import the missing lorebook.`,
+              path: ["locations", locationIndex, "lorebookEntryIds", entryIndex],
+              locationId: location.id,
+            },
+          ],
+    ),
+  );
 }
 
 export function createSpatialContextService(db: DB) {
@@ -124,7 +155,13 @@ export function createSpatialContextService(db: DB) {
       if (!stored.definition) return buildResponse(null, null, stored.corrupt, hasCommittedSpatialHistory);
 
       const state = await resolveEffectiveSpatialState(db, chatId);
-      return buildResponse(stored.definition, state.currentLocationId, false, hasCommittedSpatialHistory);
+      return buildResponse(
+        stored.definition,
+        state.currentLocationId,
+        false,
+        hasCommittedSpatialHistory,
+        await resolveLoreReferenceWarnings(db, stored.definition),
+      );
     },
 
     async update(chatId: string, input: UpdateSpatialContextRequestInput): Promise<SpatialContextResponse> {
@@ -254,6 +291,7 @@ export function createSpatialContextService(db: DB) {
           nextCurrentLocationId ?? definition.startingLocationId,
           false,
           hasCommittedSpatialHistory || Boolean(state.visibleAnchor),
+          await resolveLoreReferenceWarnings(db, definition),
         );
       });
     },

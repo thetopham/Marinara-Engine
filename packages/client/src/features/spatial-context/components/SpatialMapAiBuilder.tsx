@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Check, LoaderCircle, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertCircle, BookOpen, Check, LoaderCircle, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import type {
   GenerateSpatialMapDraftResponse,
+  Lorebook,
   SpatialContextDefinition,
+  SpatialMapGroundingMode,
   SpatialMapDraftOperation,
   SpatialMapDraftSize,
   SpatialOwnerMode,
@@ -21,6 +23,8 @@ interface SpatialMapAiBuilderProps {
   dirty: boolean;
   initialResult?: GenerateSpatialMapDraftResponse | null;
   setupReview?: boolean;
+  lorebooks?: Lorebook[];
+  excludedLorebookIds?: string[];
   onClose: () => void;
   onApply: (definition: SpatialContextDefinition) => void;
 }
@@ -57,6 +61,8 @@ export function SpatialMapAiBuilder({
   dirty,
   initialResult = null,
   setupReview = false,
+  lorebooks = [],
+  excludedLorebookIds = [],
   onClose,
   onApply,
 }: SpatialMapAiBuilderProps) {
@@ -84,6 +90,18 @@ export function SpatialMapAiBuilder({
   const [instructions, setInstructions] = useState("");
   const [result, setResult] = useState<GenerateSpatialMapDraftResponse | null>(initialResult);
   const [error, setError] = useState<string | null>(null);
+  const [groundingMode, setGroundingMode] = useState<SpatialMapGroundingMode>(
+    initialResult?.grounding?.mode ?? "setup",
+  );
+  const [sourceLorebookIds, setSourceLorebookIds] = useState<string[]>([]);
+  const excludedLorebookIdSet = useMemo(() => new Set(excludedLorebookIds), [excludedLorebookIds]);
+  const eligibleLorebooks = useMemo(
+    () =>
+      lorebooks
+        .filter((lorebook) => lorebook.enabled !== false && !excludedLorebookIdSet.has(lorebook.id))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [excludedLorebookIdSet, lorebooks],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -92,6 +110,8 @@ export function SpatialMapAiBuilder({
     if (initialResult) setSize(initialResult.size);
     setResult(initialResult);
     setError(null);
+    setGroundingMode(initialResult?.grounding?.mode ?? "setup");
+    setSourceLorebookIds([]);
   }, [chatId, defaultTargetLocationId, hasLocations, initialResult, open]);
 
   useEffect(() => {
@@ -117,6 +137,8 @@ export function SpatialMapAiBuilder({
         size,
         ...(operation === "expand" ? { targetLocationId } : {}),
         instructions: instructions.trim() || undefined,
+        groundingMode,
+        sourceLorebookIds: groundingMode === "setup" ? [] : sourceLorebookIds,
         debugMode,
       });
       setResult(generated);
@@ -135,7 +157,10 @@ export function SpatialMapAiBuilder({
     (location) => location.parentId === null || !previewIds.has(location.parentId),
   );
   const generationDisabled =
-    generateDraft.isPending || dirty || (operation === "expand" && targetLocationId.length === 0);
+    generateDraft.isPending ||
+    dirty ||
+    (operation === "expand" && targetLocationId.length === 0) ||
+    (groundingMode !== "setup" && sourceLorebookIds.length === 0);
 
   return (
     <section
@@ -226,6 +251,102 @@ export function SpatialMapAiBuilder({
             </div>
           )}
 
+          <fieldset className="mb-4">
+            <legend className="text-xs font-semibold text-[var(--marinara-editor-title)]">Build from</legend>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {([
+                { value: "setup", label: "Game setup", detail: "World and characters" },
+                { value: "lore_strict", label: "Selected lore", detail: "Chosen source books" },
+              ] as const).map((option) => {
+                const selected =
+                  option.value === "setup" ? groundingMode === "setup" : groundingMode !== "setup";
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={generateDraft.isPending || (option.value !== "setup" && eligibleLorebooks.length === 0)}
+                    onClick={() => {
+                      setGroundingMode(option.value);
+                      resetResult();
+                    }}
+                    className={cn(
+                      "min-h-12 rounded-lg border px-3 py-2 text-left text-xs transition-colors disabled:opacity-45",
+                      selected
+                        ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-highlight-bg)]"
+                        : "border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--marinara-chat-chrome-panel-bg)] text-[var(--marinara-editor-muted)]",
+                    )}
+                  >
+                    <span className="block font-semibold">{option.label}</span>
+                    <span className="mt-0.5 block text-[0.625rem]">{option.detail}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {groundingMode !== "setup" && (
+              <div className="mt-2 space-y-2 rounded-lg border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--marinara-chat-chrome-panel-bg)] p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { value: "lore_strict", label: "Strict canon", detail: "Only lore-backed places" },
+                    { value: "lore_expand", label: "Canon + expansion", detail: "AI may add fitting places" },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={groundingMode === option.value}
+                      disabled={generateDraft.isPending}
+                      onClick={() => {
+                        setGroundingMode(option.value);
+                        resetResult();
+                      }}
+                      className={cn(
+                        "min-h-11 rounded-lg px-2 py-2 text-left text-[0.625rem] ring-1 transition-colors disabled:opacity-45",
+                        groundingMode === option.value
+                          ? "bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-button-text-active)] ring-[var(--marinara-chat-chrome-button-border-active)]"
+                          : "text-[var(--marinara-editor-muted)] ring-[var(--marinara-chat-chrome-panel-border)]",
+                      )}
+                    >
+                      <span className="block font-semibold">{option.label}</span>
+                      <span className="mt-0.5 block">{option.detail}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[0.625rem] text-[var(--marinara-editor-muted)]">
+                  Select the lorebooks the map generator may read. Disabled or chat-excluded books are unavailable.
+                </p>
+                <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                  {eligibleLorebooks.map((lorebook) => {
+                    const checked = sourceLorebookIds.includes(lorebook.id);
+                    return (
+                      <label
+                        key={lorebook.id}
+                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-xs hover:bg-[var(--marinara-chat-chrome-highlight-bg)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={generateDraft.isPending}
+                          onChange={() => {
+                            setSourceLorebookIds((ids) =>
+                              checked ? ids.filter((id) => id !== lorebook.id) : [...ids, lorebook.id],
+                            );
+                            resetResult();
+                          }}
+                        />
+                        <BookOpen size="0.75rem" className="shrink-0 text-[var(--marinara-editor-muted)]" />
+                        <span className="min-w-0 flex-1 truncate">{lorebook.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {sourceLorebookIds.length === 0 && (
+                  <p className="text-[0.625rem] text-amber-300">Choose at least one lorebook to generate.</p>
+                )}
+              </div>
+            )}
+          </fieldset>
+
           <label className="text-xs font-semibold text-[var(--marinara-editor-title)]" htmlFor="spatial-ai-request">
             {operation === "expand" ? "What should be added?" : "What should this world include?"}
           </label>
@@ -280,7 +401,9 @@ export function SpatialMapAiBuilder({
           </fieldset>
 
           <p className="mt-4 text-[0.625rem] leading-relaxed text-[var(--marinara-editor-muted)]">
-            {sourceCopy(ownerMode)}
+            {groundingMode === "setup"
+              ? sourceCopy(ownerMode)
+              : `Uses ${sourceLorebookIds.length} selected lorebook${sourceLorebookIds.length === 1 ? "" : "s"} plus setup context. Turn history is not included.`}
           </p>
           {setupReview && (
             <p className="mt-2 text-xs leading-relaxed text-[var(--marinara-editor-muted)]">
@@ -356,11 +479,34 @@ export function SpatialMapAiBuilder({
                   {result.generatedLocationCount} new {result.generatedLocationCount === 1 ? "location" : "locations"}
                 </span>
               </div>
+              {result.grounding && result.grounding.mode !== "setup" && (
+                <div className="mt-3 rounded-lg border border-sky-500/25 bg-sky-500/10 p-3 text-[0.6875rem] text-sky-200">
+                  <p className="font-semibold">
+                    {result.grounding.mode === "lore_strict" ? "Strict lore grounding" : "Lore-guided expansion"}
+                  </p>
+                  <p className="mt-1 leading-relaxed text-sky-200/80">
+                    Considered {result.grounding.consideredEntryCount} entries from {result.grounding.selectedLorebookCount}{" "}
+                    {result.grounding.selectedLorebookCount === 1 ? "book" : "books"}.
+                    {result.grounding.omittedEntryCount > 0
+                      ? ` ${result.grounding.omittedEntryCount} entries were omitted to keep the source packet bounded.`
+                      : ""}
+                  </p>
+                </div>
+              )}
               <div className="mt-3 divide-y divide-[var(--marinara-editor-divider)] border-y border-[var(--marinara-editor-divider)]">
                 {previewRoots.slice(0, 5).map((location) => {
                   const childCount = result.definition.locations.filter(
                     (candidate) => candidate.parentId === location.id,
                   ).length;
+                  const provenance = result.provenance?.[location.id];
+                  const provenanceLabel =
+                    provenance?.kind === "lore_backed"
+                      ? "Lore-backed"
+                      : provenance?.kind === "added_by_ai"
+                        ? "Added by AI"
+                        : provenance
+                          ? "Inferred"
+                          : null;
                   return (
                     <div key={location.id} className="flex min-h-12 items-center gap-3 py-2">
                       <span className="text-lg" aria-hidden="true">
@@ -371,6 +517,15 @@ export function SpatialMapAiBuilder({
                         <span className="block text-[0.625rem] capitalize text-[var(--marinara-editor-muted)]">
                           {location.kind} · {childCount} direct {childCount === 1 ? "place" : "places"}
                         </span>
+                        {provenanceLabel && (
+                          <span
+                            className="mt-0.5 block truncate text-[0.625rem] text-sky-300"
+                            title={provenance?.sources.map((source) => `${source.lorebookName}: ${source.entryName}`).join(", ")}
+                          >
+                            {provenanceLabel}
+                            {provenance?.sources.length ? ` · ${provenance.sources.map((source) => source.entryName).join(", ")}` : ""}
+                          </span>
+                        )}
                       </span>
                     </div>
                   );

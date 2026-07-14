@@ -205,23 +205,38 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
                   grp.speaker && charByName ? charByName.get(normalizeTextForMatch(grp.speaker)) : null;
                 const segName = segChar?.convoDisplayName?.trim() || segChar?.name || grp.speaker || "";
                 const combinedText = grp.lines.join("\n");
+
+                if (!grp.speaker) {
+                  if (!combinedText.trim()) return null;
+                  return (
+                    <div
+                      key={`${grp.start}-${i}`}
+                      className="mari-message-content py-0.5 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap text-[var(--muted-foreground)] italic animate-[fadeSlideIn_0.25s_ease-out]"
+                      style={messageTextStyle}
+                    >
+                      <MessageContent
+                        content={combinedText}
+                        mentionNames={mentionNames}
+                        emojiMap={emojiMap}
+                        stickerMap={stickerMap}
+                        onImageOpen={(url) => onImageOpen(url)}
+                      />
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={`${grp.start}-${i}`}
-                    className={cn(
-                      "mari-message-content mari-message-bubble texting-bubble texting-bubble-other relative rounded-2xl rounded-tl-md px-3.5 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap shadow-sm animate-[fadeSlideIn_0.25s_ease-out]",
-                      !grp.speaker && "italic text-[var(--muted-foreground)]",
-                    )}
+                    className="mari-message-content mari-message-bubble texting-bubble texting-bubble-other relative rounded-2xl rounded-tl-md px-3.5 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap shadow-sm animate-[fadeSlideIn_0.25s_ease-out]"
                     style={messageTextStyle}
                   >
-                    {grp.speaker && (
-                      <div
-                        className="mb-0.5 text-[0.75rem] font-semibold leading-tight opacity-90"
-                        style={nameColorStyle(segChar?.nameColor)}
-                      >
-                        {segName}
-                      </div>
-                    )}
+                    <div
+                      className="mb-0.5 text-[0.75rem] font-semibold leading-tight opacity-90"
+                      style={nameColorStyle(segChar?.nameColor)}
+                    >
+                      {segName}
+                    </div>
                     <MessageContent
                       content={combinedText}
                       mentionNames={mentionNames}

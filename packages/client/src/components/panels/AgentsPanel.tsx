@@ -77,7 +77,7 @@ import { SmoothFolderContent } from "../ui/SmoothFolderContent";
 import { AgentCatalogView } from "../agents/AgentCatalogView";
 
 type JsonRecord = Record<string, unknown>;
-const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+const isBuiltInAgentType = (agentType: string) => BUILT_IN_AGENTS.some((agent) => agent.id === agentType);
 const AGENT_GRADIENT_SURFACE =
   "mari-panel-gradient-surface mari-panel-gradient--agents text-[var(--mari-panel-gradient-text)]";
 const AGENT_GRADIENT_BUTTON = "mari-panel-gradient-button mari-panel-gradient--agents";
@@ -293,7 +293,7 @@ export function AgentsPanel() {
     () =>
       new Set(
         agentConfigRows
-          .filter((config) => BUILT_IN_AGENT_TYPE_SET.has(config.type))
+          .filter((config) => isBuiltInAgentType(config.type))
           .filter((config) => isAgentConfigDeleted(config.settings))
           .map((config) => config.type),
       ),
@@ -307,7 +307,7 @@ export function AgentsPanel() {
   const customAgents = useMemo(
     () =>
       visibleAgentConfigs.filter(
-        (config) => !BUILT_IN_AGENT_TYPE_SET.has(config.type) && !isRetiredBuiltInAgentId(config.type),
+        (config) => !isBuiltInAgentType(config.type) && !isRetiredBuiltInAgentId(config.type),
       ),
     [visibleAgentConfigs],
   );
@@ -356,7 +356,7 @@ export function AgentsPanel() {
   const getAgentSearchData = (agent: AgentConfigRow) => ({
     name: agent.name,
     description: agent.description,
-    category: BUILT_IN_AGENT_TYPE_SET.has(agent.type)
+    category: isBuiltInAgentType(agent.type)
       ? (BUILT_IN_AGENTS.find((entry) => entry.id === agent.type)?.category ?? "misc")
       : "custom",
   });

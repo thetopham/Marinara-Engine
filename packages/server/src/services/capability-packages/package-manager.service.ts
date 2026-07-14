@@ -8,6 +8,7 @@ import {
   capabilityCatalogSchema,
   capabilityPackageManifestSchema,
   installedCapabilityRegistrySchema,
+  packagedAgentDefinitionsSchema,
   type CapabilityCatalog,
   type InstalledCapabilityPackage,
 } from "@marinara-engine/shared";
@@ -17,9 +18,27 @@ import { safeFetch } from "../../utils/security.js";
 const ROOT = join(DATA_DIR, "capability-packages");
 const VERSIONS = join(ROOT, "versions");
 const REGISTRY = join(ROOT, "installed.json");
+const AVAILABILITY_MIGRATION = join(ROOT, "availability-migration-v1.json");
 const CATALOG_URL = process.env.MARINARA_AGENT_CATALOG_URL?.trim() ||
   "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog/catalog.json";
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 250 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 1024 * 1024;
+
+function normalizeArchivePath(value: string): string {
+  if (!value || value.includes("\\") || value.startsWith("/") || value.includes("\0")) {
+    throw new Error("Package contains an unsafe path");
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === ".." || part.includes(":"))) {
+    throw new Error("Package contains an unsafe path");
+  }
+  return parts.join("/");
+}
+
+function isSymlink(entry: AdmZip.IZipEntry): boolean {
+  return (((entry.attr >>> 16) & 0o170000) === 0o120000);
+}
 
 function inside(root: string, candidate: string): string {
   const base = resolve(root);
@@ -58,6 +77,15 @@ async function writeRegistry(packages: InstalledCapabilityPackage[]) {
   await rename(temporary, REGISTRY);
 }
 
+async function writeAvailabilityMigration(kind: "fresh" | "legacy") {
+  await mkdir(ROOT, { recursive: true });
+  const temporary = `${AVAILABILITY_MIGRATION}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, JSON.stringify({ schemaVersion: 1, kind, completedAt: new Date().toISOString() }, null, 2), {
+    mode: 0o600,
+  });
+  await rename(temporary, AVAILABILITY_MIGRATION);
+}
+
 async function fetchBytes(url: string, maximum: number): Promise<Buffer> {
   const response = await safeFetch(url, {
     policy: { allowedProtocols: ["https:"] },
@@ -82,6 +110,98 @@ export const capabilityPackageManager = {
     return (await readRegistry()).packages;
   },
 
+  async agentDefinitions() {
+    const registry = await readRegistry();
+    const definitions = [];
+    const ids = new Set<string>();
+    for (const installed of registry.packages) {
+      if (installed.status === "error") continue;
+      const entrypoint = installed.manifest.entrypoints.agents;
+      if (!entrypoint) continue;
+      const file = inside(VERSIONS, join(VERSIONS, installed.id, installed.version, normalizeArchivePath(entrypoint)));
+      const parsed = packagedAgentDefinitionsSchema.parse(JSON.parse(await readFile(file, "utf8")));
+      for (const definition of parsed) {
+        if (ids.has(definition.id)) throw new Error(`Agent ${definition.id} is provided by more than one package`);
+        ids.add(definition.id);
+        definitions.push(definition);
+      }
+    }
+    return definitions;
+  },
+
+  async runtimePackages() {
+    const registry = await readRegistry();
+    return registry.packages
+      .filter((installed) => installed.status !== "error" && installed.manifest.entrypoints.server)
+      .map((installed) => ({
+        installed,
+        serverEntrypoint: inside(
+          VERSIONS,
+          join(
+            VERSIONS,
+            installed.id,
+            installed.version,
+            normalizeArchivePath(installed.manifest.entrypoints.server!),
+          ),
+        ),
+      }));
+  },
+
+  async markRuntimeStatus(packageId: string, status: InstalledCapabilityPackage["status"], error: string | null = null) {
+    const registry = await readRegistry();
+    const index = registry.packages.findIndex((installed) => installed.id === packageId);
+    if (index < 0) return;
+    registry.packages[index] = { ...registry.packages[index]!, status, error };
+    await writeRegistry(registry.packages);
+  },
+
+  async rollbackRuntime(packageId: string) {
+    const registry = await readRegistry();
+    const index = registry.packages.findIndex((installed) => installed.id === packageId);
+    const current = index >= 0 ? registry.packages[index] : undefined;
+    if (!current?.previousVersion) return null;
+    const previousManifestFile = inside(
+      VERSIONS,
+      join(VERSIONS, current.id, current.previousVersion, "manifest.json"),
+    );
+    if (!existsSync(previousManifestFile)) return null;
+    const manifest = capabilityPackageManifestSchema.parse(JSON.parse(await readFile(previousManifestFile, "utf8")));
+    const restored: InstalledCapabilityPackage = {
+      ...current,
+      version: current.previousVersion,
+      manifest,
+      status: "active",
+      error: null,
+      previousVersion: undefined,
+    };
+    registry.packages[index] = restored;
+    await writeRegistry(registry.packages);
+    const server = manifest.entrypoints.server;
+    return server
+      ? {
+          installed: restored,
+          serverEntrypoint: inside(VERSIONS, join(VERSIONS, restored.id, restored.version, normalizeArchivePath(server))),
+        }
+      : null;
+  },
+
+  async migrateLegacyAvailability(legacyInstall: boolean) {
+    if (existsSync(AVAILABILITY_MIGRATION)) return { migrated: false, legacy: legacyInstall, complete: true };
+    if (!legacyInstall) {
+      await writeAvailabilityMigration("fresh");
+      return { migrated: false, legacy: false, complete: true };
+    }
+
+    const catalog = await this.catalog();
+    const installedById = new Map((await this.installed()).map((item) => [item.id, item]));
+    for (const entry of catalog.packages) {
+      if (installedById.get(entry.manifest.id)?.version === entry.manifest.version) continue;
+      await this.install(entry.manifest.id);
+    }
+    await writeAvailabilityMigration("legacy");
+    return { migrated: true, legacy: true, complete: true };
+  },
+
   async install(packageId: string) {
     const catalog = await this.catalog();
     const entry = catalog.packages.find((candidate) => candidate.manifest.id === packageId);
@@ -96,27 +216,60 @@ export const capabilityPackageManager = {
     if (digest !== artifact.sha256) throw new Error("Downloaded package checksum does not match the catalog");
 
     const zip = new AdmZip(archive);
+    const entries = zip.getEntries().filter((item) => !item.isDirectory);
+    const names = new Set<string>();
+    let expandedBytes = 0;
+    for (const item of entries) {
+      const name = normalizeArchivePath(item.entryName);
+      if (names.has(name)) throw new Error(`Package contains duplicate file ${name}`);
+      if (isSymlink(item)) throw new Error("Package links are not allowed");
+      names.add(name);
+      expandedBytes += item.header.size;
+      if (expandedBytes > MAX_EXPANDED_BYTES) throw new Error("Expanded package is too large");
+    }
+    const manifestEntry = entries.find((item) => item.entryName === "manifest.json");
+    if (!manifestEntry || manifestEntry.header.size > MAX_MANIFEST_BYTES) throw new Error("Package manifest is missing or too large");
+    const installedManifest = capabilityPackageManifestSchema.parse(JSON.parse(manifestEntry.getData().toString("utf8")));
+    if (JSON.stringify(installedManifest) !== JSON.stringify(manifest)) {
+      throw new Error("Artifact manifest does not match the catalog");
+    }
+    const declaredFiles = new Map(installedManifest.files.map((file) => [normalizeArchivePath(file.path), file]));
+    if (declaredFiles.size !== installedManifest.files.length) throw new Error("Package manifest declares duplicate files");
+    const payloadEntries = entries.filter((item) => item.entryName !== "manifest.json");
+    if (payloadEntries.length !== declaredFiles.size) throw new Error("Package contains undeclared or missing files");
+    const verifiedFiles = new Map<string, Buffer>();
+    for (const item of payloadEntries) {
+      const name = normalizeArchivePath(item.entryName);
+      const declaration = declaredFiles.get(name);
+      if (!declaration) throw new Error(`Package contains undeclared file ${name}`);
+      const data = item.getData();
+      if (data.byteLength !== declaration.bytes) throw new Error(`Package file size mismatch for ${name}`);
+      if (createHash("sha256").update(data).digest("hex") !== declaration.sha256) {
+        throw new Error(`Package file checksum mismatch for ${name}`);
+      }
+      verifiedFiles.set(name, data);
+    }
+    for (const entrypoint of Object.values(installedManifest.entrypoints)) {
+      if (entrypoint && !declaredFiles.has(normalizeArchivePath(entrypoint))) {
+        throw new Error(`Package entrypoint is not declared: ${entrypoint}`);
+      }
+    }
     const temporary = join(ROOT, `.install-${manifest.id}-${Date.now()}`);
     const destination = join(VERSIONS, manifest.id, manifest.version);
     await rm(temporary, { recursive: true, force: true });
     await mkdir(temporary, { recursive: true });
     try {
-      for (const item of zip.getEntries()) {
-        if (item.isDirectory) continue;
-        const output = inside(temporary, join(temporary, item.entryName));
+      await writeFile(join(temporary, "manifest.json"), manifestEntry.getData(), { mode: 0o600 });
+      for (const [name, data] of verifiedFiles) {
+        const output = inside(temporary, join(temporary, name));
         await mkdir(dirname(output), { recursive: true });
-        await writeFile(output, item.getData(), { mode: 0o600 });
-      }
-      const installedManifest = capabilityPackageManifestSchema.parse(
-        JSON.parse(await readFile(join(temporary, "manifest.json"), "utf8")),
-      );
-      if (installedManifest.id !== manifest.id || installedManifest.version !== manifest.version) {
-        throw new Error("Artifact manifest does not match the catalog");
+        await writeFile(output, data, { mode: 0o600 });
       }
       await mkdir(dirname(destination), { recursive: true });
       await rm(destination, { recursive: true, force: true });
       await rename(temporary, destination);
       const registry = await readRegistry();
+      const previous = registry.packages.find((item) => item.id === manifest.id);
       const installed: InstalledCapabilityPackage = {
         id: manifest.id,
         version: manifest.version,
@@ -125,6 +278,7 @@ export const capabilityPackageManager = {
         status: manifest.restartRequired ? "restart-required" : "active",
         error: null,
         legacy: false,
+        ...(previous && previous.version !== manifest.version ? { previousVersion: previous.version } : {}),
       };
       await writeRegistry([...registry.packages.filter((item) => item.id !== manifest.id), installed]);
       return installed;

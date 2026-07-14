@@ -1,6 +1,6 @@
 import type { FastifyReply } from "fastify";
 
-import { pokerEngine } from "@marinara-engine/shared";
+import { getTurnGameEngine } from "@marinara-engine/shared";
 
 import type { DB } from "../../db/connection.js";
 import { logger } from "../../lib/logger.js";
@@ -169,7 +169,7 @@ async function startPokerFromCommand(args: Parameters<typeof handleTurnGameComma
     // Poker seats at most pokerEngine.maxPlayers total (human + bots). If more
     // willing characters exist than fit, trim the extras — keeping the agreeing
     // character first so the character that just said yes always gets a seat.
-    const maxBotSeats = Math.max(0, pokerEngine.maxPlayers - 1);
+    const maxBotSeats = Math.max(0, (getTurnGameEngine("poker")?.maxPlayers ?? 8) - 1);
     let seatedBotIds = seatBotIds;
     if (seatBotIds.length > maxBotSeats) {
       const ordered = args.characterId

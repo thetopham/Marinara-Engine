@@ -22,6 +22,7 @@ import { useBackgroundAutonomousPolling } from "../../hooks/use-background-auton
 import { useClearAutonomousUnread } from "../../hooks/use-chats";
 import { useIdleDetection } from "../../hooks/use-idle-detection";
 import { usePageActivity } from "../../hooks/use-page-activity";
+import { useCapabilityAgentRegistry } from "../../hooks/use-capability-packages";
 import { getCssBackgroundStyle } from "../../lib/css-colors";
 import { cn } from "../../lib/utils";
 import { parseChatMetadata } from "../../lib/chat-display";
@@ -200,6 +201,8 @@ function useExitPresence(open: boolean, exitMs: number) {
 }
 
 export function AppShell() {
+  useCapabilityAgentRegistry();
+
   // Background autonomous polling for inactive conversation chats
   useBackgroundAutonomousPolling();
 

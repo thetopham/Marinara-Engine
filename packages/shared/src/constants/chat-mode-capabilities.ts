@@ -107,8 +107,6 @@ export const GAME_AGENT_IDS = [] as const;
 
 export const GAME_OPTIONAL_AGENT_IDS = [] as const;
 
-const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
-
 export const CHAT_MODE_CAPABILITIES: Record<ChatMode, ChatModeCapabilities> = {
   conversation: {
     mode: "conversation",
@@ -201,9 +199,10 @@ export function isAgentAvailableInChatMode(mode: ChatMode | null | undefined, ag
   const normalizedMode = mode ?? "roleplay";
   const builtIn = BUILT_IN_AGENTS.find((agent) => agent.id === agentId);
   if (builtIn?.modeAllowlist?.length && !builtIn.modeAllowlist.includes(normalizedMode)) return false;
+  if (builtIn?.execution === "feature") return true;
   const policy = getChatModeCapabilities(mode).agentPolicy;
   if (policy.kind === "all") return true;
-  if (!BUILT_IN_AGENT_ID_SET.has(agentId)) return true;
+  if (!BUILT_IN_AGENTS.some((agent) => agent.id === agentId)) return true;
   return policy.allowedAgentIds.includes(agentId);
 }
 

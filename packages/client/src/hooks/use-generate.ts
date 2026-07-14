@@ -75,10 +75,9 @@ function showAgentFailuresError(failures: AgentFailure[], onRetry?: () => void) 
 }
 
 const shownAgentWarnings = new Set<string>();
-const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
-const BUILT_IN_TRACKER_AGENT_TYPE_SET = new Set(
-  BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker" && !agent.libraryHidden).map((agent) => agent.id),
-);
+const isBuiltInAgentType = (agentType: string) => BUILT_IN_AGENTS.some((agent) => agent.id === agentType);
+const isBuiltInTrackerAgentType = (agentType: string) =>
+  BUILT_IN_AGENTS.some((agent) => agent.id === agentType && agent.category === "tracker" && !agent.libraryHidden);
 
 type AgentWarningToastData = {
   code?: unknown;
@@ -2971,7 +2970,7 @@ export function useGenerate() {
       }
       useChatStore.getState().setAbortController(chatId, abortController);
       const isTrackerRetry = agentTypes.some(
-        (agentType) => BUILT_IN_TRACKER_AGENT_TYPE_SET.has(agentType) || !BUILT_IN_AGENT_TYPE_SET.has(agentType),
+        (agentType) => isBuiltInTrackerAgentType(agentType) || !isBuiltInAgentType(agentType),
       );
       setProcessing(true, chatId);
       if (isTrackerRetry) useGameStateStore.getState().setRefreshingChat(chatId);

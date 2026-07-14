@@ -1,11 +1,18 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CapabilityCatalog, InstalledCapabilityPackage } from "@marinara-engine/shared";
+import {
+  replaceBuiltInAgentDefinitions,
+  type CapabilityCatalog,
+  type BuiltInAgentManifest,
+  type InstalledCapabilityPackage,
+} from "@marinara-engine/shared";
 import { api } from "../lib/api-client";
 
 export const capabilityPackageKeys = {
   all: ["capability-packages"] as const,
   catalog: () => [...capabilityPackageKeys.all, "catalog"] as const,
   installed: () => [...capabilityPackageKeys.all, "installed"] as const,
+  agents: () => [...capabilityPackageKeys.all, "agents"] as const,
 };
 
 export function useCapabilityCatalog(enabled = true) {
@@ -16,6 +23,17 @@ export function useCapabilityCatalog(enabled = true) {
     staleTime: 5 * 60_000,
     retry: 1,
   });
+}
+
+export function useCapabilityAgentRegistry() {
+  const query = useQuery({
+    queryKey: capabilityPackageKeys.agents(),
+    queryFn: () => api.get<BuiltInAgentManifest[]>("/capability-packages/agents"),
+  });
+  useEffect(() => {
+    if (query.data) replaceBuiltInAgentDefinitions(query.data);
+  }, [query.data]);
+  return query;
 }
 
 export function useInstalledCapabilityPackages(enabled = true) {

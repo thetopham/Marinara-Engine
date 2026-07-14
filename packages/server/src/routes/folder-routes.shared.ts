@@ -6,6 +6,7 @@ import {
 } from "@marinara-engine/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodType } from "zod";
+import { logger } from "../lib/logger.js";
 
 type StoredFolder = {
   collapsed: string;
@@ -40,7 +41,10 @@ export function registerFolderCrudRoutes<TCreate, TFolder extends StoredFolder>(
   app.post("/", async (req, reply) => {
     const input = createSchema.parse(req.body);
     const folder = await storage.create(input);
-    if (!folder) return reply.status(500).send({ error: "Failed to create folder" });
+    if (!folder) {
+      logger.error("Folder storage.create returned no folder");
+      return reply.status(500).send({ error: "Failed to create folder" });
+    }
     return reply.send(serializeFolder(folder));
   });
 
@@ -50,7 +54,10 @@ export function registerFolderCrudRoutes<TCreate, TFolder extends StoredFolder>(
     const existing = await storage.getById(id);
     if (!existing) return reply.status(404).send({ error: "Folder not found" });
     const folder = await storage.update(id, input);
-    if (!folder) return reply.status(500).send({ error: "Failed to update folder" });
+    if (!folder) {
+      logger.error("Folder storage.update returned no folder for %s", id);
+      return reply.status(500).send({ error: "Failed to update folder" });
+    }
     return reply.send(serializeFolder(folder));
   });
 

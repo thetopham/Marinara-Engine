@@ -3,7 +3,7 @@ import { chatModeSchema } from "./chat.schema.js";
 
 const nonEmptyIdSchema = z.string().min(1);
 const createFolderNameSchema = z.string().trim().min(1);
-const updateFolderNameSchema = z.string().refine((name) => name.trim().length > 0, "Name is required");
+const updateFolderNameSchema = z.string().trim().min(1, "Name is required");
 const folderColorSchema = z.string();
 
 const uniqueIdsSchema = z.array(nonEmptyIdSchema).superRefine((ids, ctx) => {

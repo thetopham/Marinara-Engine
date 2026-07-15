@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Proposed implementation plan; recovery work blocks new travel features
+Status: Active implementation; 1.0.1 recovery shipped, Phase 2 in progress, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -25,6 +25,24 @@ continue toward a simpler runtime world map and player-controlled travel.
 This plan replaces neither the V3 product definition nor the exploratory future
 roadmap. It converts their accepted requirements into cross-repository delivery
 work after the optional-package extraction.
+
+## Implementation status — July 15, 2026
+
+- Incident containment and generic readiness diagnostics landed in
+  [Marinara Engine PR #3644](https://github.com/Pasta-Devs/Marinara-Engine/pull/3644).
+- Hierarchical Maps `1.0.1` and its immutable catalog artifact landed in
+  [Marinara Agents PR #15](https://github.com/Pasta-Devs/Marinara-Agents/pull/15).
+- Engine catalog version direction and downgrade refusal landed in
+  [PR #3649](https://github.com/Pasta-Devs/Marinara-Engine/pull/3649).
+- Phase 2 generic host-contract work is tracked by
+  [Engine issue #3651](https://github.com/Pasta-Devs/Marinara-Engine/issues/3651)
+  and protected draft
+  [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652).
+- Phase 2 package-owned Maps source is tracked separately by
+  [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16).
+
+The compatibility release is usable, but the durable private-source removal and
+the complete V3 proof matrix still block continuation travel features.
 
 ## Current incident
 
@@ -261,7 +279,24 @@ Each phase has its own issue, visible owner, draft pull request, success criteri
 and proof. Engine changes target `staging`. Marinara Agents changes also target its
 development branch according to that repository's contributor workflow.
 
+Cross-repository delivery is mandatory when a package change depends on Engine
+support:
+
+- every Hierarchical Maps source fix, behavior change, version bump, manifest,
+  generated bundle, ZIP, and catalog entry is changed and reviewed only in
+  Marinara Agents;
+- Marinara Engine receives only generic host contracts, inert integration points,
+  compatibility persistence, lifecycle behavior, and fallback UI;
+- keep paired Engine and Agents pull requests in draft until the exact generated
+  artifact passes against the paired Engine branch;
+- land required Engine support before landing or publishing the Agents catalog
+  update;
+- never advertise a package version whose required Engine support has not landed.
+
 ### Phase 0: incident containment and fixtures
+
+Status: Contained by Engine PR #3644 and Marinara Agents PR #15; retain the fixtures
+for later compatibility-suite coverage.
 
 Goal: preserve evidence and user data before changing runtime behavior.
 
@@ -289,6 +324,9 @@ Exit gate:
 - no recovery step requires uninstalling the package.
 
 ### Phase 1: emergency compatibility release 1.0.1
+
+Status: Shipped through Marinara Agents PR #15 with paired Engine readiness support
+from PR #3644. Remaining full V3 manual proof belongs to Phase 3 stabilization.
 
 Goal: restore existing behavior quickly while the durable host API is built.
 
@@ -319,6 +357,9 @@ This is a recovery release, not the final architecture. No continuation feature 
 merge on top of the compatibility shim.
 
 ### Phase 2: capability API v1 and package-owned source release 1.1.0
+
+Status: In progress through Engine issue #3651 and draft PR #3652, paired with
+Marinara Agents issue #16.
 
 Goal: remove the frozen private-source dependency.
 
@@ -354,6 +395,87 @@ Exit gate:
 ### Phase 3: restore the complete V3 owner foundation
 
 Goal: prove that extraction preserved all delivered V3 behavior.
+
+#### P0 release blocker: reconcile Game setup maps
+
+Status: Reproduced against the July 15, 2026 Engine `2.3.0` and Hierarchical Maps
+`1.0.1` runtime. This blocks Phase 3 completion and all continuation travel work.
+
+Current Game setup creates two independent spatial models:
+
+1. `/game/setup` asks the GM setup model for `startingMap`, converts it to the
+   legacy chat `gameMap`, and saves it.
+2. After setup succeeds, the Hierarchical Maps draft route makes a separate model
+   request from setup prose, characters, story context, and optional lore. It does
+   not receive the generated `startingMap` or saved `gameMap` as source material.
+3. Generation then sends both models to the GM. The legacy map appears as
+   `<map_state>`, while the separately drafted hierarchy appears as
+   `<spatial_context authority="application">` and declares itself authoritative.
+
+The live reproduction produced a local map named `The Crownscar` with Embercross,
+Starwood, Rune Chapel, Iron Vein, Sky Anvil, and Architect's Shrine. Its hierarchy
+instead selected `Kingdom of Veyr > Crownward Rise > Waywake Village > Architect's
+Shrine > Waking Vault`; none of the local map or node records had a
+`spatialLocationId`. Both incompatible descriptions were present in the same Peek
+Prompt. This is not merely an editor presentation problem: the model receives two
+location vocabularies, local map updates can mutate only the legacy model, and
+unbound movement can disagree with the canonical spatial snapshot.
+
+Required product contract:
+
+- When Hierarchical Maps is enabled for Game, the hierarchy is the only
+  authoritative world and story-location model.
+- The existing Game `gameMap` remains useful as an optional local or tactical map
+  nested under a bound hierarchical location. It must not act as a second world
+  map.
+- When Hierarchical Maps is disabled or unavailable, legacy `gameMap` generation,
+  prompting, movement, and updates remain unchanged.
+- Existing local maps are user data. Reconciliation must preserve them and must
+  not silently replace, merge, delete, or reinterpret their locations.
+
+Implementation work:
+
+1. Unify Game setup input. Pass the normalized `startingMap` or saved `gameMap` to
+   the hierarchy draft operation, and require the reviewed result to preserve or
+   explicitly place those locations instead of independently inventing a second
+   geography.
+2. Create durable bindings during the reviewed setup commit. Bind the local map to
+   its containing hierarchical location and bind imported nodes or cells to their
+   corresponding stable location IDs where they represent world locations.
+3. Unify prompt semantics. Keep `<spatial_context>` authoritative and label legacy
+   detail as local or tactical context under the current hierarchy location. Never
+   present two independent `Current` locations or imply that both maps own world
+   movement.
+4. Gate map mutations. While hierarchical ownership is active, do not let
+   `[map_update]` create or move world truth only in legacy `gameMap`. Route world
+   changes through hierarchical authoring and history-safe review; permit local
+   tactical updates only when they remain scoped to a bound local map.
+5. Unify movement. Hierarchical transitions change canonical story location.
+   Local movement changes position inside the bound location. Selecting a local
+   node bound to another hierarchical location stages the normal validated spatial
+   transition; an unbound node must remain explicitly local or require binding
+   rather than silently changing world location.
+6. Add a non-destructive reconciliation flow for existing campaigns. Suggest
+   exact normalized-name matches, show unmatched and conflicting locations, and
+   require review before writing bindings. Preserve the original maps and spatial
+   snapshots so the operation can be cancelled or safely retried.
+
+Release-blocking proof:
+
+- A Game setup with both Draft with AI and Hierarchical Maps enabled produces one
+  reviewed world hierarchy that contains or explicitly binds every accepted
+  starting-map location.
+- Normal generation, retry, continuation, swipe, dry run, live Peek Prompt, and
+  cached Peek Prompt expose one authoritative world location and clearly scoped
+  local detail.
+- No world-level generated map update can mutate legacy `gameMap` independently
+  while hierarchical ownership is active.
+- Bound and unbound node or cell movement behave according to the contract on
+  desktop and mobile, across reload and Game checkpoint restore.
+- Enabling Hierarchical Maps in an existing Game offers reviewable reconciliation
+  with no map, binding, snapshot, message, or swipe data loss.
+- Games without an enabled or ready Hierarchical Maps package retain current
+  legacy-map behavior.
 
 Implement and verify these vertical slices:
 

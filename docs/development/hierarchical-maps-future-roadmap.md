@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; not approved implementation scope
+Status: Exploratory future TODO; blocked on recovery Phase 2 and V3 stabilization
 
 Related work:
 
@@ -8,6 +8,13 @@ Related work:
 - [PR #3565](https://github.com/Pasta-Devs/Marinara-Engine/pull/3565) established the first hierarchical-map, spatial-context, and location-lore foundation.
 - [PR #3613](https://github.com/Pasta-Devs/Marinara-Engine/pull/3613) moved hierarchical maps into the optional-agent/package system.
 - [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) governs restoration of the extracted package before this future roadmap continues.
+- [Marinara Engine PR #3644](https://github.com/Pasta-Devs/Marinara-Engine/pull/3644) and
+  [Marinara Agents PR #15](https://github.com/Pasta-Devs/Marinara-Agents/pull/15)
+  shipped the paired 1.0.1 compatibility recovery.
+- [Engine issue #3651](https://github.com/Pasta-Devs/Marinara-Engine/issues/3651),
+  draft [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652), and
+  [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16)
+  track the Phase 2 host contract and package-owned source migration.
 
 ## Purpose
 
@@ -38,7 +45,7 @@ merged diff or revalidating the extracted package:
 | V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                               | Retain only if it proves useful; avoid more generation modes                 |
 | V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                          | Re-evaluate as separate product work rather than automatically continuing V3 |
 | V3 Package G: Connected Conversation         | Not assumed delivered                                          | Re-evaluate after the owner experience proves value                          |
-| Optional-agent extraction                    | In transition through PR #3613                                 | Resolve ownership and package boundaries before feature work                 |
+| Optional-agent extraction                    | 1.0.1 recovery shipped; durable source migration in progress    | Complete package-owned source and cross-repository proof before feature work |
 | Destination routing                          | Local design/helper work exists, but is not a finished feature | Redesign around selectable travel pace before continuing                     |
 
 This roadmap deliberately does not inherit every unfinished V3 package. A later
@@ -68,12 +75,24 @@ package must still justify its user value, size, and maintenance cost.
 
 ## Decision gate 0: settle the optional-package transition
 
-Feature work should wait until the extraction establishes a safe source of truth.
-Documentation and design can continue while that refactor is underway.
+The ownership decision is resolved, while the package-owned source migration is in
+progress. Feature work should still wait until extraction establishes the safe
+source of truth. Documentation and design can continue during that refactor.
 
-Resolve these questions with the maintainer:
+Recorded maintainer decision:
 
-- Is hierarchical maps' canonical source Marinara Engine or Marinara Agents?
+- Marinara Agents is the only implementation and pull-request target for Agent and
+  Hierarchical Maps source, fixes, behavior, versions, manifests, generated
+  bundles, archives, and catalog entries.
+- Marinara Engine owns only generic host contracts, inert integration points,
+  compatibility persistence, lifecycle behavior, and fallback surfaces.
+- A Maps change that depends on Engine support uses paired draft pull requests and
+  exact-artifact proof. Required Engine support lands before the Agents catalog
+  advertises the new package version.
+- Generated package payloads remain artifacts, never editable source of truth.
+
+Resolve the remaining questions with the maintainer:
+
 - Which code remains in Engine as stable host contracts, extension slots, data
   ownership, and compatibility behavior?
 - Which code belongs to the optional package: editor UI, runtime UI, route
@@ -379,9 +398,11 @@ The following ideas remain recorded but are not next-step scope:
 
 ## Suggested delivery order
 
-The order below is a planning sequence, not a single implementation project:
+The order below is a planning sequence, not a single implementation project. Item
+1 is active through Engine draft PR #3652 and Marinara Agents issue #16:
 
-1. Finish the optional-package boundary and identify the canonical source.
+1. Finish the package-owned source migration and exact-artifact compatibility
+   proof in Marinara Agents, with only generic paired host support in Engine.
 2. Stabilize and revalidate the extracted V3 foundation.
 3. Build the shared Roleplay/Game runtime world-map surface.
 4. Implement destination preview and `Travel now` with an explicit history
@@ -398,10 +419,10 @@ Do not begin all numbered items under one issue or pull request.
 
 ## Open questions register
 
-Before implementation, convert the relevant questions into decisions on the
-tracking issue:
+Before dependent implementation, convert the relevant questions into decisions on
+the tracking issue. Canonical source ownership is already resolved in favor of
+Marinara Agents:
 
-- Which repository owns the canonical source and migrations?
 - What remains readable when the optional package is absent?
 - What is the durable history anchor for zero-turn travel?
 - Is the route API a single destination request or an explicit client-proposed

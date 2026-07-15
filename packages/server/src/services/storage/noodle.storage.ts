@@ -27,6 +27,7 @@ import {
   type NoodleSettingsUpdateInput,
 } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
+import { isFileUniqueConstraintError } from "../../db/file-schema.js";
 import {
   noodleAccounts,
   noodleActivityDigests,
@@ -692,17 +693,29 @@ export function createNoodleStorage(db: DB) {
       if (existingToggleInteraction) return existingToggleInteraction;
 
       const id = newId();
-      await db.insert(noodleInteractions).values({
-        id,
-        postId,
-        parentInteractionId,
-        actorAccountId: input.actorAccountId,
-        type: input.type,
-        content: input.content?.trim() || null,
-        imageUrl: input.imageUrl?.trim() || null,
-        actorSnapshot: JSON.stringify(snapshotForAccount(actor)),
-        createdAt: now(),
-      });
+      try {
+        await db.insert(noodleInteractions).values({
+          id,
+          postId,
+          parentInteractionId,
+          actorAccountId: input.actorAccountId,
+          type: input.type,
+          content: input.content?.trim() || null,
+          imageUrl: input.imageUrl?.trim() || null,
+          actorSnapshot: JSON.stringify(snapshotForAccount(actor)),
+          createdAt: now(),
+        });
+      } catch (error) {
+        const toggleKeys = ["postId", "actorAccountId", "type", "parentInteractionId"];
+        if (
+          isToggleInteractionType(input.type) &&
+          isFileUniqueConstraintError(error, "noodle_interactions", toggleKeys)
+        ) {
+          const existing = await readExistingToggleInteraction();
+          if (existing) return existing;
+        }
+        throw error;
+      }
       const rows = await db.select().from(noodleInteractions).where(eq(noodleInteractions.id, id));
       return rows[0] ? mapInteraction(rows[0]) : null;
     },

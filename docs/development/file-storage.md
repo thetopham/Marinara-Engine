@@ -24,6 +24,8 @@ storage/
 
 The fluent `select`, `insert`, `update`, and `delete` API keeps storage services compact while remaining independent of an external database or ORM. Supported filters and ordering are explicit expression objects, so the store never parses query strings.
 
+Tables declare natural keys with `fileTable(..., { uniqueBy: [...] })`. Inserts and updates validate primary and declared natural keys against the complete candidate change before mutating in-memory rows, so a failed constraint leaves the table untouched. A rule may include a `when` predicate when uniqueness applies only to a subset of rows.
+
 Downloaded capability packages may carry their own file-table instances. The store resolves those instances by registered table name after checking object identity, allowing package-owned storage code to use Engine tables safely.
 
 ## Persistence and recovery
@@ -42,10 +44,11 @@ When adding persistent data:
 
 1. Define the table in `packages/server/src/db/schema/` with `fileTable` and the file-native column builders.
 2. Export it from `db/schema/index.ts`.
-3. Register its name in `FILE_BACKED_TABLES`.
-4. Define cascade or set-null relationships in `file-backed-store.ts` when required.
-5. Include JSON-column metadata in `services/mari-db/mari-db.service.ts` when a text field contains structured JSON.
-6. Confirm profile backup and restore behavior.
-7. Run `pnpm check` and the relevant storage regressions.
+3. Declare any natural keys with the `uniqueBy` table option.
+4. Register its name in `FILE_BACKED_TABLES`.
+5. Define cascade or set-null relationships in `file-backed-store.ts` when required.
+6. Include JSON-column metadata in `services/mari-db/mari-db.service.ts` when a text field contains structured JSON.
+7. Confirm profile backup and restore behavior.
+8. Run `pnpm check` and the relevant storage regressions.
 
 Keep table definitions, relation metadata, profile portability, and Mari DB validation aligned in the same change.

@@ -14,6 +14,7 @@ import * as schema from "./schema/index.js";
 import { inArray, isFileCondition, isFileOrdering, type FileCondition, type FileOrdering } from "./file-query.js";
 import {
   getFileTableConfig,
+  FileUniqueConstraintError,
   isFileColumn,
   isFileTable,
   type AnyFileColumn,
@@ -47,6 +48,7 @@ type TableMeta = {
   byKey: Map<string, ColumnMeta>;
   byDbName: Map<string, ColumnMeta>;
   primaryKey: string | null;
+  uniqueConstraints: Array<{ keys: string[]; when?: (row: Row) => boolean }>;
 };
 
 type RowContext = {
@@ -296,7 +298,8 @@ function buildTableMetadata() {
     const table = candidate;
     const name = tableNameOf(table);
     if (!FILE_BACKED_TABLE_SET.has(name)) continue;
-    const columns: ColumnMeta[] = getFileTableConfig(table).columns.map((column) => ({
+    const tableConfig = getFileTableConfig(table);
+    const columns: ColumnMeta[] = tableConfig.columns.map((column) => ({
       key: column.key,
       dbName: column.name,
       column,
@@ -311,7 +314,16 @@ function buildTableMetadata() {
       byKey: new Map(columns.map((column) => [column.key, column])),
       byDbName: new Map(columns.map((column) => [column.dbName, column])),
       primaryKey: columns.find((column) => column.primary)?.key ?? null,
+      uniqueConstraints: tableConfig.uniqueConstraints.map((constraint) => ({
+        keys: [...constraint.keys],
+        when: constraint.when,
+      })),
     };
+    for (const constraint of meta.uniqueConstraints) {
+      if (constraint.keys.length === 0 || constraint.keys.some((key) => !meta.byKey.has(key))) {
+        throw new Error(`[file-storage] Invalid unique key metadata for ${name}: ${constraint.keys.join(", ")}`);
+      }
+    }
     tableMetasByObject.set(table, meta);
     tableMetasByName.set(name, meta);
     for (const column of columns) {
@@ -664,10 +676,34 @@ function normalizeConflictTargets(target: unknown) {
   return targets.map((entry) => getColumnMeta(entry)?.key).filter((entry): entry is string => Boolean(entry));
 }
 
-function findDuplicateIndex(meta: TableMeta, rows: Row[], row: Row, conflictColumns: string[]) {
-  const columns = conflictColumns.length > 0 ? conflictColumns : meta.primaryKey ? [meta.primaryKey] : [];
-  if (columns.length === 0) return -1;
+function findMatchingRowIndex(rows: Row[], row: Row, columns: string[]) {
   return rows.findIndex((existing) => columns.every((column) => existing[column] === row[column]));
+}
+
+function declaredUniqueConstraints(meta: TableMeta) {
+  return [...(meta.primaryKey ? [{ keys: [meta.primaryKey] }] : []), ...meta.uniqueConstraints] as Array<{
+    keys: string[];
+    when?: (row: Row) => boolean;
+  }>;
+}
+
+function findUniqueViolation(meta: TableMeta, rows: Row[], row: Row, excludedIndex = -1) {
+  for (const constraint of declaredUniqueConstraints(meta)) {
+    if (constraint.when && !constraint.when(row)) continue;
+    const duplicateIndex = rows.findIndex(
+      (existing, index) =>
+        index !== excludedIndex &&
+        (!constraint.when || constraint.when(existing)) &&
+        constraint.keys.every((key) => existing[key] === row[key]),
+    );
+    if (duplicateIndex !== -1) return constraint;
+  }
+  return null;
+}
+
+function assertUniqueRow(meta: TableMeta, rows: Row[], row: Row, excludedIndex = -1) {
+  const violation = findUniqueViolation(meta, rows, row, excludedIndex);
+  if (violation) throw new FileUniqueConstraintError(meta.name, violation.keys);
 }
 
 function cloneRow(row: Row) {
@@ -917,27 +953,29 @@ class FileTableStore {
             const conflictColumns = normalizeConflictTargets(onConflict?.target);
             const inputRows = Array.isArray(rows) ? rows : [rows];
             const target = this.rows(meta.name);
-            this.recordTxMutation(meta.name);
+            const nextRows = target.map(cloneRow);
             for (const input of inputRows) {
               const row = prepareInsertRow(meta, input);
-              const duplicateIndex = findDuplicateIndex(meta, target, row, conflictColumns);
-              if (duplicateIndex !== -1) {
-                if (!onConflict) {
-                  const conflictKey = conflictColumns[0] ?? meta.primaryKey ?? "unknown";
-                  throw new Error(
-                    `[file-storage] Duplicate primary key for ${meta.name}.${conflictKey}: ${row[conflictKey]}`,
-                  );
-                }
-                const existing = target[duplicateIndex]!;
+              const conflictKeys =
+                conflictColumns.length > 0 ? conflictColumns : meta.primaryKey ? [meta.primaryKey] : [];
+              const duplicateIndex = onConflict ? findMatchingRowIndex(nextRows, row, conflictKeys) : -1;
+              if (onConflict && duplicateIndex !== -1) {
+                const existing = nextRows[duplicateIndex]!;
                 const ctx = this.contextForRow(meta, existing);
+                const candidate = cloneRow(existing);
                 for (const [key, value] of Object.entries(onConflict.set)) {
                   const column = meta.byKey.get(key) ?? meta.byDbName.get(key);
-                  existing[column?.key ?? key] = resolveValue(value, ctx);
+                  candidate[column?.key ?? key] = resolveValue(value, ctx);
                 }
+                assertUniqueRow(meta, nextRows, candidate, duplicateIndex);
+                nextRows[duplicateIndex] = candidate;
               } else {
-                target.push(row);
+                assertUniqueRow(meta, nextRows, row);
+                nextRows.push(row);
               }
             }
+            this.recordTxMutation(meta.name);
+            this.tables.set(meta.name, nextRows);
             this.markDirty(meta.name);
           });
         const builder = runInsert() as InsertValuesBuilder;
@@ -954,20 +992,26 @@ class FileTableStore {
         const runUpdate = (condition?: Condition) =>
           executable(async () => {
             const target = this.rows(meta.name);
-            let changed = false;
-            target.forEach((row) => {
+            const changedIndexes: number[] = [];
+            const nextRows = target.map((row, index) => {
               const ctx = this.contextForRow(meta, row);
-              if (!evaluateCondition(condition, ctx)) return;
-              // Snapshot lazily, just before the first actual row mutation, so an
-              // update whose WHERE matches nothing never clones the table.
-              this.recordTxMutation(meta.name);
+              if (!evaluateCondition(condition, ctx)) return row;
+              const candidate = cloneRow(row);
               for (const [key, value] of Object.entries(patch)) {
                 const column = meta.byKey.get(key) ?? meta.byDbName.get(key);
-                row[column?.key ?? key] = resolveValue(value, ctx);
+                candidate[column?.key ?? key] = resolveValue(value, ctx);
               }
-              changed = true;
+              changedIndexes.push(index);
+              return candidate;
             });
-            if (changed) this.markDirty(meta.name);
+            if (changedIndexes.length > 0) {
+              for (const index of changedIndexes) {
+                assertUniqueRow(meta, nextRows, nextRows[index]!, index);
+              }
+              this.recordTxMutation(meta.name);
+              this.tables.set(meta.name, nextRows);
+              this.markDirty(meta.name);
+            }
           });
         const builder = runUpdate() as UpdateWhereBuilder;
         builder.where = (condition) => runUpdate(condition);

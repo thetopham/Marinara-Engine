@@ -32,17 +32,28 @@ export const noodlePosts = fileTable("noodle_posts", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const noodleInteractions = fileTable("noodle_interactions", {
-  id: text("id").primaryKey(),
-  postId: text("post_id").notNull(),
-  parentInteractionId: text("parent_interaction_id"),
-  actorAccountId: text("actor_account_id").notNull(),
-  type: text("type").notNull(),
-  content: text("content"),
-  imageUrl: text("image_url"),
-  actorSnapshot: text("actor_snapshot").notNull().default("{}"),
-  createdAt: text("created_at").notNull(),
-});
+export const noodleInteractions = fileTable(
+  "noodle_interactions",
+  {
+    id: text("id").primaryKey(),
+    postId: text("post_id").notNull(),
+    parentInteractionId: text("parent_interaction_id"),
+    actorAccountId: text("actor_account_id").notNull(),
+    type: text("type").notNull(),
+    content: text("content"),
+    imageUrl: text("image_url"),
+    actorSnapshot: text("actor_snapshot").notNull().default("{}"),
+    createdAt: text("created_at").notNull(),
+  },
+  {
+    uniqueBy: [
+      {
+        keys: ["postId", "actorAccountId", "type", "parentInteractionId"],
+        when: (row) => row.type === "like" || row.type === "repost",
+      },
+    ],
+  },
+);
 
 export const noodleActivityDigests = fileTable("noodle_activity_digests", {
   id: text("id").primaryKey(),

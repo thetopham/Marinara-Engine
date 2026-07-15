@@ -12,6 +12,7 @@ import {
   PROFESSOR_MARI_ID,
 } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
+import { isFileUniqueConstraintError } from "../../db/file-schema.js";
 import { achievementUnlocks, characters, chats, lorebooks, personas } from "../../db/schema/index.js";
 import { now } from "../../utils/id-generator.js";
 
@@ -59,14 +60,6 @@ function collectMetricUnlockIds(counts: AchievementCounts) {
   });
 }
 
-function isDuplicateUnlockError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("duplicate primary key") || (message.includes("unique") && message.includes("achievement_unlocks"))
-  );
-}
-
 export function createAchievementsService(db: DB) {
   async function readUnlockRows() {
     return (await db.select().from(achievementUnlocks)) as AchievementUnlockRow[];
@@ -107,7 +100,7 @@ export function createAchievementsService(db: DB) {
         await db.insert(achievementUnlocks).values(row);
         newlyUnlockedRows.push(row);
       } catch (error) {
-        if (!isDuplicateUnlockError(error)) throw error;
+        if (!isFileUniqueConstraintError(error, "achievement_unlocks", ["id"])) throw error;
       }
     }
 

@@ -55,14 +55,34 @@ export type FileInsert<TColumns extends FileColumns> = {
   [TKey in OptionalInsertKeys<TColumns>]?: ColumnValue<TColumns[TKey]>;
 };
 
+export type FileUniqueRule<TColumns extends FileColumns> = {
+  keys: readonly (keyof TColumns & string)[];
+  when?: (row: FileRow<TColumns>) => boolean;
+};
+
+export type FileTableOptions<TColumns extends FileColumns> = {
+  uniqueBy?: readonly (readonly (keyof TColumns & string)[] | FileUniqueRule<TColumns>)[];
+};
+
+export type FileUniqueConstraint = {
+  keys: readonly string[];
+  when?: (row: Record<string, unknown>) => boolean;
+};
+
+type FileTableMetadata<TColumns extends FileColumns = FileColumns> = {
+  name: string;
+  columns: TColumns;
+  uniqueConstraints: readonly FileUniqueConstraint[];
+};
+
 export type FileTable<TColumns extends FileColumns = FileColumns> = TColumns & {
-  readonly [FILE_TABLE_META]: { name: string; columns: TColumns };
+  readonly [FILE_TABLE_META]: FileTableMetadata<TColumns>;
   readonly $inferSelect: FileRow<TColumns>;
   readonly $inferInsert: FileInsert<TColumns>;
 };
 
 export type AnyFileTable = {
-  readonly [FILE_TABLE_META]: { name: string; columns: FileColumns };
+  readonly [FILE_TABLE_META]: FileTableMetadata;
   readonly $inferSelect: any;
   readonly $inferInsert: any;
 };
@@ -129,9 +149,24 @@ export function real(name: string): FileColumn<number, false, false> {
   return column<number>(name);
 }
 
-export function fileTable<TColumns extends FileColumns>(name: string, columns: TColumns): FileTable<TColumns> {
+export function fileTable<TColumns extends FileColumns>(
+  name: string,
+  columns: TColumns,
+  options: FileTableOptions<TColumns> = {},
+): FileTable<TColumns> {
   const table = { ...columns } as FileTable<TColumns>;
-  Object.defineProperty(table, FILE_TABLE_META, { value: { name, columns }, enumerable: false });
+  const uniqueConstraints = (options.uniqueBy ?? []).map((constraint): FileUniqueConstraint => {
+    if (Array.isArray(constraint)) return { keys: [...constraint] };
+    const rule = constraint as FileUniqueRule<TColumns>;
+    return {
+      keys: [...rule.keys],
+      when: rule.when as ((row: Record<string, unknown>) => boolean) | undefined,
+    };
+  });
+  Object.defineProperty(table, FILE_TABLE_META, {
+    value: { name, columns, uniqueConstraints },
+    enumerable: false,
+  });
 
   for (const [key, definition] of Object.entries(columns)) {
     definition.key = key;
@@ -150,5 +185,33 @@ export function isFileColumn(value: unknown): value is AnyFileColumn {
 
 export function getFileTableConfig(table: AnyFileTable) {
   const metadata = table[FILE_TABLE_META];
-  return { name: metadata.name, columns: Object.values(metadata.columns) as AnyFileColumn[] };
+  return {
+    name: metadata.name,
+    columns: Object.values(metadata.columns) as AnyFileColumn[],
+    uniqueConstraints: metadata.uniqueConstraints ?? [],
+  };
+}
+
+export class FileUniqueConstraintError extends Error {
+  readonly code = "FILE_UNIQUE_CONSTRAINT";
+
+  constructor(
+    readonly table: string,
+    readonly keys: readonly string[],
+  ) {
+    super(`[file-storage] Unique value already exists for ${table}.${keys.join("+")}`);
+    this.name = "FileUniqueConstraintError";
+  }
+}
+
+export function isFileUniqueConstraintError(
+  error: unknown,
+  table?: string,
+  keys?: readonly string[],
+): error is FileUniqueConstraintError {
+  if (!(error instanceof FileUniqueConstraintError)) return false;
+  if (table !== undefined && error.table !== table) return false;
+  return (
+    keys === undefined || (keys.length === error.keys.length && keys.every((key, index) => error.keys[index] === key))
+  );
 }

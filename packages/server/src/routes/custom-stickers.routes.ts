@@ -12,6 +12,7 @@ import { DATA_DIR } from "../utils/data-dir.js";
 import { assertInsideDir } from "../utils/security.js";
 import { readImageDimensionsFromBuffer, readImageDimensionsFromFile } from "../utils/image-metadata.js";
 import { logger } from "../lib/logger.js";
+import { isFileUniqueConstraintError } from "../db/file-schema.js";
 import {
   CUSTOM_STICKER_NAME_PATTERN,
   CUSTOM_STICKER_MAX_DIMENSION,
@@ -64,12 +65,7 @@ function dimensionTooLarge(value: number | null): boolean {
 }
 
 function isUniqueNameError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("duplicate primary key") ||
-    (message.includes("unique") && message.includes("custom_stickers") && message.includes("name"))
-  );
+  return isFileUniqueConstraintError(error, "custom_stickers", ["name"]);
 }
 
 export async function customStickersRoutes(app: FastifyInstance) {

@@ -12,6 +12,7 @@ import { DATA_DIR } from "../utils/data-dir.js";
 import { assertInsideDir } from "../utils/security.js";
 import { readImageDimensionsFromBuffer, readImageDimensionsFromFile } from "../utils/image-metadata.js";
 import { logger } from "../lib/logger.js";
+import { isFileUniqueConstraintError } from "../db/file-schema.js";
 import {
   CUSTOM_EMOJI_NAME_PATTERN,
   CUSTOM_EMOJI_MAX_DIMENSION,
@@ -64,12 +65,7 @@ function dimensionTooLarge(value: number | null): boolean {
 }
 
 function isUniqueNameError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("duplicate primary key") ||
-    (message.includes("unique") && message.includes("custom_emojis") && message.includes("name"))
-  );
+  return isFileUniqueConstraintError(error, "custom_emojis", ["name"]);
 }
 
 export async function customEmojisRoutes(app: FastifyInstance) {
@@ -124,11 +120,9 @@ export async function customEmojisRoutes(app: FastifyInstance) {
     }
     if (dimensionTooLarge(width) || dimensionTooLarge(height)) {
       cleanup();
-      return reply
-        .status(400)
-        .send({
-          error: `Custom emojis must be at most ${CUSTOM_EMOJI_MAX_DIMENSION}x${CUSTOM_EMOJI_MAX_DIMENSION}px.`,
-        });
+      return reply.status(400).send({
+        error: `Custom emojis must be at most ${CUSTOM_EMOJI_MAX_DIMENSION}x${CUSTOM_EMOJI_MAX_DIMENSION}px.`,
+      });
     }
     try {
       const dimensions = await readImageDimensionsFromFile(filePath);
@@ -141,11 +135,9 @@ export async function customEmojisRoutes(app: FastifyInstance) {
     }
     if (dimensionTooLarge(width) || dimensionTooLarge(height)) {
       cleanup();
-      return reply
-        .status(400)
-        .send({
-          error: `Custom emojis must be at most ${CUSTOM_EMOJI_MAX_DIMENSION}x${CUSTOM_EMOJI_MAX_DIMENSION}px.`,
-        });
+      return reply.status(400).send({
+        error: `Custom emojis must be at most ${CUSTOM_EMOJI_MAX_DIMENSION}x${CUSTOM_EMOJI_MAX_DIMENSION}px.`,
+      });
     }
     if (await storage.getByName(name)) {
       cleanup();

@@ -33,23 +33,31 @@ export const lorebooks = fileTable("lorebooks", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const lorebookCharacterLinks = fileTable("lorebook_character_links", {
-  id: text("id").primaryKey(),
-  lorebookId: text("lorebook_id")
-    .notNull()
-    .references(() => lorebooks.id, { onDelete: "cascade" }),
-  characterId: text("character_id").notNull(),
-  createdAt: text("created_at").notNull(),
-});
+export const lorebookCharacterLinks = fileTable(
+  "lorebook_character_links",
+  {
+    id: text("id").primaryKey(),
+    lorebookId: text("lorebook_id")
+      .notNull()
+      .references(() => lorebooks.id, { onDelete: "cascade" }),
+    characterId: text("character_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  { uniqueBy: [["lorebookId", "characterId"]] },
+);
 
-export const lorebookPersonaLinks = fileTable("lorebook_persona_links", {
-  id: text("id").primaryKey(),
-  lorebookId: text("lorebook_id")
-    .notNull()
-    .references(() => lorebooks.id, { onDelete: "cascade" }),
-  personaId: text("persona_id").notNull(),
-  createdAt: text("created_at").notNull(),
-});
+export const lorebookPersonaLinks = fileTable(
+  "lorebook_persona_links",
+  {
+    id: text("id").primaryKey(),
+    lorebookId: text("lorebook_id")
+      .notNull()
+      .references(() => lorebooks.id, { onDelete: "cascade" }),
+    personaId: text("persona_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  { uniqueBy: [["lorebookId", "personaId"]] },
+);
 
 /**
  * Lorebook folders — collapsible containers that group entries to reduce

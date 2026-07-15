@@ -31,7 +31,15 @@ type CapabilityModule = {
 };
 
 async function runCleanups(cleanups: Cleanup[]): Promise<void> {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  let firstError: unknown;
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    try {
+      await cleanup();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  if (firstError) throw firstError;
 }
 
 class CapabilityModuleRuntime {
@@ -74,8 +82,14 @@ class CapabilityModuleRuntime {
       const module = (await import(pathToFileURL(serverEntrypoint).href)) as CapabilityModule;
       if (typeof module.activate !== "function") throw new Error("Server entrypoint must export activate(context)");
       const trackCleanup = (cleanup: Cleanup) => {
-        registeredCleanups.push(cleanup);
-        return cleanup;
+        let called = false;
+        const guardedCleanup = () => {
+          if (called) return;
+          called = true;
+          return cleanup();
+        };
+        registeredCleanups.push(guardedCleanup);
+        return guardedCleanup;
       };
       const context: CapabilityActivationContext = {
         app,

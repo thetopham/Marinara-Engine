@@ -84,6 +84,12 @@ import {
   isAutonomousDailyBudgetExhausted,
 } from "../../packages/server/src/services/conversation/autonomous.service.js";
 import type { WeekSchedule } from "../../packages/server/src/services/conversation/schedule.service.js";
+import { resolveGroupGenerationMode } from "../../packages/server/src/routes/generate/generate-route-utils.js";
+
+assert.equal(resolveGroupGenerationMode("conversation", "individual"), "merged");
+assert.equal(resolveGroupGenerationMode("conversation", "merged"), "merged");
+assert.equal(resolveGroupGenerationMode("roleplay", "individual"), "individual");
+assert.equal(resolveGroupGenerationMode("roleplay", "merged"), "merged");
 
 const minimalProfessorMariPersona = buildPersonaCreateRow(
   { name: "Minimal helper persona" },

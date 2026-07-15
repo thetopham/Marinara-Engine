@@ -207,6 +207,7 @@ import {
   resolveActiveCharacterIds,
   resolveActivePersonaCandidate,
   resolveBaseUrl,
+  resolveGroupGenerationMode,
   resolveRoleplaySummaryTail,
   resolveCharacterNameMap,
   resolvePromptCharacterIdsForTarget,
@@ -410,7 +411,6 @@ import {
   type ConversationProfileParticipant,
 } from "../services/conversation/conversation-profiles.js";
 import {
-  isStandaloneCharacterProfileBlock,
   scopeIndividualGroupMessagesForTarget,
   type GenerationPromptMessage,
 } from "../services/generation/prompt-message-scope.js";
@@ -1534,12 +1534,7 @@ export async function generateRoutes(app: FastifyInstance) {
             }
           });
         const promptGroupResponseOrder = (chatMeta.groupResponseOrder as string) ?? "sequential";
-        const promptGroupChatMode =
-          chatMode === "conversation"
-            ? promptGroupResponseOrder === "manual"
-              ? "individual"
-              : "merged"
-            : ((chatMeta.groupChatMode as string) ?? "merged");
+        const promptGroupChatMode = resolveGroupGenerationMode(chatMode, chatMeta.groupChatMode);
         const promptTargetCharacterId =
           typeof input.forCharacterId === "string" && characterIds.includes(input.forCharacterId)
             ? input.forCharacterId
@@ -2055,13 +2050,7 @@ export async function generateRoutes(app: FastifyInstance) {
               ? resolvePresetModePrompt(resolvedPreset as Record<string, unknown>, "conversation")
               : "";
 
-          const earlyGroupResponseOrder = (chatMeta.groupResponseOrder as string) ?? "sequential";
-          const earlyGroupMode =
-            chatMode === "conversation"
-              ? earlyGroupResponseOrder === "manual"
-                ? "individual"
-                : "merged"
-              : ((chatMeta.groupChatMode as string) ?? "merged");
+          const earlyGroupMode = resolveGroupGenerationMode(chatMode, chatMeta.groupChatMode);
           const conversationPromptTemplate =
             customPrompt ?? (selectedConversationPrompt || DEFAULT_CONVERSATION_PROMPT);
           identityFallbackPromptTemplateSources.push(conversationPromptTemplate);
@@ -2958,14 +2947,7 @@ export async function generateRoutes(app: FastifyInstance) {
         // ── Group chat processing ──
         const isGroupChat = characterIds.length > 1;
         const groupResponseOrder = (chatMeta.groupResponseOrder as string) ?? "sequential";
-        // Conversation mode stays merged by default, but Manual uses the same individual
-        // one-character-at-a-time trigger path as roleplay.
-        const groupChatMode =
-          chatMode === "conversation"
-            ? groupResponseOrder === "manual"
-              ? "individual"
-              : "merged"
-            : ((chatMeta.groupChatMode as string) ?? "merged");
+        const groupChatMode = resolveGroupGenerationMode(chatMode, chatMeta.groupChatMode);
         // Auto-enable speaker colors for conversation mode groups (system prompt already requests tags)
         const groupSpeakerColors = chatMeta.groupSpeakerColors === true || (chatMode === "conversation" && isGroupChat);
         const groupTurnPromptEnabled = chatMeta.groupTurnPromptEnabled !== false;
@@ -4454,16 +4436,6 @@ export async function generateRoutes(app: FastifyInstance) {
           return chatMode === "conversation" ? "another group member" : "the narrator";
         };
 
-        const latestVisibleSenderOtherThan = (targetCharId: string): string | null => {
-          for (let i = chatMessages.length - 1; i >= 0; i--) {
-            const message = chatMessages[i]!;
-            if (message.role !== "user" && message.role !== "assistant") continue;
-            if (message.role === "assistant" && message.characterId === targetCharId) continue;
-            return resolveMessageSpeakerName(message);
-          }
-          return null;
-        };
-
         const getExplicitlyMentionedCharacterIds = (): string[] => {
           const latestUserText =
             typeof input.userMessage === "string" && input.userMessage.trim()
@@ -4632,8 +4604,7 @@ export async function generateRoutes(app: FastifyInstance) {
         // ── Determine characters to generate for ──
         // Individual group mode: each character responds separately
         // Merged/single: one generation for the first (or mentioned) character
-        const usesIndividualGroupGeneration =
-          groupChatMode === "individual" || (chatMode === "conversation" && groupResponseOrder === "sequential");
+        const usesIndividualGroupGeneration = groupChatMode === "individual";
         const useIndividualLoop =
           isGroupChat && usesIndividualGroupGeneration && !input.regenerateMessageId && !input.impersonate;
         const regenGroupChatIndividual = isGroupChat && usesIndividualGroupGeneration && input.regenerateMessageId;
@@ -6010,46 +5981,8 @@ export async function generateRoutes(app: FastifyInstance) {
         // are declared above the follow-up loop so they survive iterations.)
 
         const generationGuideInstruction = buildGenerationGuideInstruction(input.generationGuide, promptMacroContext);
-        const filterTargetProfileBlocks = (messages: typeof finalMessages, targetCharId: string) => {
-          if (chatMode !== "conversation") return messages;
-          const otherNames = charInfo.filter((c) => c.id !== targetCharId).map((c) => c.name);
-          if (otherNames.length === 0) return messages;
-          return messages.filter((message) => {
-            if (message.role !== "system") return true;
-            return !otherNames.some((name) => isStandaloneCharacterProfileBlock(message.content, name));
-          });
-        };
-        const buildCharacterInstruction = (charId: string, charName: string) => {
-          if (chatMode !== "conversation") {
-            return groupTurnPromptEnabled ? `Respond ONLY as ${charName}.` : null;
-          }
-          if (groupResponseOrder !== "manual") {
-            const otherNames = charInfo
-              .filter((character) => character.id !== charId)
-              .map((character) => character.name);
-            return [
-              `Respond ONLY as ${charName}.`,
-              `Your entire answer is ${charName}'s next message only.`,
-              `Do not write dialogue, narration, labels, or actions for anyone except ${charName}.`,
-              otherNames.length > 0
-                ? `Forbidden speaker labels for this turn: ${otherNames.join(", ")}. Do not start any line with those names.`
-                : null,
-              `If another character should react, stop after ${charName}'s message and let their own turn handle it.`,
-            ]
-              .filter(Boolean)
-              .join("\n");
-          }
-          const latestOtherSender = latestVisibleSenderOtherThan(charId);
-          return [
-            `Respond ONLY as ${charName}.`,
-            `This is an invisible manual trigger, not a visible message from ${personaName}. Do not mention being pinged, summoned, selected, or called by the user.`,
-            latestOtherSender
-              ? `Reply naturally to the latest visible sender other than yourself: ${latestOtherSender}.`
-              : `Reply naturally to the ongoing group context.`,
-            `If your own previous message is the most relevant last beat, continue naturally instead of answering the hidden trigger as if it came from ${personaName}.`,
-            `You may address ${personaName} or another character if that is what the context calls for, but do not speak or act for them.`,
-          ].join("\n");
-        };
+        const buildCharacterInstruction = (charName: string) =>
+          groupTurnPromptEnabled ? `Respond ONLY as ${charName}.` : null;
 
         if (useIndividualLoop) {
           // Individual group mode: generate one response per character
@@ -6071,8 +6004,8 @@ export async function generateRoutes(app: FastifyInstance) {
             );
 
             // Append "Respond ONLY as [name]" instruction
-            const charInstruction = buildCharacterInstruction(charId, charName);
-            const messagesWithInstruction = [...filterTargetProfileBlocks(runningMessages, charId)];
+            const charInstruction = buildCharacterInstruction(charName);
+            const messagesWithInstruction = [...runningMessages];
             // Add as a system message at the end (just before any trailing user message)
             if (charInstruction) {
               messagesWithInstruction.push({ role: "system", content: charInstruction });
@@ -6164,7 +6097,7 @@ export async function generateRoutes(app: FastifyInstance) {
             targetCharId = regenMsg?.characterId ?? null;
             const targetCharName = charInfo.find((c) => c.id === targetCharId)?.name ?? "Character";
             const charInstruction = targetCharId
-              ? buildCharacterInstruction(targetCharId, targetCharName)
+              ? buildCharacterInstruction(targetCharName)
               : groupTurnPromptEnabled
                 ? `Respond ONLY as ${targetCharName}.`
                 : null;

@@ -203,7 +203,7 @@ export function groupConsecutiveSegments(segments: SpeakerSegment[]): GroupedSeg
  * lines can still render as individual message bubbles.
  */
 export function splitGroupedSegmentDisplayLines(segment: GroupedSegment): string[] {
-  return segment.lines.flatMap((chunk) => chunk.split("\n")).filter((line) => line.trim().length > 0);
+  return segment.lines.flatMap((chunk) => chunk.split(/\r?\n/)).filter((line) => line.trim().length > 0);
 }
 
 /**

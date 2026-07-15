@@ -279,6 +279,10 @@ assert.deepEqual(splitGroupedSegmentDisplayLines(inheritedGroupConversationSegme
   "so anyway",
   "i was thinking about that",
 ]);
+assert.deepEqual(
+  splitGroupedSegmentDisplayLines({ ...inheritedGroupConversationSegments![0]!, lines: ["so anyway\r\nstill thinking"] }),
+  ["so anyway", "still thinking"],
+);
 const annotatedPartiallyPrefixedReply = annotateContentWithReactions(
   partiallyPrefixedConversationReply,
   partiallyPrefixedConversationReply,

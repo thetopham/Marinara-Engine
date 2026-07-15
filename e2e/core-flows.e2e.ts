@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 const TRANSPARENT_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+const WHATS_NEW_SEEN_VERSION_KEY = "marinara:whats-new:seen-version";
+const WHATS_NEW_E2E_BYPASS_KEY = "marinara:e2e:show-whats-new";
+const APP_VERSION = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+).version;
 
 function collectUnexpectedErrors(page: Page) {
   const errors: string[] = [];
@@ -15,7 +21,10 @@ function collectUnexpectedErrors(page: Page) {
 }
 
 async function prepareFreshClient(page: Page) {
-  await page.addInitScript(() => {
+  await page.addInitScript((appVersion) => {
+    if (sessionStorage.getItem("marinara:e2e:show-whats-new") !== "true") {
+      localStorage.setItem("marinara:whats-new:seen-version", appVersion);
+    }
     if (localStorage.getItem("marinara-engine-ui")) return;
     localStorage.setItem(
       "marinara-engine-ui",
@@ -28,7 +37,7 @@ async function prepareFreshClient(page: Page) {
         version: 65,
       }),
     );
-  });
+  }, APP_VERSION);
 }
 
 async function expectHomeContentFits(page: Page) {
@@ -48,6 +57,44 @@ async function expectHomeContentFits(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await prepareFreshClient(page);
+});
+
+test("What's New opens once for each Marinara Engine version", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(
+    ({ bypassKey, seenKey }) => {
+      sessionStorage.setItem(bypassKey, "true");
+      localStorage.removeItem(seenKey);
+    },
+    { bypassKey: WHATS_NEW_E2E_BYPASS_KEY, seenKey: WHATS_NEW_SEEN_VERSION_KEY },
+  );
+  await page.reload();
+
+  const announcement = page.getByRole("dialog", { name: "What's New?" });
+  await expect(announcement).toBeVisible();
+  await expect(announcement.getByText(`Version ${APP_VERSION}`)).toBeVisible();
+  await expect(announcement.getByText("Hierarchical Maps")).toBeVisible();
+  await expect(announcement.getByText("NoodleR")).toBeVisible();
+  await expect(announcement.getByRole("link", { name: "View release" })).toHaveAttribute(
+    "href",
+    `https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v${APP_VERSION}`,
+  );
+
+  await expect
+    .poll(() => page.evaluate((key) => localStorage.getItem(key), WHATS_NEW_SEEN_VERSION_KEY))
+    .toBe(APP_VERSION);
+  await announcement.getByRole("button", { name: "Got it" }).click();
+  await expect(announcement).toBeHidden();
+
+  await page.reload();
+  await expect(announcement).toBeHidden();
+
+  await page.evaluate(({ key, previousVersion }) => localStorage.setItem(key, previousVersion), {
+    key: WHATS_NEW_SEEN_VERSION_KEY,
+    previousVersion: "2.2.1",
+  });
+  await page.reload();
+  await expect(announcement).toBeVisible();
 });
 
 test("initial Roleplay character assignment does not block greeting seeding", async ({ request }, testInfo) => {
@@ -771,7 +818,9 @@ test("Card Browser labels and the Persona full library stay available across vie
   await expect(page.getByText("Persona Library", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Browse your personas" })).toBeVisible();
   await expect(page.getByRole("button", { name: "New persona" })).toBeVisible();
-  await expect(page.locator('[data-component="CharacterLibraryView"]').getByPlaceholder("Search personas")).toBeVisible();
+  await expect(
+    page.locator('[data-component="CharacterLibraryView"]').getByPlaceholder("Search personas"),
+  ).toBeVisible();
   await expect(page.locator('[data-tour="panel-personas"]')).toHaveClass(/mari-topbar-panel-icon--active/);
   await expect(page.locator('[data-tour="panel-characters"]')).not.toHaveClass(/bg-\[var\(--accent\)\]/);
   expect(errors).toEqual([]);
@@ -864,7 +913,7 @@ test("downloadable agent catalog is usable on desktop and mobile", async ({ page
 
   await page.locator('[data-tour="panel-agents"]').click();
   await expect(page.getByText("No Agents installed yet, click Download Agents to add them!")).toBeVisible();
-  await page.getByRole("button", { name: "Download Agents" }).click();
+  await page.getByLabel("Agents").getByRole("button", { name: "Download Agents", exact: true }).click();
 
   const catalogView = page.locator('[data-component="AgentCatalogView"]');
   if (testInfo.project.name.includes("mobile")) {
@@ -898,6 +947,107 @@ test("downloadable agent catalog is usable on desktop and mobile", async ({ page
     "https://github.com/Pasta-Devs/Marinara-Agents#uno",
   );
   await expect(catalogView.getByRole("button", { name: "Install", exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Music Player links to Music DJ while its package is unavailable", async ({ page }) => {
+  const errors = collectUnexpectedErrors(page);
+  let musicDjInstalled = false;
+  const musicDjManifest = {
+    schemaVersion: 1,
+    id: "spotify",
+    name: "Music DJ",
+    version: "1.0.0",
+    description: "Matches scene mood with Spotify, YouTube, or local music.",
+    engine: { min: "2.3.0", maxExclusive: "3.0.0" },
+    kind: ["agent"],
+    entrypoints: { agents: "agents.json" },
+    files: [],
+    permissions: ["agent-runtime", "chat-read", "prompt-context", "ui"],
+    restartRequired: false,
+  };
+  await page.route("**/api/capability-packages/installed", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        musicDjInstalled
+          ? [
+              {
+                id: "spotify",
+                version: "1.0.0",
+                manifest: musicDjManifest,
+                installedAt: "2026-07-15T00:00:00.000Z",
+                status: "active",
+                error: null,
+                legacy: false,
+              },
+            ]
+          : [],
+      ),
+    });
+  });
+  await page.route("**/api/capability-packages/catalog", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: 1,
+        generatedAt: "2026-07-15T00:00:00.000Z",
+        packages: [
+          {
+            category: "misc",
+            manifest: musicDjManifest,
+            artifact: { url: "https://example.com/spotify.zip", sha256: "a".repeat(64), bytes: 2048 },
+          },
+        ],
+      }),
+    });
+  });
+
+  const openMusicPlayerSetting = async () => {
+    await page.locator('[data-tour="panel-settings"]').click();
+    const row = page.locator("#settings-control-music-player");
+    await expect(row).toBeVisible();
+    return row;
+  };
+  const expandUnavailablePlayer = async () => {
+    const openPrompt = page.getByRole("button", { name: "Open Music DJ download prompt" });
+    if (await openPrompt.isVisible()) await openPrompt.click();
+  };
+
+  await page.goto("/");
+  let unavailablePlayer = page.locator('[data-component="MusicDjUnavailablePlayer"]');
+  await expect(unavailablePlayer).toBeVisible();
+  await expandUnavailablePlayer();
+  await expect(unavailablePlayer.getByText("Download Music DJ Agent to configure", { exact: true })).toBeVisible();
+  let musicPlayerRow = await openMusicPlayerSetting();
+  const musicPlayerToggle = musicPlayerRow.locator('input[type="checkbox"]');
+  await expect(musicPlayerToggle).toHaveCount(1);
+  await expect(musicPlayerToggle).toBeChecked();
+  await musicPlayerRow.getByText("Music Player", { exact: true }).click();
+  await expect(musicPlayerToggle).not.toBeChecked();
+  await expect(page.locator('[data-component="MusicDjUnavailablePlayer"]')).toHaveCount(0);
+  await musicPlayerRow.getByText("Music Player", { exact: true }).click();
+  await expect(musicPlayerToggle).toBeChecked();
+  unavailablePlayer = page.locator('[data-component="MusicDjUnavailablePlayer"]');
+  await expect(unavailablePlayer).toBeVisible();
+  await expandUnavailablePlayer();
+
+  musicDjInstalled = true;
+  await page.reload();
+  await expect(page.locator('[data-component="MusicDjUnavailablePlayer"]')).toHaveCount(0);
+  musicPlayerRow = await openMusicPlayerSetting();
+  await expect(musicPlayerRow.locator('input[type="checkbox"]')).toHaveCount(1);
+
+  musicDjInstalled = false;
+  await page.reload();
+  unavailablePlayer = page.locator('[data-component="MusicDjUnavailablePlayer"]');
+  await expect(unavailablePlayer).toBeVisible();
+  await expandUnavailablePlayer();
+  await unavailablePlayer.getByRole("button", { name: "Download Agents" }).click();
+  await expect(page.locator('[data-component="AgentCatalogView"]')).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Download Agents" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -1460,6 +1610,11 @@ test("Conversation setup commands follow the installed agent library", async ({ 
   const beforeResponse = await request.get("/api/chats");
   const beforeChats = (await beforeResponse.json()) as Array<{ id: string }>;
   const existingChatIds = new Set(beforeChats.map((chat) => chat.id));
+  const connectionResponse = await request.post("/api/connections", {
+    data: { name: `Conversation Setup Smoke ${Date.now()}`, provider: "custom" },
+  });
+  expect(connectionResponse.ok()).toBeTruthy();
+  const connection = (await connectionResponse.json()) as { id: string };
   let illustratorInstalled = false;
   const illustratorManifest = {
     id: "illustrator",
@@ -1514,8 +1669,14 @@ test("Conversation setup commands follow the installed agent library", async ({ 
       (response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/chats",
     );
     await newConversationButton.evaluate((button: HTMLButtonElement) => button.click());
+    const connectionGate = page.getByRole("heading", { name: "Set Up Conversation", exact: true });
+    const wizardHeading = page.getByRole("heading", { name: "New Conversation", exact: true });
+    await expect(connectionGate.or(wizardHeading)).toBeVisible();
+    if (await connectionGate.isVisible()) {
+      await page.getByRole("button", { name: "Create Chat", exact: true }).click();
+    }
     expect((await chatCreated).ok()).toBeTruthy();
-    await expect(page.getByRole("heading", { name: "New Conversation", exact: true })).toBeVisible();
+    await expect(wizardHeading).toBeVisible();
     const nextButton = page.getByRole("button", { name: "Next", exact: true });
     await nextButton.click();
     await nextButton.click();
@@ -1531,7 +1692,8 @@ test("Conversation setup commands follow the installed agent library", async ({ 
     await expect(page.getByText("Memories", { exact: true })).toBeVisible();
     await expect(page.getByText("Selfies", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Calls", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Download Agents", exact: true })).toBeVisible();
+    let setupWizard = page.getByRole("heading", { name: "New Conversation", exact: true }).locator("../..");
+    await expect(setupWizard.getByRole("button", { name: "Download Agents", exact: true })).toBeVisible();
 
     illustratorInstalled = true;
     await page.reload();
@@ -1539,7 +1701,8 @@ test("Conversation setup commands follow the installed agent library", async ({ 
     await expect(page.getByText("Schedule Updates", { exact: true })).toBeVisible();
     await expect(page.getByText("Selfies", { exact: true })).toBeVisible();
     await expect(page.getByText("Calls", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Download Agents", exact: true })).toHaveCount(0);
+    setupWizard = page.getByRole("heading", { name: "New Conversation", exact: true }).locator("../..");
+    await expect(setupWizard.getByRole("button", { name: "Download Agents", exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
   } finally {
     const afterResponse = await request.get("/api/chats");
@@ -1549,6 +1712,7 @@ test("Conversation setup commands follow the installed agent library", async ({ 
         .filter((chat) => !existingChatIds.has(chat.id))
         .map((chat) => request.delete(`/api/chats/${chat.id}`, { timeout: 10_000 })),
     );
+    await request.delete(`/api/connections/${connection.id}`, { timeout: 10_000 });
   }
 });
 
@@ -1776,13 +1940,18 @@ test("Roleplay and Game chat settings link empty agent libraries to Download Age
   }
 });
 
-test("Roleplay setup points empty agent libraries to the Agents tab", async ({ page }, testInfo) => {
+test("Roleplay setup points empty agent libraries to the Agents tab", async ({ page, request }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Roleplay setup empty-state regression is covered on desktop.");
 
   const errors = collectUnexpectedErrors(page);
-  const beforeResponse = await page.request.get("/api/chats");
+  const beforeResponse = await request.get("/api/chats");
   const beforeChats = (await beforeResponse.json()) as Array<{ id: string }>;
   const existingChatIds = new Set(beforeChats.map((chat) => chat.id));
+  const connectionResponse = await request.post("/api/connections", {
+    data: { name: `Roleplay Setup Smoke ${Date.now()}`, provider: "custom" },
+  });
+  expect(connectionResponse.ok()).toBeTruthy();
+  const connection = (await connectionResponse.json()) as { id: string };
   await page.route("**/api/capability-packages/agents", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
   });
@@ -1805,7 +1974,13 @@ test("Roleplay setup points empty agent libraries to the Agents tab", async ({ p
     await page.locator('[data-tour="sidebar-toggle"]').click();
     await page.locator('[data-tour="chat-mode-roleplay"]').click();
     await page.getByLabel("New Roleplay").click();
-    await expect(page.getByRole("heading", { name: "New Roleplay" })).toBeVisible();
+    const connectionGate = page.getByRole("heading", { name: "Set Up Roleplay", exact: true });
+    const wizardHeading = page.getByRole("heading", { name: "New Roleplay", exact: true });
+    await expect(connectionGate.or(wizardHeading)).toBeVisible();
+    if (await connectionGate.isVisible()) {
+      await page.getByRole("button", { name: "Create Chat", exact: true }).click();
+    }
+    await expect(wizardHeading).toBeVisible();
     const nextButton = page.getByRole("button", { name: "Next", exact: true });
     await nextButton.click();
     await expect(page.getByRole("heading", { name: "Pick a Preset", exact: true })).toBeVisible();
@@ -1830,13 +2005,12 @@ test("Roleplay setup points empty agent libraries to the Agents tab", async ({ p
     await expect(page.getByRole("button", { name: "Download Agents" })).toBeVisible();
     expect(errors).toEqual([]);
   } finally {
-    const afterResponse = await page.request.get("/api/chats");
+    const afterResponse = await request.get("/api/chats");
     const afterChats = (await afterResponse.json()) as Array<{ id: string }>;
     await Promise.all(
-      afterChats
-        .filter((chat) => !existingChatIds.has(chat.id))
-        .map((chat) => page.request.delete(`/api/chats/${chat.id}`)),
+      afterChats.filter((chat) => !existingChatIds.has(chat.id)).map((chat) => request.delete(`/api/chats/${chat.id}`)),
     );
+    await request.delete(`/api/connections/${connection.id}`, { timeout: 10_000 });
   }
 });
 

@@ -228,7 +228,7 @@ This section lists the remaining settings, grouped by purpose. The tables above 
 | --- | --- | --- |
 | `FFMPEG_PATH` | empty | Path to an `ffmpeg` program. Used for animated expression GIFs. Falls back to `ffmpeg` on your PATH. |
 | `SPRITE_ANIMATED_FFMPEG_TIMEOUT_MS` | `180000` (3 minutes) | Time allowed to convert one animated expression clip. |
-| `SPRITE_BACKGROUND_REMOVAL_ENGINE` | `auto` | Sprite cleanup engine. `auto`, `builtin`, or `backgroundremover`. |
+| `SPRITE_BACKGROUND_REMOVAL_ENGINE` | `auto` | Sprite cleanup engine. `auto` tries adaptive matte cleanup before the optional AI fallback; `builtin` keeps only the matte path; `backgroundremover` forces the AI tool. |
 | `BACKGROUNDREMOVER_AUTO_INSTALL` | `false` | When `true`, installs the optional AI background remover on launch. |
 | `BACKGROUNDREMOVER_COMMAND` | empty | Path to a system `backgroundremover` program. |
 | `BACKGROUNDREMOVER_PYTHON` | empty | Path to a Python program where `backgroundremover` is installed. |

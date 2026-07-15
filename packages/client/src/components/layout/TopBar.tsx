@@ -22,6 +22,8 @@ import { cn } from "../../lib/utils";
 import { SpotifyMiniPlayer } from "../spotify/SpotifyMiniPlayer";
 import { YouTubePlayer } from "../chat/YouTubePlayer";
 import { LocalMusicPlayer } from "../chat/LocalMusicPlayer";
+import { MusicDjUnavailablePlayer } from "../music/MusicDjUnavailablePlayer";
+import { useInstalledCapabilityPackages } from "../../hooks/use-capability-packages";
 
 type RightPanelButtonPanel = "lorebooks" | "presets" | "connections" | "agents" | "personas";
 
@@ -104,6 +106,7 @@ export function TopBar() {
   const botBrowserOpen = useUIStore((s) => s.botBrowserOpen);
   const gameAssetsBrowserOpen = useUIStore((s) => s.gameAssetsBrowserOpen);
   const noodleOpen = useUIStore((s) => s.noodleOpen);
+  const musicPlayerEnabled = useUIStore((s) => s.musicPlayerEnabled);
   const characterLibraryOpen = useUIStore((s) => s.characterLibraryOpen);
   const cardLibraryKind = useUIStore((s) => s.cardLibraryKind);
   const headerRef = useRef<HTMLElement | null>(null);
@@ -112,6 +115,13 @@ export function TopBar() {
   const [spotifyDesktopViewport, setSpotifyDesktopViewport] = useState(false);
   const [spotifyUseFloatingFallback, setSpotifyUseFloatingFallback] = useState(false);
   const [hoveredTopbarKey, setHoveredTopbarKey] = useState<string | null>(null);
+  const { data: installedCapabilities = [], isLoading: installedCapabilitiesLoading } =
+    useInstalledCapabilityPackages();
+  const musicDjInstalled = installedCapabilities.some(
+    (capability) => capability.id === "spotify" && capability.status === "active",
+  );
+  const showMusicDjUnavailablePlayer =
+    spotifyDesktopViewport && musicPlayerEnabled && !installedCapabilitiesLoading && !musicDjInstalled;
 
   const isBotBrowserActive = (rightPanelOpen && rightPanel === "bot-browser") || botBrowserOpen;
   const isCharactersPanelActive =
@@ -344,9 +354,15 @@ export function TopBar() {
             )}
           </button>
         </div>
-        {spotifyDesktopViewport && <SpotifyMiniPlayer forceFloating={spotifyUseFloatingFallback} />}
-        <YouTubePlayer />
-        <LocalMusicPlayer />
+        {showMusicDjUnavailablePlayer ? (
+          <MusicDjUnavailablePlayer floating={spotifyUseFloatingFallback} />
+        ) : musicDjInstalled ? (
+          <>
+            {spotifyDesktopViewport && <SpotifyMiniPlayer forceFloating={spotifyUseFloatingFallback} />}
+            <YouTubePlayer />
+            <LocalMusicPlayer />
+          </>
+        ) : null}
       </div>
 
       {/* Right section - Panel toggles */}

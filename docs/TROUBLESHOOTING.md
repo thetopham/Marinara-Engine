@@ -151,19 +151,19 @@ The **Card Browser** lets you search public character sites and import character
 
 ## Media generation problems
 
-### Sprite background cleanup still leaves white panels
+### Sprite background cleanup struggles with a complex scene
 
-The built-in **Clean Backgrounds** tool is a simple matte remover. It struggles with disconnected white panels, shadows, or white clothing. For stronger cleanup, install the optional AI background remover:
+Generated still sprites normally use native transparency or an adaptive flat chroma matte. The built-in cleanup also recognizes older white mattes, preserves enclosed subject details, softens the alpha edge, and removes matte-color spill. A photographed room, detailed scenery, heavy cast shadows, or a subject whose colors match the background may still need the optional AI fallback:
 
 ```bash
 pnpm backgroundremover:install
 ```
 
-Then restart Marinara and click **Reapply Cleanup** in the sprite generation window. If the install fails:
+Then restart Marinara and click **Reapply Cleanup** in the sprite generation window. Marinara will still try the built-in matte path first and use the AI model only when the border does not look uniform. If the install fails:
 
 - Confirm Python 3.9 to 3.11 is installed. Newer Python versions can force slow native builds.
 - Rebuild the tool with `pnpm backgroundremover:reinstall`.
-- To force the old built-in cleanup while you troubleshoot, set `SPRITE_BACKGROUND_REMOVAL_ENGINE=builtin` in `.env`.
+- To force automatic matte cleanup without the AI fallback while you troubleshoot, set `SPRITE_BACKGROUND_REMOVAL_ENGINE=builtin` in `.env`.
 
 ### Game Mode storyboards or scene videos do not appear
 

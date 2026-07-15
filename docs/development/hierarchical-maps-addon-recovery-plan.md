@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; 1.0.1 recovery shipped, Maps 1.0.6 recovery candidate in review, Phase 2 source migration still required, and new travel features remain blocked
+Status: Active implementation; 1.0.1 recovery shipped, Maps 1.0.6 recovery merged to Agents staging, Phase 2 source migration still required, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -34,18 +34,20 @@ work after the optional-package extraction.
   [Marinara Agents PR #15](https://github.com/Pasta-Devs/Marinara-Agents/pull/15).
 - Engine catalog version direction and downgrade refusal landed in
   [PR #3649](https://github.com/Pasta-Devs/Marinara-Engine/pull/3649).
-- Phase 2 generic host-contract work is tracked by
+- The Phase 2 manifest-version prerequisite landed through
   [Engine issue #3651](https://github.com/Pasta-Devs/Marinara-Engine/issues/3651)
-  and protected draft
+  and
   [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652).
 - Phase 2 package-owned Maps source is tracked separately by
   [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16).
 - Phase 3 UI, Game-map reconciliation, and owner-turn authority recovery is tracked
   by [Marinara Agents issue #34](https://github.com/Pasta-Devs/Marinara-Agents/issues/34)
-  and [PR #35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35). The PR
-  currently publishes a Maps `1.0.6` candidate from commit `ea062de`; its catalog,
-  template, and CodeRabbit checks pass, and all three actionable review threads are
-  resolved.
+  and [PR #35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35). The PR merged
+  to `staging` as `533560a` with the Maps `1.0.6` package head at `ea062de`.
+- The pushed `feature/hierarchical-maps-package-source-16` checkpoint at `95d1abe`
+  adds an exact-artifact lifecycle regression for catalog update, offline restart,
+  remove, reinstall, full-backup creation, and full-backup restore. It does not
+  advertise a new package version or open a new pull request.
 
 PR #35 restores and proves these recovery slices:
 
@@ -60,11 +62,12 @@ PR #35 restores and proves these recovery slices:
 - focused generated-turn, setup, prompt-scope, cleanup, and desktop/mobile runtime
   regression coverage.
 
-The candidate does not complete Phase 2 or the full Phase 3 proof matrix. The
-durable private-source removal, lifecycle checks for update/offline restart/remove/
-reinstall, existing-campaign reconciliation, broader history and prompt-parity
-matrix, themes, keyboard/touch, and human approval still block continuation travel
-features. Manual PR checklist boxes remain for a human contributor.
+The merged recovery does not complete Phase 2 or the full Phase 3 proof matrix.
+Durable private-source removal, existing-campaign reconciliation, broader history
+and prompt-parity coverage, manual lifecycle verification, themes, and
+keyboard/touch checks still block continuation travel features. The automated
+lifecycle checkpoint proves the stored definition and snapshot round trip, but it
+does not replace the remaining human browser and platform checks.
 
 ## Current incident
 
@@ -380,8 +383,9 @@ merge on top of the compatibility shim.
 
 ### Phase 2: capability API v1 and package-owned source release 1.1.0
 
-Status: In progress through Engine issue #3651 and draft PR #3652, paired with
-Marinara Agents issue #16.
+Status: Manifest v2 and API-version compatibility landed through Engine issue
+#3651 and PR #3652. Package-owned source and any additional generic typed host
+operations remain in progress under Marinara Agents issue #16.
 
 Goal: remove the frozen private-source dependency.
 
@@ -420,11 +424,11 @@ Goal: prove that extraction preserved all delivered V3 behavior.
 
 #### P0 release blocker: reconcile Game setup maps
 
-Status: Partially implemented by the Maps `1.0.6` candidate in Marinara Agents PR
-#35. New Game setup maps are reviewed and bound to the hierarchy, prompt authority
-is explicit, and generated `[map_update]` output remains local. Full existing-
-campaign reconciliation and the release-blocking proof matrix remain open, so this
-still blocks Phase 3 completion and continuation travel work.
+Status: Partially implemented by Maps `1.0.6` in merged Marinara Agents PR #35.
+New Game setup maps are reviewed and bound to the hierarchy, prompt authority is
+explicit, and generated `[map_update]` output remains local. Full existing-campaign
+reconciliation and the release-blocking proof matrix remain open, so this still
+blocks Phase 3 completion and continuation travel work.
 
 Current Game setup creates two independent spatial models:
 

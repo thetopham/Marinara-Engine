@@ -623,9 +623,6 @@ export function SpriteGenerationModal({
   }, [connectionsList]);
   const spriteGenerationUnavailable = spriteCapabilities?.spriteGenerationAvailable === false;
   const spriteGenerationReason = spriteCapabilities?.reason ?? "Sprite generation is unavailable on this platform.";
-  const backgroundRemoverUnavailable = spriteCapabilities?.backgroundRemover?.installed === false;
-  const backgroundRemoverReason =
-    spriteCapabilities?.backgroundRemover?.reason ?? "Local backgroundremover is not installed.";
   const existingPortraitExpressions = useMemo(() => {
     const seen = new Set<string>();
     const names: string[] = [];
@@ -1302,7 +1299,7 @@ export function SpriteGenerationModal({
     try {
       const result = await api.post<{ cells: Array<{ expression: string; base64: string }> }>("/sprites/cleanup", {
         cleanupStrength,
-        engine: "backgroundremover",
+        engine: "auto",
         cells: cells.map((cell) => ({
           expression: cell.expression,
           base64: cell.rawDataUrl,
@@ -1500,8 +1497,35 @@ export function SpriteGenerationModal({
         }),
       );
 
-      setCells(slicedCells);
-      setCleanupApplied(false);
+      let adjustedCells = slicedCells;
+      let reappliedCleanup = false;
+      if (noBackground) {
+        try {
+          const cleaned = await api.post<{ cells: Array<{ expression: string; base64: string }> }>(
+            "/sprites/cleanup",
+            {
+              cleanupStrength,
+              engine: "auto",
+              cells: slicedCells.map((cell) => ({
+                expression: cell.expression,
+                base64: cell.rawDataUrl,
+              })),
+            },
+          );
+          adjustedCells = slicedCells.map((cell, index) => ({
+            ...cell,
+            dataUrl: cleaned.cells[index]?.base64
+              ? `data:image/png;base64,${cleaned.cells[index]!.base64}`
+              : cell.dataUrl,
+          }));
+          reappliedCleanup = true;
+        } catch (cleanupError: any) {
+          setError(cleanupError?.message || "Slices were adjusted, but background cleanup could not be reapplied");
+        }
+      }
+
+      setCells(adjustedCells);
+      setCleanupApplied(reappliedCleanup);
       setActiveFrameIndex(null);
       setFrameAdjustments(DEFAULT_SPRITE_FRAME_ADJUSTMENTS);
       setFramePreviewUrl(null);
@@ -1510,7 +1534,16 @@ export function SpriteGenerationModal({
     } finally {
       setSliceApplying(false);
     }
-  }, [canAdjustSlices, cells, generatedSheet, generationGrid, singleImageMode, sliceAdjustments]);
+  }, [
+    canAdjustSlices,
+    cells,
+    cleanupStrength,
+    generatedSheet,
+    generationGrid,
+    noBackground,
+    singleImageMode,
+    sliceAdjustments,
+  ]);
 
   const handleCellToggle = useCallback((idx: number) => {
     setCells((prev) => prev.map((c, i) => (i === idx ? { ...c, selected: !c.selected } : c)));
@@ -1850,16 +1883,19 @@ export function SpriteGenerationModal({
               />
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">
-                  {animatedExpressionMode ? "Prefer clean transparent-style background" : "Prefer transparent PNG"}
+                  {animatedExpressionMode
+                    ? "Prefer clean transparent-style background"
+                    : "Transparent sprite background"}
                 </span>
                 <span className="mt-0.5 block text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
                   {animatedExpressionMode
                     ? "Adds a flat transparent-friendly background instruction to the video prompt. GIF transparency is not guaranteed."
-                    : "Adds transparent-output instructions when the selected model supports them, then applies cleanup before review when needed."}
+                    : "Uses native transparency when available. Otherwise, Marinara chooses a flat chroma matte that avoids the character's colors, removes it, and cleans color spill around soft edges."}
                 </span>
                 {!animatedExpressionMode && selectedModelIsGptImage2 && nativeTransparentPng && (
                   <span className="mt-1 block text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                    GPT-Image-2 does not support native transparent backgrounds right now, so cleanup is the fallback.
+                    GPT-Image-2 does not support native transparency right now, so Marinara will use the adaptive matte
+                    fallback.
                   </span>
                 )}
               </span>
@@ -2321,9 +2357,9 @@ export function SpriteGenerationModal({
                         <span className="text-[0.6875rem] text-[var(--muted-foreground)]">{cleanupStrength}</span>
                         <button
                           onClick={handleApplyCleanup}
-                          disabled={cleanupApplying || backgroundRemoverUnavailable || cells.length === 0}
+                          disabled={cleanupApplying || cells.length === 0}
                           className="rounded-lg bg-[var(--primary)] px-2.5 py-1 text-[0.6875rem] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
-                          title={backgroundRemoverUnavailable ? backgroundRemoverReason : "Run local backgroundremover"}
+                          title="Rerun automatic matte cleanup"
                         >
                           {cleanupApplying ? "Applying..." : cleanupApplied ? "Reapply Cleanup" : "Apply Cleanup"}
                         </button>
@@ -2340,12 +2376,9 @@ export function SpriteGenerationModal({
                     )}
                   </div>
                   <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                    Cleanup is applied after generation when enabled. Use Apply Cleanup to rerun it on the current
-                    slices without regenerating.
+                    Cleanup is applied after generation when enabled. It preserves native alpha, removes flat chroma or
+                    legacy white mattes, and uses AI only as an optional fallback for complex backgrounds.
                   </p>
-                  {backgroundRemoverUnavailable && noBackground && (
-                    <p className="mt-1 text-[0.625rem] text-amber-300/80">{backgroundRemoverReason}</p>
-                  )}
                 </div>
               )}
               {!animatedExpressionMode && activeFrameCell && (

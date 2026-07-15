@@ -6,6 +6,7 @@ import { TopBar } from "./TopBar";
 import { SpotifyMobileWidget } from "../spotify/SpotifyMiniPlayer";
 import { YouTubeMobileWidget } from "../chat/YouTubePlayer";
 import { LocalMusicMobileWidget } from "../chat/LocalMusicPlayer";
+import { MusicDjUnavailablePlayer } from "../music/MusicDjUnavailablePlayer";
 import { ProfessorMariFloatingAssistantHost } from "../chat/ProfessorMariFloatingAssistantHost";
 import { hasProfessorMariFloatingFollowup } from "../chat/professor-mari-floating-events";
 import {
@@ -182,7 +183,13 @@ function SidePanelFallback() {
 
 export function AppShell() {
   useCapabilityAgentRegistry();
-  useCapabilityClientModules();
+  const installedCapabilities = useCapabilityClientModules();
+  const musicPlayerEnabled = useUIStore((state) => state.musicPlayerEnabled);
+  const musicDjInstalled = (installedCapabilities.data ?? []).some(
+    (capability) => capability.id === "spotify" && capability.status === "active",
+  );
+  const showMusicDjUnavailablePlayer =
+    musicPlayerEnabled && !installedCapabilities.isLoading && !musicDjInstalled;
 
   // Background autonomous polling for inactive conversation chats
   useBackgroundAutonomousPolling();
@@ -1125,9 +1132,15 @@ export function AppShell() {
       )}
       <ProfessorMariFloatingAssistantHost active={professorMariFloatingActive} />
       <div data-component="MobileMusicWidgetLayer" className="contents">
-        <SpotifyMobileWidget />
-        <YouTubeMobileWidget />
-        <LocalMusicMobileWidget />
+        {isMobile && showMusicDjUnavailablePlayer ? (
+          <MusicDjUnavailablePlayer floating mobileOnly />
+        ) : isMobile && musicDjInstalled ? (
+          <>
+            <SpotifyMobileWidget />
+            <YouTubeMobileWidget />
+            <LocalMusicMobileWidget />
+          </>
+        ) : null}
       </div>
     </div>
   );

@@ -51,7 +51,7 @@ import { DATA_DIR } from "../utils/data-dir.js";
 import { createWriteStream, existsSync, rmSync, unlinkSync } from "fs";
 import { normalizeTimestampOverrides } from "../services/import/import-timestamps.js";
 import { assertInsideDir, extensionFromImageMime, isAllowedImageBuffer } from "../utils/security.js";
-import { logger } from "../lib/logger.js";
+import { logger, logDebugOverride } from "../lib/logger.js";
 import { parseLibraryPageQuery } from "../utils/list-pagination.js";
 import { importSTLorebook } from "../services/import/st-lorebook.importer.js";
 import {
@@ -703,6 +703,18 @@ export async function charactersRoutes(app: FastifyInstance) {
         ? `Extra direction from the user: ${resolveAboutMeMacros(input.instruction).trim()}\n\n`
         : "") +
       `Write their Conversation-mode "about me" now, staying true to who they are.`;
+    logDebugOverride(
+      input.debugMode,
+      "[debug/conversation/about-me] Prompt sent to model:\n%s",
+      JSON.stringify(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        null,
+        2,
+      ),
+    );
 
     // A short bio needs little output, but "thinking" models (e.g. Gemini 3.x) draw
     // reasoning tokens from the SAME output budget — so the old 512 cap was consumed

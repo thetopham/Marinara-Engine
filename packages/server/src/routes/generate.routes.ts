@@ -159,7 +159,7 @@ import { executeKnowledgeRouter } from "../services/agents/knowledge-router.js";
 import { extractFileText, getSourceFilePath } from "./knowledge-sources.routes.js";
 import { gameStateSnapshots as gameStateSnapshotsTable } from "../db/schema/index.js";
 import { chats as chatsTable } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq } from "../db/file-query.js";
 import {
   PROFESSOR_MARI_ID,
   normalizeCustomEmojiSelection,
@@ -1715,6 +1715,7 @@ export async function generateRoutes(app: FastifyInstance) {
         const _tEmbed = Date.now();
         let chatContextEmbedding: number[] | null = null;
         let lorebookSemanticEmbeddingsById: Map<string, number[] | null> | undefined;
+        let lorebookSemanticSimilarityBaseline = 0;
         const knowledgeRouterActivatedLorebookEntryIds = new Set<string>();
         const knowledgeRouterExcludedLorebookEntryIds = new Set<string>();
         let knowledgeRouterActivationPassCompleted = false;
@@ -1745,6 +1746,7 @@ export async function generateRoutes(app: FastifyInstance) {
             });
             chatContextEmbedding = semanticEmbeddings.defaultEmbedding;
             lorebookSemanticEmbeddingsById = semanticEmbeddings.embeddingsByLorebookId;
+            lorebookSemanticSimilarityBaseline = semanticEmbeddings.similarityBaseline;
           }
         } catch {
           // Embedding generation is optional — if it fails, fall back to keyword-only matching
@@ -1825,6 +1827,7 @@ export async function generateRoutes(app: FastifyInstance) {
             lorebookTokenBudget: resolveLorebookTokenBudget(chatMeta),
             chatEmbedding: chatContextEmbedding,
             semanticEmbeddingsByLorebookId: lorebookSemanticEmbeddingsById,
+            semanticSimilarityBaseline: lorebookSemanticSimilarityBaseline,
             entryStateOverrides:
               (chatMeta.entryStateOverrides as Record<string, { ephemeral?: number | null; enabled?: boolean }>) ??
               undefined,
@@ -2274,6 +2277,7 @@ export async function generateRoutes(app: FastifyInstance) {
               tokenBudget: resolveLorebookTokenBudget(chatMeta),
               chatEmbedding: chatContextEmbedding,
               semanticEmbeddingsByLorebookId: lorebookSemanticEmbeddingsById,
+              semanticSimilarityBaseline: lorebookSemanticSimilarityBaseline,
               entryStateOverrides:
                 (chatMeta.entryStateOverrides as Record<string, { ephemeral?: number | null; enabled?: boolean }>) ??
                 undefined,
@@ -2340,6 +2344,7 @@ export async function generateRoutes(app: FastifyInstance) {
             tokenBudget: resolveLorebookTokenBudget(chatMeta),
             chatEmbedding: chatContextEmbedding,
             semanticEmbeddingsByLorebookId: lorebookSemanticEmbeddingsById,
+            semanticSimilarityBaseline: lorebookSemanticSimilarityBaseline,
             entryStateOverrides:
               (chatMeta.entryStateOverrides as Record<string, { ephemeral?: number | null; enabled?: boolean }>) ??
               undefined,
@@ -2698,6 +2703,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 tokenBudget: resolveLorebookTokenBudget(chatMeta),
                 chatEmbedding: chatContextEmbedding,
                 semanticEmbeddingsByLorebookId: lorebookSemanticEmbeddingsById,
+                semanticSimilarityBaseline: lorebookSemanticSimilarityBaseline,
                 entryStateOverrides:
                   (chatMeta.entryStateOverrides as Record<string, { ephemeral?: number | null; enabled?: boolean }>) ??
                   undefined,
@@ -7860,7 +7866,7 @@ export async function generateRoutes(app: FastifyInstance) {
                   : null;
                 if (imageConnectionOverride && !imgConnFull) {
                   logger.warn(
-                    "[illustrator] Image connection %s could not be resolved; falling back to default Illustrator connection",
+                    "[illustrator] Image connection %s could not be resolved; falling back to the default Images connection",
                     imageConnectionOverride,
                   );
                 }
@@ -8094,7 +8100,7 @@ export async function generateRoutes(app: FastifyInstance) {
                         agentType: "illustrator",
                         agentName: illustratorAgent?.name ?? "Illustrator",
                         error:
-                          "No image generation connection set on the Illustrator agent, and no default Illustrator image connection is configured. Go to Settings → Connections and mark an image generation connection as the default for Illustrator, or assign one directly in Settings → Agents → Illustrator.",
+                          "No image generation connection is set on the Illustrator agent or under Settings → Connections → Defaults → Images. Choose one there, or assign one directly in Settings → Agents → Illustrator.",
                       },
                     })}\n\n`,
                   );
@@ -8315,8 +8321,7 @@ export async function generateRoutes(app: FastifyInstance) {
                     : null,
                   promptConnection: conn,
                   promptConnectionId: conn.id,
-                  baseUrl,
-                  suppressModelParameters,
+                  debugMode: input.debugMode,
                   serviceTier,
                   db: app.db,
                   chars,
@@ -8422,7 +8427,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 });
 
                 await handleTurnGameCommand({
-                  commandType: command.type,
+                  commandType: command.type === "capability" ? command.commandType : command.type,
                   characterId,
                   chatId: input.chatId,
                   chatMeta,

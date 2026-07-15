@@ -53,6 +53,20 @@ export type ConversationCommandKey = (typeof CONVERSATION_COMMAND_KEYS)[number];
 
 export type ConversationCommandToggles = Partial<Record<ConversationCommandKey, boolean>>;
 
+/** Downloadable agent package that owns each optional Conversation command. */
+export const CONVERSATION_COMMAND_AGENT_IDS: Partial<Record<ConversationCommandKey, string>> = {
+  selfie: "illustrator",
+  call: "conversation-calls",
+  uno: "uno",
+  chess: "chess",
+  poker: "poker",
+  eightball: "eightball",
+  tic_tac_toe: "tic-tac-toe",
+  rock_paper_scissors: "rock-paper-scissors",
+  music: "spotify",
+  haptic: "haptic",
+};
+
 export type ConversationPresenceStatus = "online" | "idle" | "dnd" | "offline";
 
 export type ConversationManualPresenceStatus = ConversationPresenceStatus;
@@ -262,8 +276,10 @@ export interface ChatMetadata {
   selfieIncludeCharacterAppearance?: boolean;
   /** Whether Game Mode scene illustrations should send matching character/persona avatar references. */
   gameImageUseAvatarReferences?: boolean;
-  /** Whether Game Mode scene illustrations should append matched character appearance descriptions. */
+  /** Whether Game Mode scene illustrations should append matched character-card appearance fields. */
   gameImageIncludeCharacterAppearance?: boolean;
+  /** Whether storyboard keyframes should use the selected provider-facing image prompt template. Defaults to true. */
+  gameStoryboardUsePromptTemplate?: boolean;
   /** When false, Game Mode keeps manual Illustrator controls but stops automatic visual generations. */
   gameImageAutoGenerationEnabled?: boolean;
   /** When true, Game Mode asks the chat LLM to rewrite generated asset prompts before image generation. */
@@ -532,8 +548,6 @@ export interface ChatMetadata {
   gameStoryboardAnimationPromptTemplateId?: string | null;
   /** Chat-local storyboard prompt templates, merged with built-in storyboard prompt modes. */
   gameStoryboardPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
-  /** Send storyboard imagePrompt tags directly to the image provider instead of wrapping them with the global scene-illustration template. */
-  gameStoryboardUseDirectScenePrompt?: boolean;
   /** Use native NovelAI V4/V4.5 per-character captions for multi-character storyboard illustrations. Defaults to true. */
   gameStoryboardUseNovelAiCharacterPrompts?: boolean;
   /** Last generated scene-video record ID for this game. */
@@ -622,7 +636,7 @@ export interface Message {
   activeSwipeIndex: number;
   /** Number of swipes for this message (0 or 1 = no alternatives) */
   swipeCount?: number;
-  /** Server-side SQLite row position used only for stable pagination cursors */
+  /** Server-side file-table position used only for stable pagination cursors */
   rowid?: number;
   createdAt: string;
   /** Extra display data */

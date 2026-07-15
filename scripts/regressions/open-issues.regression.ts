@@ -311,6 +311,10 @@ assert.match(
   /resolveIllustratorPromptRuntime\(\{[\s\S]*chatMetadata: args\.chatMeta/u,
 );
 assert.match(
+  conversationSelfieRuntimeSource,
+  /logDebugOverride\([\s\S]*\[debug\/commands\/selfie\] prompt-builder system/u,
+);
+assert.match(
   globalStyles,
   /\[data-marinara-accent-animation\] \.mari-editor-content \{[\s\S]*--primary: var\(--marinara-app-accent-static\);[\s\S]*--marinara-chat-chrome-accent: var\(--marinara-app-accent-static\);[\s\S]*\}/u,
 );

@@ -1,5 +1,6 @@
 import type { DB } from "../../db/connection.js";
-import { logger } from "../../lib/logger.js";
+import { isDebugAgentsEnabled } from "../../config/runtime-config.js";
+import { logger, logDebugOverride } from "../../lib/logger.js";
 import {
   isNovelAiImageConnection,
   resolveIllustratorCharacterReferences,
@@ -63,6 +64,7 @@ export async function handleConversationSelfieCommand(args: {
   persona: PersonaReference;
   promptConnection: IllustratorPromptConnection;
   promptConnectionId: string;
+  debugMode?: boolean;
   serviceTier: "flex" | "priority" | null;
   db: DB;
   chars: CharactersStore;
@@ -152,6 +154,18 @@ async function generateSelfie(
     appearance,
     charName: args.charName,
   });
+  const userPrompt = args.command.context
+    ? `Context for the selfie: ${args.command.context}`
+    : `Generate a casual selfie of ${args.charName} based on the current conversation context.`;
+  const debugOverrideEnabled = args.debugMode === true || isDebugAgentsEnabled();
+  if (debugOverrideEnabled || logger.isLevelEnabled("debug")) {
+    logDebugOverride(
+      debugOverrideEnabled,
+      "[debug/commands/selfie] prompt-builder system:\n%s",
+      selfieSystemPrompt,
+    );
+    logDebugOverride(debugOverrideEnabled, "[debug/commands/selfie] prompt-builder user:\n%s", userPrompt);
+  }
   const promptResult = await promptRuntime.provider.chatComplete(
     [
       {
@@ -160,9 +174,7 @@ async function generateSelfie(
       },
       {
         role: "user",
-        content: args.command.context
-          ? `Context for the selfie: ${args.command.context}`
-          : `Generate a casual selfie of ${args.charName} based on the current conversation context.`,
+        content: userPrompt,
       },
     ],
     {

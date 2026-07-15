@@ -6,7 +6,8 @@ Related work:
 
 - [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md) defines the original architecture and delivery plan.
 - [PR #3565](https://github.com/Pasta-Devs/Marinara-Engine/pull/3565) established the first hierarchical-map, spatial-context, and location-lore foundation.
-- [PR #3613](https://github.com/Pasta-Devs/Marinara-Engine/pull/3613) proposes moving hierarchical maps into the optional-agent/package system.
+- [PR #3613](https://github.com/Pasta-Devs/Marinara-Engine/pull/3613) moved hierarchical maps into the optional-agent/package system.
+- [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) governs restoration of the extracted package before this future roadmap continues.
 
 ## Purpose
 

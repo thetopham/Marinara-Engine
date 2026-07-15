@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; 1.0.1 recovery shipped, Phase 2 in progress, and new travel features remain blocked
+Status: Active implementation; 1.0.1 recovery shipped, Maps 1.0.6 recovery candidate in review, Phase 2 source migration still required, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -40,9 +40,31 @@ work after the optional-package extraction.
   [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652).
 - Phase 2 package-owned Maps source is tracked separately by
   [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16).
+- Phase 3 UI, Game-map reconciliation, and owner-turn authority recovery is tracked
+  by [Marinara Agents issue #34](https://github.com/Pasta-Devs/Marinara-Agents/issues/34)
+  and [PR #35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35). The PR
+  currently publishes a Maps `1.0.6` candidate from commit `ea062de`; its catalog,
+  template, and CodeRabbit checks pass, and all three actionable review threads are
+  resolved.
 
-The compatibility release is usable, but the durable private-source removal and
-the complete V3 proof matrix still block continuation travel features.
+PR #35 restores and proves these recovery slices:
+
+- full-screen authoring and a shared Roleplay/Game runtime map on desktop and mobile;
+- Game `World` hierarchy precedence over an optional bound `Local` tactical map;
+- reviewed Game setup bindings across `gameMap`, `activeGameMapId`, and the selected
+  `gameMaps` entry;
+- generated-turn authority: prose, bracketed commands, local party markers, and
+  `[map_update]` cannot move the hierarchical world location;
+- owner-selected Roleplay movement committed with the owner turn, including package
+  state reconciliation after accepted and stale turns;
+- focused generated-turn, setup, prompt-scope, cleanup, and desktop/mobile runtime
+  regression coverage.
+
+The candidate does not complete Phase 2 or the full Phase 3 proof matrix. The
+durable private-source removal, lifecycle checks for update/offline restart/remove/
+reinstall, existing-campaign reconciliation, broader history and prompt-parity
+matrix, themes, keyboard/touch, and human approval still block continuation travel
+features. Manual PR checklist boxes remain for a human contributor.
 
 ## Current incident
 
@@ -398,8 +420,11 @@ Goal: prove that extraction preserved all delivered V3 behavior.
 
 #### P0 release blocker: reconcile Game setup maps
 
-Status: Reproduced against the July 15, 2026 Engine `2.3.0` and Hierarchical Maps
-`1.0.1` runtime. This blocks Phase 3 completion and all continuation travel work.
+Status: Partially implemented by the Maps `1.0.6` candidate in Marinara Agents PR
+#35. New Game setup maps are reviewed and bound to the hierarchy, prompt authority
+is explicit, and generated `[map_update]` output remains local. Full existing-
+campaign reconciliation and the release-blocking proof matrix remain open, so this
+still blocks Phase 3 completion and continuation travel work.
 
 Current Game setup creates two independent spatial models:
 
@@ -503,6 +528,12 @@ Exit gate:
 ### Phase 4: runtime world-map simplification
 
 Goal: make ordinary play simpler than authoring.
+
+Status: The Maps `1.0.6` candidate restores the shared Roleplay/Game runtime surface,
+Game `World` / `Local` precedence, destination staging, and stale-turn review on
+desktop and mobile. Treat this as a recovered baseline, not Phase 4 completion;
+ordinary-player clarity, accessibility, themes, long/deep map states, and all exit
+gate checks still require review.
 
 Package UI work:
 

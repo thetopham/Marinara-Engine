@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; blocked on recovery Phase 2 and V3 stabilization
+Status: Exploratory future TODO; Maps 1.0.6 recovery candidate in review, still blocked on Phase 2 source migration and full V3 stabilization
 
 Related work:
 
@@ -15,6 +15,33 @@ Related work:
   draft [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652), and
   [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16)
   track the Phase 2 host contract and package-owned source migration.
+- [Marinara Agents issue #34](https://github.com/Pasta-Devs/Marinara-Agents/issues/34)
+  and [PR #35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35) track the
+  Maps `1.0.6` UI, Game-map authority, and generated-turn recovery candidate.
+
+## Implementation checkpoint — July 15, 2026
+
+PR #35 restores a meaningful portion of Workstreams 1 and 2 without starting the
+future travel modes:
+
+- the full-screen editor and shared in-chat Roleplay/Game hierarchical map are back;
+- Game presents the hierarchy as `World` authority and keeps the legacy map as
+  bound `Local` or tactical detail;
+- reviewed Game setup persists matching bindings in both the active map projection
+  and selected `gameMaps` entry;
+- generated prose, command-like text, party markers, and `[map_update]` cannot move
+  the hierarchy; only an explicit owner-selected transition committed with the
+  owner turn can;
+- the downloadable package reconciles its pending move after accepted and stale
+  Roleplay turns;
+- focused desktop/mobile and generated-turn tests pass, the catalog is valid, and
+  all actionable CodeRabbit threads on the PR are resolved.
+
+This checkpoint is not the recovery exit gate. PR #35 still awaits human approval,
+and it does not finish package-owned source migration, existing-campaign map
+reconciliation, the complete history/prompt/lifecycle matrix, accessibility/theme
+review, offline restart, or uninstall/reinstall proof. No screenshots or recordings
+were added.
 
 ## Purpose
 
@@ -38,15 +65,15 @@ instead.
 The following is the planning assumption, not a substitute for reviewing the
 merged diff or revalidating the extracted package:
 
-| Area                                         | Working status                                                 | Follow-up treatment                                                          |
-| -------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| V3 Packages A through F                      | Foundation delivered by PR #3565                               | Stabilize and revalidate after extraction                                    |
-| V3 Package F.1: location lore bindings       | Foundation delivered by PR #3565                               | Verify eligibility, prompt parity, history, and token bounds                 |
-| V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                               | Retain only if it proves useful; avoid more generation modes                 |
-| V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                          | Re-evaluate as separate product work rather than automatically continuing V3 |
-| V3 Package G: Connected Conversation         | Not assumed delivered                                          | Re-evaluate after the owner experience proves value                          |
-| Optional-agent extraction                    | 1.0.1 recovery shipped; durable source migration in progress    | Complete package-owned source and cross-repository proof before feature work |
-| Destination routing                          | Local design/helper work exists, but is not a finished feature | Redesign around selectable travel pace before continuing                     |
+| Area                                         | Working status                                                             | Follow-up treatment                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| V3 Packages A through F                      | Foundation delivered by PR #3565                                           | Stabilize and revalidate after extraction                                    |
+| V3 Package F.1: location lore bindings       | Foundation delivered by PR #3565                                           | Verify eligibility, prompt parity, history, and token bounds                 |
+| V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                                           | Retain only if it proves useful; avoid more generation modes                 |
+| V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                                      | Re-evaluate as separate product work rather than automatically continuing V3 |
+| V3 Package G: Connected Conversation         | Not assumed delivered                                                      | Re-evaluate after the owner experience proves value                          |
+| Optional-agent extraction                    | 1.0.1 shipped; 1.0.6 recovery candidate open; source migration in progress | Complete package-owned source and cross-repository proof before feature work |
+| Destination routing                          | Local design/helper work exists, but is not a finished feature             | Redesign around selectable travel pace before continuing                     |
 
 This roadmap deliberately does not inherit every unfinished V3 package. A later
 package must still justify its user value, size, and maintenance cost.
@@ -399,7 +426,8 @@ The following ideas remain recorded but are not next-step scope:
 ## Suggested delivery order
 
 The order below is a planning sequence, not a single implementation project. Item
-1 is active through Engine draft PR #3652 and Marinara Agents issue #16:
+1 remains active through Engine draft PR #3652 and Marinara Agents issue #16;
+PR #35 advances part of items 2 and 3 but does not complete either exit gate:
 
 1. Finish the package-owned source migration and exact-artifact compatibility
    proof in Marinara Agents, with only generic paired host support in Engine.

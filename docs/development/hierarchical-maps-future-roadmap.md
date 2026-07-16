@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 recovery merged to Agents staging, still blocked on Phase 2 source migration and full V3 stabilization
+Status: Exploratory future TODO; Maps 1.0.6 is published and a package-owned 1.1.0 recovery candidate is checkpointed, still blocked on generic host isolation and full V3 stabilization
 
 Related work:
 
@@ -38,13 +38,19 @@ future travel modes:
 - focused desktop/mobile and generated-turn tests pass, the catalog is valid, and
   all actionable CodeRabbit threads on the PR are resolved.
 
-This checkpoint is not the recovery exit gate. It does not finish package-owned
-source migration, existing-campaign map reconciliation, the complete
-history/prompt matrix, accessibility/theme review, or manual lifecycle proof. A
-pushed follow-up checkpoint at `95d1abe` now automates the exact Maps 1.0.5 to 1.0.6
-catalog update, offline restart, remove, reinstall, full-backup creation, and
-full-backup restore while preserving the definition and spatial snapshot. No new
-pull request, screenshots, or recordings were added.
+This checkpoint is not the recovery exit gate. Follow-up commits on the existing
+`feature/hierarchical-maps-package-source-16` branch moved Maps-owned source into
+the package at `dad64e1`, then built a `1.1.0` candidate with reviewable
+existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updates
+from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
+proves retry safety, and covers offline restart, remove, reinstall, full-backup
+creation, and full-backup restore while preserving the definition and spatial
+snapshot.
+
+The recovery exit gate still requires a narrow generic host contract in place of
+captured Engine internals, the complete history/prompt matrix,
+accessibility/theme review, and manual lifecycle proof. No new issue, pull request,
+screenshots, or recordings were added, and future travel modes have not started.
 
 ## Purpose
 

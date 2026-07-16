@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; 1.0.1 recovery shipped, Maps 1.0.6 recovery merged to Agents staging, Phase 2 source migration still required, and new travel features remain blocked
+Status: Active implementation; Maps 1.0.6 is published, a package-owned 1.1.0 recovery candidate is checkpointed, generic host isolation and the full V3 proof matrix remain open, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -38,16 +38,28 @@ work after the optional-package extraction.
   [Engine issue #3651](https://github.com/Pasta-Devs/Marinara-Engine/issues/3651)
   and
   [PR #3652](https://github.com/Pasta-Devs/Marinara-Engine/pull/3652).
-- Phase 2 package-owned Maps source is tracked separately by
-  [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16).
+- [Marinara Agents issue #16](https://github.com/Pasta-Devs/Marinara-Agents/issues/16)
+  is closed and was not reopened. Follow-up implementation remains on the existing
+  `feature/hierarchical-maps-package-source-16` branch.
 - Phase 3 UI, Game-map reconciliation, and owner-turn authority recovery is tracked
   by [Marinara Agents issue #34](https://github.com/Pasta-Devs/Marinara-Agents/issues/34)
   and [PR #35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35). The PR merged
   to `staging` as `533560a` with the Maps `1.0.6` package head at `ea062de`.
-- The pushed `feature/hierarchical-maps-package-source-16` checkpoint at `95d1abe`
-  adds an exact-artifact lifecycle regression for catalog update, offline restart,
-  remove, reinstall, full-backup creation, and full-backup restore. It does not
-  advertise a new package version or open a new pull request.
+- The pushed `feature/hierarchical-maps-package-source-16` checkpoint at `dad64e1`
+  moves all Maps-owned server and client implementation files under
+  `packages/hierarchical-maps/src/`. The feature builder overlays those files on
+  captured generic Engine dependencies and rejects any move back into the generic
+  snapshot. Rebuilding Maps `1.0.6` from the new source location produced the same
+  server bundle, client bundle, manifest, and ZIP hashes.
+- The pushed checkpoint at `1948183` builds a Maps `1.1.0` candidate with a
+  non-destructive existing-Game reconciliation flow. It previews exact normalized
+  name matches, reports unmatched and ambiguous positions, requires explicit review,
+  preserves existing bindings, applies accepted matches atomically, and makes an
+  identical retry a no-op. No new issue or pull request was opened.
+- The exact-artifact lifecycle regression now updates through Maps `1.0.6` to the
+  `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
+  retry, offline restart, remove, reinstall, full-backup creation, and full-backup
+  restore.
 
 PR #35 restores and proves these recovery slices:
 
@@ -62,14 +74,20 @@ PR #35 restores and proves these recovery slices:
 - focused generated-turn, setup, prompt-scope, cleanup, and desktop/mobile runtime
   regression coverage.
 
-The merged recovery does not complete Phase 2 or the full Phase 3 proof matrix.
-Durable private-source removal, existing-campaign reconciliation, broader history
+The pushed recovery candidate does not complete Phase 2 host isolation or the full
+Phase 3 proof matrix. Package-owned source and automated existing-campaign
+reconciliation are now implemented, but captured generic Engine dependencies and
+raw host persistence access still need a narrow stable contract. Broader history
 and prompt-parity coverage, manual lifecycle verification, themes, and
 keyboard/touch checks still block continuation travel features. The automated
 lifecycle checkpoint proves the stored definition and snapshot round trip, but it
 does not replace the remaining human browser and platform checks.
 
-## Current incident
+## Historical incident and current containment
+
+The main Agents catalog now publishes Maps `1.0.6`, so the broken `1.0.0`
+behavior described below is no longer the user-facing catalog version. The
+underlying boundary lesson still governs the remaining recovery work.
 
 Hierarchical Maps `1.0.0` activates but fails when it reads spatial snapshots. The
 published bundle was built from a captured Engine source tree that still defines
@@ -424,11 +442,13 @@ Goal: prove that extraction preserved all delivered V3 behavior.
 
 #### P0 release blocker: reconcile Game setup maps
 
-Status: Partially implemented by Maps `1.0.6` in merged Marinara Agents PR #35.
-New Game setup maps are reviewed and bound to the hierarchy, prompt authority is
-explicit, and generated `[map_update]` output remains local. Full existing-campaign
-reconciliation and the release-blocking proof matrix remain open, so this still
-blocks Phase 3 completion and continuation travel work.
+Status: New-setup behavior shipped in Maps `1.0.6`; existing-campaign
+reconciliation is implemented and validated in the Maps `1.1.0` candidate at
+`1948183`. New Game setup maps are reviewed and bound to the hierarchy, prompt
+authority is explicit, generated `[map_update]` output remains local, and active
+existing campaigns now require an explicit exact-match review before any binding
+write. The remaining release-blocking browser, history, prompt, and platform proof
+still blocks Phase 3 completion and continuation travel work.
 
 Current Game setup creates two independent spatial models:
 
@@ -488,6 +508,11 @@ Implementation work:
    exact normalized-name matches, show unmatched and conflicting locations, and
    require review before writing bindings. Preserve the original maps and spatial
    snapshots so the operation can be cancelled or safely retried.
+
+   Implemented in the Maps `1.1.0` candidate. The server revalidates every reviewed
+   match against the current definition and Game maps before one metadata write,
+   rejects the whole request if any selection is stale, preserves pre-existing
+   bindings, and treats an identical retry as success with zero new writes.
 
 Release-blocking proof:
 

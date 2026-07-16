@@ -91,12 +91,12 @@ import { parseDockerDefaultGatewayIp } from "../../packages/server/src/middlewar
 const dockerDesktopRouteTable = `Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask
 eth0\t00000000\t01D7A8C0\t0003\t0\t0\t100\t00000000
 eth0\t00D7A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF`;
-assert.equal(parseDockerDefaultGatewayIp(dockerDesktopRouteTable), "192.168.215.1");
-assert.equal(
+assert.strictEqual(parseDockerDefaultGatewayIp(dockerDesktopRouteTable), "192.168.215.1");
+assert.strictEqual(
   parseDockerDefaultGatewayIp(`${dockerDesktopRouteTable}\neth1\t00000000\t010011AC\t0003\t0\t0\t50\t00000000`),
   "172.17.0.1",
 );
-assert.equal(parseDockerDefaultGatewayIp("Iface\tDestination\tGateway\tFlags\tMetric\n"), null);
+assert.strictEqual(parseDockerDefaultGatewayIp("Iface\tDestination\tGateway\tFlags\tMetric\n"), null);
 
 assert.equal(resolveGroupGenerationMode("conversation", "individual"), "merged");
 assert.equal(resolveGroupGenerationMode("conversation", "merged"), "merged");

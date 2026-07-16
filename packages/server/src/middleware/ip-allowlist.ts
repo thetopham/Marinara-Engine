@@ -178,26 +178,23 @@ export function parseDockerDefaultGatewayIp(routeTable: string): string | null {
   return candidates[0]?.ip ?? null;
 }
 
-let cachedDockerDefaultGatewayIp: string | null | undefined;
-
-function getDockerDefaultGatewayIp(): string | null {
-  if (cachedDockerDefaultGatewayIp !== undefined) return cachedDockerDefaultGatewayIp;
-
+/** Read and parse Docker's default gateway once during module initialization. */
+function readDockerDefaultGatewayIp(): string | null {
   try {
-    cachedDockerDefaultGatewayIp = parseDockerDefaultGatewayIp(readFileSync("/proc/net/route", "utf8"));
+    return parseDockerDefaultGatewayIp(readFileSync("/proc/net/route", "utf8"));
   } catch {
-    cachedDockerDefaultGatewayIp = null;
+    return null;
   }
-  return cachedDockerDefaultGatewayIp;
 }
 
+const dockerDefaultGatewayIp = isDockerRuntime() ? readDockerDefaultGatewayIp() : null;
+
+/** True only when the client matches this Docker runtime's exact host gateway. */
 function isDockerRuntimeGatewayIp(ip: string): boolean {
-  if (!isDockerRuntime()) return false;
-  const gatewayIp = getDockerDefaultGatewayIp();
-  if (!gatewayIp) return false;
+  if (!dockerDefaultGatewayIp) return false;
 
   const bytes = ipToBytes(ip);
-  const gateway = parseCIDR(gatewayIp);
+  const gateway = parseCIDR(dockerDefaultGatewayIp);
   return Boolean(bytes && gateway && matchesCIDR(bytes, gateway));
 }
 

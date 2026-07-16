@@ -4,10 +4,22 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+## [3.2.2]
+
+### Added
+
+- Added capability API 1.3 host services for downloadable packages, including safe model routing, persistence, history/checkpoints, resources, logging, transactions, client contribution loading, and visible readiness/retry states (#3690).
+- Added reusable Game setup exports and imports. Initial Game Setup downloads now produce versioned `.marinara-game-setup.json` bundles that can refill the New Game wizard, remap available local resources, warn about missing ones, and require a replacement GM connection when necessary (#3701).
+- Added Venice.ai as an Image Generation service, including authenticated live image-model discovery and native `/image/generate` support with model-aware sizing and validated base64 responses (#3682).
+- Added responsive Background library folders, desktop and touch drag-and-drop organization, A-Z/Z-A/Newest/Oldest sorting, and collapsible tag filters without limiting the Background agent's available choices (#3678).
+- Added Conversation, Roleplay, and Game compatibility badges to Download Agents, including catalog search by supported mode (#3676).
+
 ### Changed
 
 - Moved Conversation **About Me** drafting from per-editor **AI Write** controls to Professor Mari. Character and Persona Convo editors no longer expose a separate model connection or source settings; Professor Mari can inspect a saved character or persona, write the bio in their voice, and save it directly to the real About Me field.
 - Changed Noodle refreshes to choose active participants before first-time profile generation, skip characters that already have generated profiles, and send only the selected character cards to the timeline model. World/lore context and chat carryover now each have an 8,192-token budget so large invited rosters cannot inflate unrelated generations.
+- Renamed current user-facing Conversation Calls references to **Calls** while preserving package IDs and legacy compatibility symbols (#3676).
+- Moved Hierarchical Maps controls inside its active entry in Chat Settings → Agents instead of displaying a separate top-level settings section (#3679).
 
 ### Fixed
 
@@ -21,22 +33,9 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Applied saved Connection Custom Parameters to every API-backed text generation that uses that connection, including Noodle and custom endpoints hosted locally, while preserving per-chat and per-call overrides.
 - Routed bare Cohere API roots and versioned API URLs through Cohere's OpenAI-compatible endpoint.
 - Kept the Noodle Carryover mode buttons equal-width while scaling their labels to remain fully visible with consistent spacing before each checkbox.
-
-## [3.2.2]
-
-### Added
-
-- Added Venice.ai as an Image Generation service, including authenticated live image-model discovery and native `/image/generate` support with model-aware sizing and validated base64 responses (#3682).
-- Added responsive Background library folders, desktop and touch drag-and-drop organization, A-Z/Z-A/Newest/Oldest sorting, and collapsible tag filters without limiting the Background agent's available choices (#3678).
-- Added Conversation, Roleplay, and Game compatibility badges to Download Agents, including catalog search by supported mode (#3676).
-
-### Changed
-
-- Renamed current user-facing Conversation Calls references to **Calls** while preserving package IDs and legacy compatibility symbols (#3676).
-- Moved Hierarchical Maps controls inside its active entry in Chat Settings → Agents instead of displaying a separate top-level settings section (#3679).
-
-### Fixed
-
+- Made installed Conversation games appear immediately in slash-command autocomplete and activate or deactivate their command and runtime contributions without an Engine restart, while route-bearing packages retain their safe restart path (#3699).
+- Improved tracker-toolbar keyboard navigation with stable focus order, arrow/Home/End movement, and focus restoration when Escape closes the toolbar.
+- Reported Agent catalog HTTP failures with their actual status and error instead of diagnosing every failure as an internet outage, while preserving installed agents offline (#3706, #3707).
 - Made `@handle` mentions in Noodle replies open the referenced profile, and resolved active Persona, Character, and linked lorebook macros before Noodle refresh prompts reach the model (#3687).
 - Let Connection Custom Parameters preserve arbitrary JSON values and convenient bare string values instead of discarding invalid drafts, and restored unified reasoning-effort requests for dynamically discovered OpenRouter models (#3688).
 - Fixed the downloadable Conversation Calls package persisting a hardcoded assistant reply when typed-message generation failed. Package v1.0.4 no longer requires provider-native JSON mode and reports genuine provider failures instead of inventing character dialogue (#3685).

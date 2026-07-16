@@ -156,12 +156,12 @@ try {
   assert.deepEqual(
     forwardCompatibleCatalog.packages[0]?.manifest.contributions?.agentDetail,
     { agentIds: ["hierarchical-maps"] },
-    "Stable Engines must parse newer agent-detail metadata before applying compatibility gates",
+    "Capability API 1.3 Engines must parse agent-detail metadata before applying compatibility gates",
   );
-  assert.match(
-    getCapabilityApiCompatibilityIssue(forwardCompatibleCatalog.packages[0]!.manifest) ?? "",
-    /requires capability API 1\.3; this Engine supports 1\.0/,
-    "Parsing newer contribution metadata must not bypass capability API compatibility gates",
+  assert.equal(
+    getCapabilityApiCompatibilityIssue(forwardCompatibleCatalog.packages[0]!.manifest),
+    null,
+    "Capability API 1.3 agent-detail metadata must remain compatible with the 1.3 host",
   );
 
   writeRegistry([installedPackage("conversation-calls", ["agent", "conversation-calls"])]);

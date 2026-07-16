@@ -8,6 +8,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Added
 
+- Added Venice.ai as an Image Generation service, including authenticated live image-model discovery and native `/image/generate` support with model-aware sizing and validated base64 responses (#3682).
 - Added responsive Background library folders, desktop and touch drag-and-drop organization, A-Z/Z-A/Newest/Oldest sorting, and collapsible tag filters without limiting the Background agent's available choices (#3678).
 - Added Conversation, Roleplay, and Game compatibility badges to Download Agents, including catalog search by supported mode (#3676).
 

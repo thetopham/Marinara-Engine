@@ -48,9 +48,11 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `ca697c6` candidate checkpoint also adopts manifest v2 with capability
+snapshot. The `ac1193c` candidate checkpoint also adopts manifest v2 with capability
 API `1.0`, records its exact Engine `2.3.0` source baseline, and rejects unrecorded
-additions to an explicit inventory of the remaining 52 private Engine imports.
+additions to an explicit inventory of the remaining 39 private Engine imports.
+Package-owned ID/time, Game-map metadata, and client utilities removed 13 imports
+without adding Engine runtime code.
 
 The recovery exit gate still requires a narrow generic host contract in place of
 captured Engine internals, the complete history/prompt matrix,

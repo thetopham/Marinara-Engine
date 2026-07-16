@@ -62,11 +62,13 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, offline restart, remove, reinstall, full-backup creation, and full-backup
   restore.
-- The pushed `1.1.0` candidate checkpoint at `ca697c6` adopts manifest v2 with
+- The pushed `1.1.0` candidate checkpoint at `ac1193c` adopts manifest v2 with
   capability API `1.0` and records the exact Engine `2.3.0` source baseline. A
-  package-owned boundary contract inventories the 52 remaining private Engine
-  imports (31 server and 21 client), rejects unrecorded additions during both build
+  package-owned boundary contract inventories the 39 remaining private Engine
+  imports (26 server and 13 client), rejects unrecorded additions during both build
   and catalog validation, and makes the required migration to zero explicit.
+  Package-owned ID/time, Game-map metadata, and client utility modules removed 13
+  imports without changing Engine runtime code.
 
 PR #35 restores and proves these recovery slices:
 
@@ -411,10 +413,11 @@ merge on top of the compatibility shim.
 
 Status: Manifest v2 and API-version compatibility landed through Engine issue
 #3651 and PR #3652. The `1.1.0` candidate now uses that manifest contract, records
-its Engine build provenance, and blocks additions to its 52-import private Engine
-dependency inventory. Package-owned source is established, but migration to generic
-typed host operations and a source-only build remains in progress on the existing
-Marinara Agents feature branch. Issue #16 remains closed and must not be reopened.
+its Engine build provenance, and blocks additions to its 39-import private Engine
+dependency inventory. Package-owned source and the first utility migration are
+established, but migration to generic typed host operations and a source-only build
+remains in progress on the existing Marinara Agents feature branch. Issue #16
+remains closed and must not be reopened.
 
 Goal: remove the frozen private-source dependency.
 

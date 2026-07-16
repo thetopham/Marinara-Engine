@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix and first Phase 3 parity slice are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and the remaining V3 stabilization matrix
+Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix, first Phase 3 parity slice, and first independently safe creation-preview slice are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and the remaining V3 stabilization matrix
 
 Related work:
 
@@ -48,7 +48,7 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `06dd083` candidate checkpoint now targets capability API `1.2` and
+snapshot. The `9e1883f` candidate checkpoint now targets capability API `1.2` and
 the exact paired Engine checkpoint `20bd419e9`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
 operations, lore-entry existence reads, the spatial snapshot compatibility store,
@@ -76,6 +76,15 @@ Context copies instead of depending only on mutable tracker rows. Exact-artifact
 coverage now exercises assistant snapshot creation, continuation, regeneration,
 swipes, swipe deletion, earlier-message branching, source-message deletion, JSONL
 export/import, and checkpoint restore alongside the existing lifecycle cases.
+
+The candidate also starts the independently safe package-owned portion of
+Workstream 2. Draft preview is now a real pre-apply review surface: it exposes the
+complete expandable hierarchy, generated count and depth, proposed start, search,
+public descriptions, private model memories, and lore provenance. Regenerate, Edit
+prompt, Discard draft, and Continue to editor replace the earlier root-only summary
+and ambiguous Use this draft decision. Focused exact-artifact creation, expansion,
+Game setup review, and skip flows pass on desktop and mobile. Persistence, stable
+IDs, committed history, and the Engine contract remain unchanged.
 
 An exact-artifact browser matrix now passes clean install, Maps `1.0.6` update,
 restart/readiness, dark/light/SillyTavern desktop and mobile viewports, keyboard and
@@ -264,6 +273,12 @@ on an unverified state foundation.
 The current system exposes substantial authoring power, but neither first-map
 creation nor ordinary play should require the user to understand package state,
 working-copy semantics, graph storage, or prompt architecture.
+
+Status: In progress. The recursive, searchable pre-apply Draft preview and clearer
+decision actions are implemented in the `1.1.0` candidate at `9e1883f`. Direct
+activation handoff, the global Maps home, first-map progress, applied-draft
+regeneration, starting-location confirmation, first-save completion, and simplified
+expansion remain open.
 
 ### Creation and activation
 

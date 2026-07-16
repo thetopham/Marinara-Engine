@@ -73,7 +73,7 @@ work after the optional-package extraction.
   host-owned UI state through contribution props/events, exposes observable client
   loading/error/retry states with accessible fallbacks and 44px recovery actions,
   and must land before the dependent Maps candidate is published.
-- The Maps `1.1.0` candidate checkpoint at `06dd083` targets that exact
+- The Maps `1.1.0` candidate checkpoint at `9e1883f` targets that exact
   Engine commit and consumes the runtime facade for owner-turn commits, state
   resolution, definition metadata, lore-link warnings, snapshot storage, route
   resources, JSON parsing, and model calls. Package-local REST, resource hooks,
@@ -450,7 +450,7 @@ its Engine build provenance, and enforces a zero-private-import boundary.
 Capability API `1.2` logging/debug, transactional owner-turn
 and definition-metadata writes, lore-entry existence reads, compatibility snapshot
 operations, route resources, JSON parsing, and model calls are checkpointed at
-Engine `20bd419e9` and Agents `06dd083`. Package-owned source, the server and client
+Engine `20bd419e9` and Agents `9e1883f`. Package-owned source, the server and client
 boundaries, the source-only build, generic client loading/error/retry presentation,
 and touch-sized recovery/workspace actions are established. An exact-artifact
 browser matrix passes clean and upgraded-profile Download Agents lifecycle checks,
@@ -497,13 +497,20 @@ Exit gate:
 
 Goal: prove that extraction preserved all delivered V3 behavior.
 
-Status: In progress at Engine `20bd419e9` and Agents `06dd083`. The exact candidate
+Status: In progress at Engine `20bd419e9` and Agents `9e1883f`. The exact candidate
 now proves live Roleplay/Game Peek Prompt location lore, representative
 continuation, regeneration, swipe, branch, deletion, JSONL import/export, and
 immutable Game/Spatial checkpoint behavior. This is a checkpoint, not Phase 3
 closure: retry combinations, both-owner-mode coverage, the normalized normal/Game
 GM/dry-run/live Peek/cached Peek comparison, lore eligibility edge cases, and
 remaining browser/platform proof are still open.
+
+An independently safe package-owned creation slice is also checkpointed at that
+Agents head. Generated Draft preview now exposes the complete browsable hierarchy,
+count, depth, proposed start, location descriptions, private model memories, lore
+provenance, search, and explicit regenerate/edit/discard/continue decisions before
+the draft enters the working editor. This does not close Phase 3 or change the
+Engine boundary, save semantics, stable IDs, or committed history.
 
 #### P0 release blocker: reconcile Game setup maps
 

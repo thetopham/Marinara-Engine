@@ -1,6 +1,7 @@
 # Hierarchical Maps Creation UX Notes
 
-Status: observed follow-up for Hierarchical Maps 1.0.6
+Status: observed baseline for Hierarchical Maps 1.0.6; recursive Draft preview is
+implemented in the unreleased 1.1.0 candidate at `9e1883f`
 
 Date observed: 2026-07-15
 
@@ -17,6 +18,32 @@ Creating a first Hierarchical Map works, but the current journey asks the user t
 The underlying safety model is sound: generated results remain a working copy, explicit Save is required, current location is authoritative, and committed history protects location IDs. The interface does not explain those boundaries at the moments when the user must act on them.
 
 This note records the current experience so future work can reduce creation friction without weakening those protections.
+
+## Implementation checkpoint — July 16, 2026
+
+The first independently safe Marinara-Agents slice is implemented against the
+package-owned client boundary:
+
+- Draft preview shows the complete generated hierarchy before apply;
+- roots open through the first useful level, with per-node expand/collapse plus
+  Expand all and Collapse all;
+- search matches location names, kinds, public descriptions, and private model
+  memories while preserving ancestor context;
+- the preview reports generated location count, maximum depth, unsaved or
+  unapplied state, and the proposed starting location;
+- selecting a location exposes its public description, private model memory, and
+  lore provenance;
+- **Regenerate**, **Edit prompt**, **Discard draft**, and **Continue to editor**
+  replace the easy-to-miss **Generate another** and ambiguous **Use this draft**
+  decision; and
+- exact-artifact creation, expansion, Game setup review, and skip flows pass on
+  desktop and mobile.
+
+This checkpoint changes no persistence or history contract. Continuing still
+loads an unsaved working copy, and Save remains the persistence boundary. The
+global Maps home, direct activation handoff, first-map progress strip,
+applied-draft regeneration, inline starting-location confirmation, one-step enable
+and save, and simplified expansion controls remain open.
 
 ## Observed first-map journey
 

@@ -1,10 +1,10 @@
 # Hierarchical Maps Implementation Plan
 
 Status: canonical sequencing index; recovery is active, Maps 1.0.6 is the stable
-user-facing release, the first Phase 3 parity checkpoint is recorded, and future
-travel work is blocked
+user-facing release, the first Phase 3 parity and creation-preview checkpoints are
+recorded, and future travel work is blocked
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 This document answers two questions: **what is authoritative now?** and **what is
 implemented next?** Detailed product requirements, UX evidence, and proof criteria
@@ -39,10 +39,10 @@ and status, not the detailed requirements.
 | Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                            |
 | Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks                                                                                        |
 | Full V3 history and prompt parity    | In progress                 | Live Roleplay/Game Peek Prompt location lore plus representative continuation, regeneration, swipe, branch, deletion, import/export, and immutable checkpoint paths now pass; the normalized all-prompt and lore-eligibility matrices remain open |
-| Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices                                                                          |
+| Creation UX                          | In progress                 | The candidate now provides a recursively browsable AI draft preview with search, depth/count/start status, location details, provenance, and clearer decisions; the broader first-map funnel remains open                                         |
 | Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                         |
 
-The current Agents candidate checkpoint is `06dd083` on
+The current Agents candidate checkpoint is `9e1883f` on
 `feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
 is `20bd419e9` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
@@ -105,7 +105,7 @@ Already implemented in the candidate:
 - a zero-private-import assertion enforced during build and catalog validation.
 
 The implementation portion of this boundary is complete at Engine `20bd419e9`
-and Agents `06dd083`. The focused client regression covers a failed first module
+and Agents `9e1883f`. The focused client regression covers a failed first module
 request, retry, simulated package runtime failure, remount, and 44px recovery
 actions. An exact-artifact browser matrix installs through **Download Agents** on
 clean and Maps `1.0.6` profiles, verifies restart/readiness, exercises dark, light,
@@ -147,6 +147,17 @@ Exit: Phase 3 and the applicable Phase 4 recovery gates in the recovery plan pas
 
 Priority: P1 after recovery-critical parity, with independent Agents-owned editor
 slices allowed once they cannot destabilize the package boundary.
+
+The first independently safe package-owned slice is checkpointed at Agents
+`9e1883f`. Before a generated map enters the working editor, Draft preview now
+shows its recursively browsable hierarchy, location count and depth, proposed
+start, searchable names and content, public descriptions, private model memories,
+and lore provenance. Root locations open through the first useful level, while
+Expand all and Collapse all keep large results controllable. The decision actions
+are now **Regenerate**, **Edit prompt**, **Discard draft**, and **Continue to
+editor**. Focused exact-artifact browser coverage passes creation, expansion, Game
+setup review, and skip behavior on desktop and mobile. No save, stable-ID, history,
+or Engine contract changed.
 
 Use the creation UX notes as the acceptance source. The intended result is one clear
 path from activation to a fully inspectable draft, explicit regenerate/discard

@@ -8,6 +8,10 @@ Date observed: 2026-07-15
 
 Audience: product, design, Marinara Engine contributors, and Marinara Agents contributors
 
+> **Documentation map:** See the
+> [Hierarchical Maps implementation plan](./hierarchical-maps-implementation-plan.md)
+> for current status, authority, and reading order.
+
 Coordination: [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md)
 owns delivery order; this note owns the walkthrough evidence and UX acceptance
 criteria.

@@ -4,6 +4,10 @@ Status: Active implementation; Maps 1.0.6 is published, the Phase 2 implementati
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
+> **Documentation map:** See the
+> [Hierarchical Maps implementation plan](./hierarchical-maps-implementation-plan.md)
+> for current status, authority, and reading order.
+
 Implementation repositories:
 
 - [Pasta-Devs/Marinara-Engine](https://github.com/Pasta-Devs/Marinara-Engine)

@@ -4,7 +4,7 @@ Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 impleme
 
 Related work:
 
-- [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md) is the canonical current-status and delivery-order index.
+- [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md) is the canonical documentation map, current-status summary, and delivery-order index.
 - [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md) defines the original architecture and delivery plan.
 - [PR #3565](https://github.com/Pasta-Devs/Marinara-Engine/pull/3565) established the first hierarchical-map, spatial-context, and location-lore foundation.
 - [PR #3613](https://github.com/Pasta-Devs/Marinara-Engine/pull/3613) moved hierarchical maps into the optional-agent/package system.

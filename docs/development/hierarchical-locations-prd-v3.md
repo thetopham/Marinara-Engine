@@ -6,6 +6,10 @@ Audience: Product, design, and Marinara Engine contributors
 
 Supersedes: `hierarchical-locations-prd-v2.md`
 
+> **Documentation map:** See the
+> [Hierarchical Maps implementation plan](./hierarchical-maps-implementation-plan.md)
+> for current status, authority, and reading order.
+
 ## Architecture boundary
 
 This plan treats spatial orientation as a focused product capability with a narrow state boundary.

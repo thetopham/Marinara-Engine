@@ -1,5 +1,8 @@
 # Hierarchical Maps: Setup, Authoring, and Travel
 
+> **Developer documentation:** Start with the
+> [Hierarchical Maps documentation map and current status](../development/hierarchical-maps-implementation-plan.md).
+
 Hierarchical Maps adds a persistent story map to Roleplay and Game chats. Instead of keeping one free-text location, it can represent a world as nested places:
 
 ```text

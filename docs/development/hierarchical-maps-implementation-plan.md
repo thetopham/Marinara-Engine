@@ -10,16 +10,42 @@ This document answers two questions: **what is authoritative now?** and **what i
 implemented next?** Detailed product requirements, UX evidence, and proof criteria
 remain in the linked documents rather than being copied here.
 
+> **Start here.** This is the canonical Hierarchical Maps documentation index,
+> current-status summary, and delivery-order guide. The other documents own their
+> narrower subjects; use the paths below instead of treating every file as a
+> competing plan.
+
+## Reading paths
+
+- **Use or troubleshoot the feature:** read the
+  [user guide](../agents/hierarchical-maps.md).
+- **Implement or review the current candidate:** start with the
+  [current implementation snapshot](#current-implementation-snapshot), then use
+  the [recovery plan](./hierarchical-maps-addon-recovery-plan.md) for requirements
+  and proof gates.
+- **Understand the product and data model:** read the
+  [V3 PRD](./hierarchical-locations-prd-v3.md).
+- **Improve first-map creation:** use the
+  [creation UX notes](./hierarchical-maps-creation-ux-notes.md) as observed
+  evidence, then check this file for sequencing.
+- **Plan post-recovery work:** use the
+  [future roadmap](./hierarchical-maps-future-roadmap.md) only after its recovery
+  gates pass.
+
 ## Document map
 
-| Document                                                                                 | What it governs                                                     | How to use it                                                |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`hierarchical-maps.md`](../agents/hierarchical-maps.md)                                 | Current user behavior and workarounds                               | Keep accurate for the version users can install              |
-| [`hierarchical-maps-creation-ux-notes.md`](./hierarchical-maps-creation-ux-notes.md)     | Observed first-map and global-Agent-page friction                   | Use as the evidence and acceptance source for creation UX    |
-| [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) | Package recovery architecture, phases, exit gates, and proof matrix | Use for all work required before new travel features         |
-| [`hierarchical-maps-future-roadmap.md`](./hierarchical-maps-future-roadmap.md)           | Product work after recovery, including creation UX and travel       | Do not treat exploratory sections as approved implementation |
-| [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md)                 | Historical V3 product and architecture baseline                     | Preserve as history; do not rewrite it for package recovery  |
-| [`optional-agent-packages.md`](./optional-agent-packages.md)                             | Generic Engine package lifecycle and capability boundaries          | Use when deciding whether a contract belongs in Engine       |
+| Document                                                                                 | Authority                                                      | Use it for                                                      |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------- |
+| **This implementation plan**                                                             | Canonical index, current status, ownership, and delivery order | Deciding what is authoritative now and what is implemented next |
+| [`hierarchical-maps.md`](../agents/hierarchical-maps.md)                                 | Current stable user-facing behavior and workarounds            | Setup, authoring, movement, and troubleshooting                 |
+| [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) | Active package-recovery requirements and proof gates           | Work that must finish before new travel features                |
+| [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md)                 | Historical product, data-model, and architecture baseline      | Understanding the original V3 decisions without rewriting them  |
+| [`hierarchical-maps-creation-ux-notes.md`](./hierarchical-maps-creation-ux-notes.md)     | Observed first-map UX evidence and acceptance criteria         | Designing and validating creation-flow improvements             |
+| [`hierarchical-maps-future-roadmap.md`](./hierarchical-maps-future-roadmap.md)           | Exploratory post-recovery product direction                    | Creation UX, runtime-map simplification, and future travel      |
+
+Supporting architecture: [`optional-agent-packages.md`](./optional-agent-packages.md)
+defines the generic Engine package lifecycle and capability boundary. It supports
+the Maps plans but is not a separate Hierarchical Maps product plan.
 
 When the documents appear to conflict, the stable shipped behavior and data-safety
 rules win first, the recovery plan governs unfinished recovery work, and the future

@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; Maps 1.0.6 is published, a package-owned 1.1.0 recovery candidate is checkpointed, generic host isolation and the full V3 proof matrix remain open, and new travel features remain blocked
+Status: Active implementation; Maps 1.0.6 is published, the Phase 2 implementation is checkpointed in a package-owned 1.1.0 recovery candidate, manual release proof and the full V3 proof matrix remain open, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -62,7 +62,7 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, atomic owner-turn persistence, duplicate-command rejection, offline
   restart, remove, reinstall, full-backup creation, and full-backup restore.
-- The pushed generic Engine checkpoint at `c797c0da1` exposes capability API `1.2`
+- The pushed generic Engine checkpoint at `a56e50e13` exposes capability API `1.2`
   package logging, effective agent-debug state, transaction-scoped chat/message and
   definition-metadata operations, lore-entry existence reads, the spatial snapshot
   compatibility store, normalized route resources, JSON-ish parsing, and
@@ -70,17 +70,19 @@ work after the optional-package extraction.
   underlying logger, runtime configuration, provider implementation, credential,
   database handle, or table objects. It remains isolated on
   `feature/capability-runtime-logging` in the `thetopham` fork, bridges generic
-  host-owned UI state through contribution props/events, and must land before the
+  host-owned UI state through contribution props/events, exposes observable client
+  loading/error/retry states with accessible fallbacks, and must land before the
   dependent Maps candidate is published.
-- The pushed Maps `1.1.0` candidate checkpoint at `737f859` targets that exact
+- The pushed Maps `1.1.0` candidate checkpoint at `c5bb1ba` targets that exact
   Engine commit and consumes the runtime facade for owner-turn commits, state
   resolution, definition metadata, lore-link warnings, snapshot storage, route
   resources, JSON parsing, and model calls. Package-local REST, resource hooks,
   pending-move persistence, and host contribution props/events removed the final
   client dependencies. The boundary contract now asserts zero private Engine
   imports during both build and catalog validation, down from the original 52,
-  and Maps builds without copying captured generic Engine sources. Maps validation,
-  routes, prompts, and UI remain package-owned.
+  and Maps builds without copying captured generic Engine sources. Its package-root
+  client error boundary reports runtime failures to the generic host for a clean
+  retry. Maps validation, routes, prompts, and UI remain package-owned.
 
 PR #35 restores and proves these recovery slices:
 
@@ -95,14 +97,16 @@ PR #35 restores and proves these recovery slices:
 - focused generated-turn, setup, prompt-scope, cleanup, and desktop/mobile runtime
   regression coverage.
 
-The pushed recovery candidate completes the source-isolation portion of Phase 2,
-but not the full Phase 3 proof matrix. Package-owned source, automated
+The pushed recovery candidate completes the implementation portion of Phase 2,
+but not its manual publication proof or the full Phase 3 proof matrix.
+Package-owned source, automated
 existing-campaign reconciliation, generic package logging, owner-turn/state
 persistence, atomic definition-metadata plus snapshot persistence, both server and
-client boundaries, and the source-only build are now implemented. Generic client
-capability load/error presentation, broader history and prompt-parity coverage,
-manual lifecycle verification, themes, and keyboard/touch checks still block
-continuation travel features. The automated
+client boundaries, the source-only build, and generic client loading/error/retry
+presentation are now implemented. A focused host regression proves a failed module
+load, retry, simulated package runtime failure, and remount. Broader history and
+prompt-parity coverage, manual lifecycle verification, themes, and keyboard/touch
+checks still block continuation travel features. The automated
 lifecycle checkpoint proves the stored definition and snapshot round trip, but it
 does not replace the remaining human browser and platform checks.
 
@@ -430,10 +434,12 @@ its Engine build provenance, and enforces a zero-private-import boundary.
 Capability API `1.2` logging/debug, transactional owner-turn
 and definition-metadata writes, lore-entry existence reads, compatibility snapshot
 operations, route resources, JSON parsing, and model calls are checkpointed at
-Engine `c797c0da1` and Agents `737f859`. Package-owned source, the server and client
-boundaries, and the source-only build are established. Generic client capability
-load/error presentation plus the remaining release proof are still in progress on
-the existing feature branches. Issue #16 remains closed and must not be reopened.
+Engine `a56e50e13` and Agents `c5bb1ba`. Package-owned source, the server and client
+boundaries, the source-only build, and generic client loading/error/retry
+presentation are established. The implementation is complete; manual
+desktop/mobile, theme, keyboard/touch, and package-readiness proof plus Engine-first
+release ordering remain before formal Phase 2 closure. Issue #16 remains closed
+and must not be reopened.
 
 Goal: remove the frozen private-source dependency.
 

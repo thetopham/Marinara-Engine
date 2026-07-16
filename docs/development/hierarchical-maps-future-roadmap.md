@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 is published and a package-owned 1.1.0 recovery candidate is checkpointed, still blocked on generic host isolation and full V3 stabilization
+Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation is checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on manual release proof and full V3 stabilization
 
 Related work:
 
@@ -48,8 +48,8 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `737f859` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `c797c0da1`. That Engine slice exposes generic
+snapshot. The `c5bb1ba` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `a56e50e13`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
 operations, lore-entry existence reads, the spatial snapshot compatibility store,
 normalized route resources, JSON-ish parsing, and secret-free language-model calls;
@@ -63,11 +63,16 @@ resource hooks, pending-move persistence, and explicit host props/events reduced
 the guarded inventory from 52 private imports to zero without moving Maps
 validation, routes, prompts, or UI into Engine. The candidate now builds from its
 package-owned source tree without copying captured generic Engine dependencies.
+The host now also exposes observable client-module loading, error, and retry states
+with accessible skeleton and failure surfaces. A Maps-owned package-root boundary
+reports runtime failures through the public custom-element event so retry remounts
+the feature cleanly.
 
-The recovery exit gate still requires generic client capability load/error
-presentation, the complete history/prompt matrix, accessibility/theme review, and
-manual lifecycle proof. No new issue, pull request, screenshots, or recordings were
-added, and future travel modes have not started.
+Phase 2 implementation is complete, but its formal exit still requires manual
+desktop/mobile, theme, keyboard/touch, package-readiness, and release-order proof.
+The broader recovery exit also requires the complete Phase 3 history/prompt matrix.
+No new issue, pull request, screenshots, or recordings were added, and future
+travel modes have not started.
 
 A hands-on first-map walkthrough on July 15 also exposed a separate product gap.
 The user had to install Maps, install an offered update, restart, activate Maps

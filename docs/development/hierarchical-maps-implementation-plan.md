@@ -34,14 +34,15 @@ and status, not the detailed requirements.
 | Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                   |
 | Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                            |
 | Exact lifecycle proof                | Candidate                   | Update, offline restart, remove, reinstall, backup, and restore pass against the exact 1.1.0 archive                                                                     |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2, capability API 1.0, and an exact Engine 2.3.0 build commit                                                                                       |
-| Private Engine isolation             | In progress                 | Package-owned utilities reduced the guarded inventory from 52 to 39 private imports: 26 server and 13 client. Unrecorded additions fail; the count must reach zero       |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.1 against the exact paired Engine checkpoint `08fcbf1ea`; Engine support must land before publication                        |
+| Private Engine isolation             | In progress                 | Package-owned utilities and the runtime logging facade reduced the guarded inventory from 52 to 36 private imports: 23 server and 13 client. The count must reach zero   |
 | Full V3 history and prompt parity    | Open                        | Retry, continuation, regeneration, swipe, branches, deletion, import/export, checkpoints, and every prompt surface remain incomplete                                     |
 | Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices |
 | Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                |
 
-The current Agents candidate checkpoint is `ac1193c` on
-`feature/hierarchical-maps-package-source-16`.
+The current Agents candidate checkpoint is `269cf93` on
+`feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
+is `08fcbf1ea` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -75,16 +76,18 @@ Already implemented in the candidate:
 - exact-artifact update and lifecycle regression;
 - manifest v2 compatibility metadata and exact build provenance;
 - package-owned ID/time generation, Game-map metadata normalization, client class
-  merging, and client command-ID generation; and
+  merging, and client command-ID generation;
+- capability API 1.1 package logging and debug-state operations, with Maps no
+  longer importing the private Engine logger or runtime configuration; and
 - a private-import inventory that rejects unrecorded additions and makes migration
   progress measurable.
 
 Implement the remaining boundary in small paired slices:
 
-1. Add only the generic typed server operations needed for chat reads and atomic
-   writes, snapshot storage, lore and connection reads, provider calls, and package
-   logging.
-2. Replace the 26 server private imports with those operations and public DTOs.
+1. Add only the remaining generic typed server operations needed for chat reads and
+   atomic writes, snapshot storage, lore and connection reads, and provider calls.
+   Package logging is complete in the API 1.1 paired checkpoint.
+2. Replace the 23 server private imports with those operations and public DTOs.
    Package code must not receive raw database handles or Engine table objects.
 3. Replace the 13 client private imports with package-local utilities, REST calls,
    and generic contribution props/events. Do not bundle private Engine stores or

@@ -62,13 +62,17 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, offline restart, remove, reinstall, full-backup creation, and full-backup
   restore.
-- The pushed `1.1.0` candidate checkpoint at `ac1193c` adopts manifest v2 with
-  capability API `1.0` and records the exact Engine `2.3.0` source baseline. A
-  package-owned boundary contract inventories the 39 remaining private Engine
-  imports (26 server and 13 client), rejects unrecorded additions during both build
-  and catalog validation, and makes the required migration to zero explicit.
-  Package-owned ID/time, Game-map metadata, and client utility modules removed 13
-  imports without changing Engine runtime code.
+- The pushed generic Engine checkpoint at `08fcbf1ea` exposes capability API `1.1`
+  package logging and effective agent-debug state without exposing the underlying
+  logger or runtime-configuration module. It remains isolated on
+  `feature/capability-runtime-logging` in the `thetopham` fork and must land before
+  the dependent Maps candidate is published.
+- The pushed Maps `1.1.0` candidate checkpoint at `269cf93` targets that exact
+  Engine commit and consumes the new runtime facade. The package-owned boundary
+  contract now inventories 36 remaining private Engine imports (23 server and 13
+  client), rejects unrecorded additions during both build and catalog validation,
+  and makes the required migration to zero explicit. The package has removed 16
+  imports from the original 52 without adding Maps-specific Engine code.
 
 PR #35 restores and proves these recovery slices:
 
@@ -84,10 +88,10 @@ PR #35 restores and proves these recovery slices:
   regression coverage.
 
 The pushed recovery candidate does not complete Phase 2 host isolation or the full
-Phase 3 proof matrix. Package-owned source and automated existing-campaign
-reconciliation are now implemented, but the 52 inventoried private imports,
-captured generic Engine dependencies, and raw host persistence access still need a
-narrow stable contract. Broader history
+Phase 3 proof matrix. Package-owned source, automated existing-campaign
+reconciliation, and generic package logging are now implemented, but the 36
+remaining private imports, captured generic Engine dependencies, and raw host
+persistence access still need narrow stable contracts. Broader history
 and prompt-parity coverage, manual lifecycle verification, themes, and
 keyboard/touch checks still block continuation travel features. The automated
 lifecycle checkpoint proves the stored definition and snapshot round trip, but it
@@ -413,11 +417,12 @@ merge on top of the compatibility shim.
 
 Status: Manifest v2 and API-version compatibility landed through Engine issue
 #3651 and PR #3652. The `1.1.0` candidate now uses that manifest contract, records
-its Engine build provenance, and blocks additions to its 39-import private Engine
-dependency inventory. Package-owned source and the first utility migration are
-established, but migration to generic typed host operations and a source-only build
-remains in progress on the existing Marinara Agents feature branch. Issue #16
-remains closed and must not be reopened.
+its Engine build provenance, and blocks additions to its 36-import private Engine
+dependency inventory. Capability API `1.1` logging/debug operations and their Maps
+migration are checkpointed at Engine `08fcbf1ea` and Agents `269cf93`. Package-owned
+source is established, but the remaining typed host operations and a source-only
+build are still in progress on the existing feature branches. Issue #16 remains
+closed and must not be reopened.
 
 Goal: remove the frozen private-source dependency.
 
@@ -425,8 +430,8 @@ Engine work:
 
 - add manifest parsing and compatibility checks for `capabilityApi` and
   `builtAgainst`;
-- implement the typed storage, chat transaction, lorebook, connection, and logging
-  host operations;
+- implement the remaining typed storage, chat transaction, lorebook, connection,
+  and provider host operations; the generic logging/debug facade is checkpointed;
 - replace raw database arguments in spatial bridge interfaces with public DTOs and
   host operations;
 - expose registered and ready lifecycle states;

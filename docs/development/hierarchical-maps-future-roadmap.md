@@ -48,14 +48,15 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `ac1193c` candidate checkpoint also adopts manifest v2 with capability
-API `1.0`, records its exact Engine `2.3.0` source baseline, and rejects unrecorded
-additions to an explicit inventory of the remaining 39 private Engine imports.
-Package-owned ID/time, Game-map metadata, and client utilities removed 13 imports
-without adding Engine runtime code.
+snapshot. The `269cf93` candidate checkpoint now targets capability API `1.1` and
+the exact paired Engine checkpoint `08fcbf1ea`. That Engine slice exposes only
+generic package logging and debug-state operations; Maps consumes them without
+importing private logger/config modules. Package utilities and the runtime facade
+have reduced the guarded inventory from 52 to 36 private imports (23 server and 13
+client) without adding Maps-specific Engine code.
 
-The recovery exit gate still requires a narrow generic host contract in place of
-captured Engine internals, the complete history/prompt matrix,
+The recovery exit gate still requires the remaining narrow generic host contracts
+in place of captured Engine internals, the complete history/prompt matrix,
 accessibility/theme review, and manual lifecycle proof. No new issue, pull request,
 screenshots, or recordings were added, and future travel modes have not started.
 
@@ -573,9 +574,9 @@ The following ideas remain recorded but are not next-step scope:
 ## Suggested delivery order
 
 The order below is a planning sequence, not a single implementation project. The
-Engine manifest prerequisite landed in PR #3652, while item 1 remains active
-through Marinara Agents issue #16. Merged PR #35 advances part of items 2 and 4 but
-does not complete either exit gate:
+Engine manifest prerequisite landed in PR #3652, while item 1 remains active on the
+existing Maps feature branch; issue #16 stays closed. Merged PR #35 advances part
+of items 2 and 4 but does not complete either exit gate:
 
 1. Finish the package-owned source migration and exact-artifact compatibility
    proof in Marinara Agents, with only generic paired host support in Engine.

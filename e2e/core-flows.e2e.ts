@@ -135,7 +135,7 @@ test("turning off the custom mouse pointer persists immediately and after reload
     .toBeNull();
 });
 
-test("Convo About Me keeps manual editing without legacy AI Write controls", async ({ page }, testInfo) => {
+test("Convo About Me keeps manual editing and native expanded-editor keyboard behavior", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "The shared Convo profile fields are covered on desktop.");
 
   const characterName = "About Me Controls Smoke";
@@ -144,7 +144,7 @@ test("Convo About Me keeps manual editing without legacy AI Write controls", asy
       data: {
         name: characterName,
         personality: "Dryly funny and observant.",
-        extensions: { aboutMe: "quietly judging your playlist" },
+        extensions: { aboutMe: "alpha\nbeta" },
       },
     },
   });
@@ -154,17 +154,57 @@ test("Convo About Me keeps manual editing without legacy AI Write controls", asy
   try {
     await page.goto("/");
     await page.locator('[data-tour="panel-characters"]').click();
-    await page.getByText(characterName, { exact: true }).click();
+    await page.getByText(characterName, { exact: true }).first().click();
 
     const editorSections = page.getByRole("navigation", { name: "Editor sections" });
     await editorSections.getByRole("button", { name: "Convo", exact: true }).click();
 
     const fields = page.locator('[data-component="ConvoProfileFields"]');
     await expect(fields.getByText("About Me", { exact: true })).toBeVisible();
-    await expect(fields.locator("textarea").first()).toHaveValue("quietly judging your playlist");
+    const aboutMe = fields.locator("textarea").first();
+    await expect(aboutMe).toHaveValue("alpha\nbeta");
     await expect(fields.getByRole("button", { name: "AI Write", exact: true })).toHaveCount(0);
     await expect(fields.getByRole("button", { name: "AI Write sources", exact: true })).toHaveCount(0);
     await expect(fields.locator("select")).toHaveCount(1);
+
+    await aboutMe.evaluate((textarea) => {
+      textarea.focus();
+      textarea.setSelectionRange(0, textarea.value.length);
+    });
+    await page.keyboard.press("Tab");
+    await expect(aboutMe).toHaveValue("  alpha\n  beta");
+    await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+z`);
+    await expect(aboutMe).toHaveValue("alpha\nbeta");
+
+    await fields.getByRole("button", { name: "Expand editor", exact: true }).first().click();
+    const expandedEditor = page.locator('[data-component="ExpandedMacroEditor"] textarea');
+    await expect(expandedEditor).toHaveValue("alpha\nbeta");
+
+    await expandedEditor.evaluate((textarea) => {
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+    await page.keyboard.type("!");
+    await expect(expandedEditor).toHaveValue("alpha\nbeta!");
+    await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+z`);
+    await expect(expandedEditor).toHaveValue("alpha\nbeta");
+
+    await expandedEditor.evaluate((textarea) => {
+      textarea.focus();
+      textarea.setSelectionRange(0, textarea.value.length);
+    });
+    await page.keyboard.press("Tab");
+    await expect(expandedEditor).toHaveValue("  alpha\n  beta");
+    await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+z`);
+    await expect(expandedEditor).toHaveValue("alpha\nbeta");
+
+    await expandedEditor.evaluate((textarea) => {
+      textarea.focus();
+      textarea.setSelectionRange(0, textarea.value.length);
+    });
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(expandedEditor).toHaveValue("alpha\nbeta");
   } finally {
     await page.request.delete(`/api/characters/${character.id}`);
   }
@@ -1054,6 +1094,34 @@ test("downloadable agent catalog is usable on desktop and mobile", async ({ page
   );
   await expect(catalogView.getByRole("button", { name: "Install", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("agent catalog reports API failures without diagnosing an internet outage", async ({ page }) => {
+  await page.route("**/api/capability-packages/catalog", async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Validation Error" }),
+    });
+  });
+  await page.route("**/api/capability-packages/installed", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/capability-packages/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/");
+  await page.locator('[data-tour="panel-agents"]').click();
+  await page.getByLabel("Agents").getByRole("button", { name: "Download Agents", exact: true }).click();
+
+  const catalogView = page.locator('[data-component="AgentCatalogView"]');
+  await expect(catalogView.getByText("The agent catalog is unavailable.")).toBeVisible();
+  await expect(catalogView.getByText(/Marinara Engine returned HTTP 400: Validation Error\./)).toBeVisible();
+  await expect(catalogView.getByText(/Check the server internet connection/)).toHaveCount(0);
 });
 
 test("Music Player links to Music DJ while its package is unavailable", async ({ page }) => {

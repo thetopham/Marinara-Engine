@@ -193,6 +193,7 @@ export function withConnectionFallbackProvider({
     fallbackConnection.maxTokensOverride,
     isEnabled(fallbackConnection.claudeFastMode),
     isEnabled(fallbackConnection.treatAsLocalEndpoint),
+    fallbackConnection.defaultParameters,
   );
   return new ConnectionFallbackProvider(primary, fallback, fallbackConnection, category, onFallback);
 }

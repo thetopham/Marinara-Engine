@@ -33,6 +33,7 @@ import {
   type ChatOptions,
   type LLMUsage,
 } from "../../packages/server/src/services/llm/base-provider.js";
+import { createLLMProvider } from "../../packages/server/src/services/llm/provider-registry.js";
 import {
   runWithGenerationFallbackNotifier,
   type GenerationFallbackNotice,
@@ -125,13 +126,21 @@ await new Promise<void>((resolve) => openRouterServer.listen(0, "127.0.0.1", res
 try {
   const address = openRouterServer.address();
   assert.ok(address && typeof address === "object");
-  const provider = new OpenAIProvider(
+  const provider = createLLMProvider(
+    "openrouter",
     `http://127.0.0.1:${address.port}/v1`,
     "test",
     undefined,
     undefined,
     undefined,
-    "openrouter",
+    false,
+    false,
+    JSON.stringify({
+      customParameters: {
+        connection_only: "inherited",
+        nested: { connection: true, shared: "connection" },
+      },
+    }),
   );
   const resolvedTencentEffort = resolveProviderReasoningEffort({
     provider: "openrouter",
@@ -145,15 +154,16 @@ try {
       stream: false,
       enableThinking: true,
       reasoningEffort: resolvedTencentEffort,
-      customParameters: { awesomesauce: "enabled", nested: { level: 3 } },
+      customParameters: { awesomesauce: "enabled", nested: { level: 3, shared: "chat" } },
     }),
     "reasoned response",
   );
   const capturedOpenRouterBody = openRouterRequestBody as Record<string, unknown> | null;
   assert.ok(capturedOpenRouterBody);
   assert.deepEqual(capturedOpenRouterBody.reasoning, { effort: "high" });
+  assert.equal(capturedOpenRouterBody.connection_only, "inherited");
   assert.equal(capturedOpenRouterBody.awesomesauce, "enabled");
-  assert.deepEqual(capturedOpenRouterBody.nested, { level: 3 });
+  assert.deepEqual(capturedOpenRouterBody.nested, { connection: true, shared: "chat", level: 3 });
 } finally {
   await new Promise<void>((resolve, reject) =>
     openRouterServer.close((error) => (error ? reject(error) : resolve())),

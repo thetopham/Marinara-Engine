@@ -8,6 +8,7 @@ import { ClaudeSubscriptionProvider } from "./providers/claude-subscription.prov
 import { GrokSubscriptionProvider } from "./providers/grok-subscription.provider.js";
 import { GoogleProvider } from "./providers/google.provider.js";
 import type { BaseLLMProvider } from "./base-provider.js";
+import { withConnectionDefaultParameters } from "./connection-default-provider.js";
 
 function normalizeCohereOpenAIBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
@@ -38,6 +39,8 @@ export function createLLMProvider(
    * not in the OpenAI catalog (suppression bypass). Mirrors the connection's treatAsLocalEndpoint flag.
    */
   treatAsLocalEndpoint?: boolean,
+  /** Stored connection defaults. Custom Parameters are bound to every text request made by this provider. */
+  defaultParameters?: unknown,
 ): BaseLLMProvider {
   const normalizedMaxContext =
     typeof maxContext === "number" && Number.isFinite(maxContext) && maxContext > 0
@@ -48,13 +51,14 @@ export function createLLMProvider(
       ? Math.floor(maxTokensOverride)
       : undefined;
 
+  let resolved: BaseLLMProvider;
   switch (provider) {
     case "openai":
     case "openrouter":
     case "nanogpt":
     case "xai":
     case "mistral":
-      return new OpenAIProvider(
+      resolved = new OpenAIProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
@@ -62,8 +66,9 @@ export function createLLMProvider(
         normalizedMaxTokensOverride,
         provider,
       );
+      break;
     case "custom":
-      return new OpenAIProvider(
+      resolved = new OpenAIProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
@@ -73,16 +78,18 @@ export function createLLMProvider(
         undefined,
         !(treatAsLocalEndpoint ?? false),
       );
+      break;
     case "openai_chatgpt":
-      return new OpenAIChatGPTProvider(
+      resolved = new OpenAIChatGPTProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
         openrouterProvider,
         normalizedMaxTokensOverride,
       );
+      break;
     case "cohere":
-      return new OpenAIProvider(
+      resolved = new OpenAIProvider(
         normalizeCohereOpenAIBaseUrl(baseUrl),
         apiKey,
         normalizedMaxContext,
@@ -90,16 +97,18 @@ export function createLLMProvider(
         normalizedMaxTokensOverride,
         "cohere",
       );
+      break;
     case "anthropic":
-      return new AnthropicProvider(
+      resolved = new AnthropicProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
         openrouterProvider,
         normalizedMaxTokensOverride,
       );
+      break;
     case "claude_subscription":
-      return new ClaudeSubscriptionProvider(
+      resolved = new ClaudeSubscriptionProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
@@ -107,18 +116,21 @@ export function createLLMProvider(
         normalizedMaxTokensOverride,
         claudeFastMode ?? false,
       );
+      break;
     case "grok_subscription":
-      return new GrokSubscriptionProvider(
+      resolved = new GrokSubscriptionProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
         openrouterProvider,
         normalizedMaxTokensOverride,
       );
+      break;
     case "google":
-      return new GoogleProvider(baseUrl, apiKey, normalizedMaxContext, openrouterProvider, normalizedMaxTokensOverride);
+      resolved = new GoogleProvider(baseUrl, apiKey, normalizedMaxContext, openrouterProvider, normalizedMaxTokensOverride);
+      break;
     case "google_vertex":
-      return new GoogleProvider(
+      resolved = new GoogleProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
@@ -126,8 +138,9 @@ export function createLLMProvider(
         normalizedMaxTokensOverride,
         "google_vertex",
       );
+      break;
     default:
-      return new OpenAIProvider(
+      resolved = new OpenAIProvider(
         baseUrl,
         apiKey,
         normalizedMaxContext,
@@ -137,5 +150,7 @@ export function createLLMProvider(
         undefined,
         !(treatAsLocalEndpoint ?? false),
       );
+      break;
   }
+  return withConnectionDefaultParameters(resolved, defaultParameters);
 }

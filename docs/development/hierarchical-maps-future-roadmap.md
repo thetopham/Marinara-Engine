@@ -48,8 +48,8 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `1958ac4` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `940417c26`. That Engine slice exposes generic
+snapshot. The `737f859` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `c797c0da1`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
 operations, lore-entry existence reads, the spatial snapshot compatibility store,
 normalized route resources, JSON-ish parsing, and secret-free language-model calls;
@@ -58,14 +58,16 @@ snapshot storage, and map drafting without receiving raw providers, credentials,
 database handles, or table objects. Exact-artifact proof now also covers runtime
 facade readiness, route-level connection resolution, an atomic owner move,
 duplicate-command rejection, and missing-lore warnings; Engine rollback proof
-covers atomic metadata plus bootstrap snapshot replacement. Package utilities and
-the runtime facade have reduced the guarded inventory from 52 to 13 private imports,
-all client-side, without moving Maps validation, routes, prompts, or UI into Engine.
+covers atomic metadata plus bootstrap snapshot replacement. Package-local REST,
+resource hooks, pending-move persistence, and explicit host props/events reduced
+the guarded inventory from 52 private imports to zero without moving Maps
+validation, routes, prompts, or UI into Engine. The candidate now builds from its
+package-owned source tree without copying captured generic Engine dependencies.
 
-The recovery exit gate still requires removal of the remaining client and captured
-Engine dependencies, the complete history/prompt matrix, accessibility/theme review,
-and manual lifecycle proof. No new issue, pull request, screenshots, or recordings
-were added, and future travel modes have not started.
+The recovery exit gate still requires generic client capability load/error
+presentation, the complete history/prompt matrix, accessibility/theme review, and
+manual lifecycle proof. No new issue, pull request, screenshots, or recordings were
+added, and future travel modes have not started.
 
 A hands-on first-map walkthrough on July 15 also exposed a separate product gap.
 The user had to install Maps, install an offered update, restart, activate Maps

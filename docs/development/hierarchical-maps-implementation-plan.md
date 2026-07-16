@@ -34,15 +34,15 @@ and status, not the detailed requirements.
 | Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                   |
 | Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                            |
 | Exact lifecycle proof                | Candidate                   | Route-host readiness, update, owner-turn persistence and replay rejection, offline restart, remove, reinstall, backup, and restore pass against the exact 1.1.0 archive  |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `940417c26`; Engine support must land before publication                        |
-| Private Engine isolation             | In progress                 | Package utilities and API 1.2 reduced the guarded inventory from 52 to 13 private imports, all client-side. The server boundary is complete; the total must reach zero   |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `c797c0da1`; Engine support must land before publication                        |
+| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events   |
 | Full V3 history and prompt parity    | Open                        | Retry, continuation, regeneration, swipe, branches, deletion, import/export, checkpoints, and every prompt surface remain incomplete                                     |
 | Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices |
 | Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                |
 
-The current Agents candidate checkpoint is `1958ac4` on
+The current Agents candidate checkpoint is `737f859` on
 `feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
-is `940417c26` on `feature/capability-runtime-logging` in the `thetopham` fork.
+is `c797c0da1` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -84,24 +84,25 @@ Already implemented in the candidate:
 - zero private Engine imports in Maps server code, with Maps no longer importing
   private logger, runtime configuration, provider, lore helper, storage,
   database/schema, or JSON parser paths;
+- zero private Engine imports in Maps client code, with package-local REST,
+  React Query resources, pending-move persistence, and explicit host props/events
+  replacing private Engine hooks, stores, dialogs, and settings components;
+- a source-only Maps build root that no longer copies captured generic Engine
+  sources before bundling;
 - exact-artifact owner-turn proof covering one atomic move and duplicate-command
   rejection, missing-lore warnings, runtime facade readiness, and route-level
   connection resolution through the host facade;
 - transaction rollback proof covering atomic definition metadata and bootstrap
   snapshot replacement; and
-- a private-import inventory that rejects unrecorded additions and makes migration
-  progress measurable.
+- a zero-private-import assertion enforced during build and catalog validation.
 
-Implement the remaining boundary in small paired slices:
+The implementation portion of this boundary is complete at Engine `c797c0da1`
+and Agents `737f859`. Before publication:
 
-1. Replace the 13 client private imports with package-local utilities, REST calls,
-   and generic contribution props/events. Do not bundle private Engine stores or
-   hooks as a second application state layer.
-2. Remove the Hierarchical Maps fallback to captured `sources/engine` material and
-   change the boundary guard from an inventory check to a zero-import assertion.
-3. Rebuild the exact 1.1.0 manifest, payloads, ZIP, and catalog entry together.
-4. Repeat catalog, compatibility, lifecycle, desktop/mobile, and manual package
-   readiness proof before publishing.
+1. Keep Engine support ahead of the dependent Agents catalog publication.
+2. Repeat desktop/mobile and manual package readiness proof before publishing.
+3. Keep the manifest, payloads, ZIP, catalog entry, and exact Engine provenance
+   synchronized for every candidate rebuild.
 
 Exit: Maps builds from package-owned source without a private Engine import, raw
 database access, or copied table object, and uninstall/reinstall preserves its data.

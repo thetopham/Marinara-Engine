@@ -48,22 +48,24 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `75d876f` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `81eb8d94b`. That Engine slice exposes generic
+snapshot. The `1958ac4` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `940417c26`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
-operations, lore-entry existence reads, and the spatial snapshot compatibility
-store; Maps consumes them for owner turns, state resolution, definition persistence,
-and snapshot storage without receiving raw database or table objects. Exact-artifact
-proof now also covers an atomic owner move, duplicate-command rejection, and
-missing-lore warnings; Engine rollback proof covers atomic metadata plus bootstrap
-snapshot replacement. Package utilities and the runtime facade have reduced the
-guarded inventory from 52 to 20 private imports (7 server and 13 client) without
-moving Maps validation, routes, prompts, or UI into Engine.
+operations, lore-entry existence reads, the spatial snapshot compatibility store,
+normalized route resources, JSON-ish parsing, and secret-free language-model calls;
+Maps consumes them for owner turns, state resolution, definition persistence,
+snapshot storage, and map drafting without receiving raw providers, credentials,
+database handles, or table objects. Exact-artifact proof now also covers runtime
+facade readiness, route-level connection resolution, an atomic owner move,
+duplicate-command rejection, and missing-lore warnings; Engine rollback proof
+covers atomic metadata plus bootstrap snapshot replacement. Package utilities and
+the runtime facade have reduced the guarded inventory from 52 to 13 private imports,
+all client-side, without moving Maps validation, routes, prompts, or UI into Engine.
 
-The recovery exit gate still requires the remaining narrow generic host contracts
-in place of captured Engine internals, the complete history/prompt matrix,
-accessibility/theme review, and manual lifecycle proof. No new issue, pull request,
-screenshots, or recordings were added, and future travel modes have not started.
+The recovery exit gate still requires removal of the remaining client and captured
+Engine dependencies, the complete history/prompt matrix, accessibility/theme review,
+and manual lifecycle proof. No new issue, pull request, screenshots, or recordings
+were added, and future travel modes have not started.
 
 A hands-on first-map walkthrough on July 15 also exposed a separate product gap.
 The user had to install Maps, install an offered update, restart, activate Maps

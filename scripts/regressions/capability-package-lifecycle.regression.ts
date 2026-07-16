@@ -127,6 +127,43 @@ try {
     /requires capability API 1\.4; this Engine supports 1\.3/,
   );
 
+  const forwardCompatibleCatalog = capabilityCatalogSchema.parse({
+    schemaVersion: 1,
+    generatedAt: "2026-07-16T00:00:00.000Z",
+    packages: [
+      {
+        manifest: {
+          ...manifestV2,
+          id: "hierarchical-maps",
+          name: "Hierarchical Maps",
+          version: "1.1.1",
+          engine: { min: "3.2.0", maxExclusive: "3.3.0" },
+          capabilityApi: { major: 1, minor: 3 },
+          contributions: {
+            slots: ["chat-settings", "spatial-workspace", "chat-runtime", "game-world-map"],
+            agentDetail: { agentIds: ["hierarchical-maps"] },
+          },
+        },
+        category: "tracker",
+        artifact: {
+          url: "https://example.com/hierarchical-maps-1.1.1.zip",
+          sha256: "1".repeat(64),
+          bytes: 1,
+        },
+      },
+    ],
+  });
+  assert.deepStrictEqual(
+    forwardCompatibleCatalog.packages[0]?.manifest.contributions?.agentDetail,
+    { agentIds: ["hierarchical-maps"] },
+    "Capability API 1.3 Engines must parse agent-detail metadata before applying compatibility gates",
+  );
+  assert.strictEqual(
+    getCapabilityApiCompatibilityIssue(forwardCompatibleCatalog.packages[0]!.manifest),
+    null,
+    "Capability API 1.3 agent-detail metadata must remain compatible with the 1.3 host",
+  );
+
   writeRegistry([installedPackage("conversation-calls", ["agent", "conversation-calls"])]);
   seedWhisperModels();
 
@@ -233,6 +270,7 @@ try {
     generatedAt: "2026-07-16T00:00:00.000Z",
     packages: [
       catalogEntry(callsUpdateManifest),
+      forwardCompatibleCatalog.packages[0]!,
       catalogEntry(futureEngineManifest),
       catalogEntry(futureCapabilityManifest),
       catalogEntry(coreUpdateManifest),

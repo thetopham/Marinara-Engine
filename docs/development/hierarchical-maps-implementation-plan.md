@@ -1,7 +1,8 @@
 # Hierarchical Maps Implementation Plan
 
 Status: canonical sequencing index; recovery is active, Maps 1.0.6 is the stable
-user-facing release, and future travel work is blocked
+user-facing release, the first Phase 3 parity checkpoint is recorded, and future
+travel work is blocked
 
 Last updated: 2026-07-15
 
@@ -27,23 +28,23 @@ and status, not the detailed requirements.
 
 ## Current implementation snapshot
 
-| Area                                 | Status                      | Evidence or remaining gap                                                                                                                                                |
-| ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Stable user release                  | Shipped                     | Maps 1.0.6 is in the main Agents catalog; the broken 1.0.0 experience is no longer the offered release                                                                   |
-| Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                  |
-| Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                   |
-| Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                            |
-| Exact lifecycle proof                | Candidate                   | Route-host readiness, update, owner-turn persistence and replay rejection, offline restart, remove, reinstall, backup, and restore pass against the exact 1.1.0 archive  |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `8afe4a285`; Engine support must land before publication                        |
-| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events   |
-| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks               |
-| Full V3 history and prompt parity    | Open                        | Retry, continuation, regeneration, swipe, branches, deletion, import/export, checkpoints, and every prompt surface remain incomplete                                     |
-| Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices |
-| Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                |
+| Area                                 | Status                      | Evidence or remaining gap                                                                                                                                                                                                                         |
+| ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable user release                  | Shipped                     | Maps 1.0.6 is in the main Agents catalog; the broken 1.0.0 experience is no longer the offered release                                                                                                                                            |
+| Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                                                                                           |
+| Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                                                                                            |
+| Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                                                                                                     |
+| Exact lifecycle proof                | Candidate                   | The exact 1.1.0 archive passes update, owner turns, prompt projection, history mutation, branch/delete/import/export/checkpoint, offline restart, remove, reinstall, backup, and restore coverage                                                 |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `20bd419e9`; Engine support must land before publication                                                                                                 |
+| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                            |
+| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks                                                                                        |
+| Full V3 history and prompt parity    | In progress                 | Live Roleplay/Game Peek Prompt location lore plus representative continuation, regeneration, swipe, branch, deletion, import/export, and immutable checkpoint paths now pass; the normalized all-prompt and lore-eligibility matrices remain open |
+| Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices                                                                          |
+| Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                         |
 
-The current Agents candidate checkpoint is `3b19f15` on
+The current Agents candidate checkpoint is `06dd083` on
 `feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
-is `8afe4a285` on `feature/capability-runtime-logging` in the `thetopham` fork.
+is `20bd419e9` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -103,8 +104,8 @@ Already implemented in the candidate:
   snapshot replacement; and
 - a zero-private-import assertion enforced during build and catalog validation.
 
-The implementation portion of this boundary is complete at Engine `8afe4a285`
-and Agents `3b19f15`. The focused client regression covers a failed first module
+The implementation portion of this boundary is complete at Engine `20bd419e9`
+and Agents `06dd083`. The focused client regression covers a failed first module
 request, retry, simulated package runtime failure, remount, and 44px recovery
 actions. An exact-artifact browser matrix installs through **Download Agents** on
 clean and Maps `1.0.6` profiles, verifies restart/readiness, exercises dark, light,
@@ -125,8 +126,15 @@ database access, or copied table object, and uninstall/reinstall preserves its d
 
 Priority: P0 after the package boundary.
 
-- Cover retry, continuation, regeneration, swipe, branch, deletion, import/export,
-  and checkpoint behavior in both owner modes.
+The first automated Phase 3 slice is checkpointed. Live Roleplay and Game Peek
+Prompt now include forced current-location lore and one authoritative spatial
+projection. Exact-artifact regression also covers assistant snapshot creation,
+continuation, regeneration and swipe history, swipe deletion, earlier-message
+branching, source-message deletion, JSONL export/import, and immutable Game plus
+Spatial Context checkpoint restore.
+
+- Complete retry and the remaining cross-owner-mode combinations for continuation,
+  regeneration, swipe, branch, deletion, import/export, and checkpoints.
 - Compare normal generation, Game GM, dry run, live Peek Prompt, and cached Peek
   Prompt projections from one normalized fixture.
 - Prove disabled, excluded, missing, duplicate, forced, and truncated lore cases.

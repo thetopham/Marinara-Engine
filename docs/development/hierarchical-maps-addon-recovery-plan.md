@@ -1,6 +1,6 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; Maps 1.0.6 is published, the Phase 2 implementation and automated browser closure matrix are checkpointed in a package-owned 1.1.0 recovery candidate, human release sign-off and the full V3 proof matrix remain open, and new travel features remain blocked
+Status: Active implementation; Maps 1.0.6 is published, the Phase 2 implementation and automated browser closure matrix plus the first Phase 3 parity slice are checkpointed in a package-owned 1.1.0 recovery candidate, human release sign-off and the remaining V3 proof matrix stay open, and new travel features remain blocked
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -62,7 +62,7 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, atomic owner-turn persistence, duplicate-command rejection, offline
   restart, remove, reinstall, full-backup creation, and full-backup restore.
-- The generic Engine checkpoint at `8afe4a285` exposes capability API `1.2`
+- The generic Engine checkpoint at `20bd419e9` exposes capability API `1.2`
   package logging, effective agent-debug state, transaction-scoped chat/message and
   definition-metadata operations, lore-entry existence reads, the spatial snapshot
   compatibility store, normalized route resources, JSON-ish parsing, and
@@ -73,7 +73,7 @@ work after the optional-package extraction.
   host-owned UI state through contribution props/events, exposes observable client
   loading/error/retry states with accessible fallbacks and 44px recovery actions,
   and must land before the dependent Maps candidate is published.
-- The Maps `1.1.0` candidate checkpoint at `3b19f15` targets that exact
+- The Maps `1.1.0` candidate checkpoint at `06dd083` targets that exact
   Engine commit and consumes the runtime facade for owner-turn commits, state
   resolution, definition metadata, lore-link warnings, snapshot storage, route
   resources, JSON parsing, and model calls. Package-local REST, resource hooks,
@@ -98,6 +98,17 @@ PR #35 restores and proves these recovery slices:
 - focused generated-turn, setup, prompt-scope, cleanup, and desktop/mobile runtime
   regression coverage.
 
+The first Phase 3 parity checkpoint adds two generic Engine corrections and exact
+artifact proof. Live Game and preset-less Roleplay Peek Prompt assembly now runs
+the same location-lore eligibility path and injects the authoritative spatial
+projection instead of falling through to incomplete raw history. Game checkpoints
+now retain immutable copies of their Game and Spatial Context snapshots, while
+older ID-only checkpoints remain loadable. The exact `1.1.0` lifecycle regression
+now covers live prompt location lore, assistant snapshot creation, continuation,
+regeneration and swipes, swipe deletion, earlier-message branching, source-message
+deletion, JSONL export/import, and checkpoint restore in addition to the existing
+package lifecycle and reconciliation cases.
+
 The recovery candidate completes the implementation portion of Phase 2, but not
 its human publication sign-off or the full Phase 3 proof matrix.
 Package-owned source, automated
@@ -109,7 +120,9 @@ load, retry, simulated package runtime failure, remount, and touch-sized recover
 actions. An exact-artifact browser matrix now passes clean install, Maps `1.0.6`
 update, restart/readiness, dark/light/SillyTavern desktop and mobile viewports,
 keyboard and touch emulation, runtime retry, uninstall, reinstall, and retained
-campaign state. Broader history and prompt-parity coverage still belongs to Phase 3.
+campaign state. The first history and live-prompt parity slice is now automated,
+while the normalized all-prompt, lore-eligibility, cross-owner-mode, and remaining
+browser proof still belong to Phase 3.
 The automated lifecycle and browser checkpoints do not replace the remaining
 unchecked human browser and platform checks.
 
@@ -437,7 +450,7 @@ its Engine build provenance, and enforces a zero-private-import boundary.
 Capability API `1.2` logging/debug, transactional owner-turn
 and definition-metadata writes, lore-entry existence reads, compatibility snapshot
 operations, route resources, JSON parsing, and model calls are checkpointed at
-Engine `8afe4a285` and Agents `3b19f15`. Package-owned source, the server and client
+Engine `20bd419e9` and Agents `06dd083`. Package-owned source, the server and client
 boundaries, the source-only build, generic client loading/error/retry presentation,
 and touch-sized recovery/workspace actions are established. An exact-artifact
 browser matrix passes clean and upgraded-profile Download Agents lifecycle checks,
@@ -483,6 +496,14 @@ Exit gate:
 ### Phase 3: restore the complete V3 owner foundation
 
 Goal: prove that extraction preserved all delivered V3 behavior.
+
+Status: In progress at Engine `20bd419e9` and Agents `06dd083`. The exact candidate
+now proves live Roleplay/Game Peek Prompt location lore, representative
+continuation, regeneration, swipe, branch, deletion, JSONL import/export, and
+immutable Game/Spatial checkpoint behavior. This is a checkpoint, not Phase 3
+closure: retry combinations, both-owner-mode coverage, the normalized normal/Game
+GM/dry-run/live Peek/cached Peek comparison, lore eligibility edge cases, and
+remaining browser/platform proof are still open.
 
 #### P0 release blocker: reconcile Game setup maps
 

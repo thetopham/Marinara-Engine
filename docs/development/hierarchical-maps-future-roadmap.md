@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and full V3 stabilization
+Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix and first Phase 3 parity slice are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and the remaining V3 stabilization matrix
 
 Related work:
 
@@ -48,8 +48,8 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `3b19f15` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `8afe4a285`. That Engine slice exposes generic
+snapshot. The `06dd083` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `20bd419e9`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
 operations, lore-entry existence reads, the spatial snapshot compatibility store,
 normalized route resources, JSON-ish parsing, and secret-free language-model calls;
@@ -69,13 +69,23 @@ reports runtime failures through the public custom-element event so retry remoun
 the feature cleanly. Generic recovery actions and package-owned mobile workspace
 actions now keep 44px minimum touch targets.
 
+The first Phase 3 parity slice is also checkpointed in those heads. Live Game and
+preset-less Roleplay Peek Prompt now include forced current-location lore and one
+authoritative spatial projection. Checkpoints preserve immutable Game and Spatial
+Context copies instead of depending only on mutable tracker rows. Exact-artifact
+coverage now exercises assistant snapshot creation, continuation, regeneration,
+swipes, swipe deletion, earlier-message branching, source-message deletion, JSONL
+export/import, and checkpoint restore alongside the existing lifecycle cases.
+
 An exact-artifact browser matrix now passes clean install, Maps `1.0.6` update,
 restart/readiness, dark/light/SillyTavern desktop and mobile viewports, keyboard and
 touch emulation, runtime retry, uninstall, reinstall, and retained campaign state.
 Phase 2 implementation and automated closure proof are complete, but its formal
 exit still requires unchecked human platform sign-off and Engine-first release
 ordering.
-The broader recovery exit also requires the complete Phase 3 history/prompt matrix.
+The broader recovery exit still requires the normalized all-prompt comparison,
+lore-eligibility edge cases, remaining cross-owner history combinations, and
+browser/platform proof in the Phase 3 matrix.
 No new issue, pull request, screenshots, or recordings were added, and future
 travel modes have not started.
 
@@ -208,6 +218,11 @@ Do not add route behavior in both repositories while this boundary is unsettled.
 
 This is the first implementation work after the package boundary is known. It
 adds no new product capability.
+
+The first automated slice now covers live current-location lore in Roleplay and
+Game Peek Prompt plus representative continuation, regeneration, swipe, branch,
+deletion, import/export, and checkpoint restoration. The checks below remain the
+full workstream gate; this checkpoint does not mark the workstream complete.
 
 ### Correctness
 

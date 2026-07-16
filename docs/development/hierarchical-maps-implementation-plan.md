@@ -34,16 +34,16 @@ and status, not the detailed requirements.
 | Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                   |
 | Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                            |
 | Exact lifecycle proof                | Candidate                   | Route-host readiness, update, owner-turn persistence and replay rejection, offline restart, remove, reinstall, backup, and restore pass against the exact 1.1.0 archive  |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `a56e50e13`; Engine support must land before publication                        |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `8afe4a285`; Engine support must land before publication                        |
 | Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events   |
-| Client loading and failure recovery  | Candidate                   | The Engine host exposes observable loading/error/retry states and accessible fallbacks; Maps reports package-root runtime failures through its custom-element boundary   |
+| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks               |
 | Full V3 history and prompt parity    | Open                        | Retry, continuation, regeneration, swipe, branches, deletion, import/export, checkpoints, and every prompt surface remain incomplete                                     |
 | Creation UX                          | Planned                     | The walkthrough and global blank-agent-editor problem are documented; implementation waits behind recovery-critical work except for independently safe package UI slices |
 | Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                |
 
-The current Agents candidate checkpoint is `c5bb1ba` on
+The current Agents candidate checkpoint is `3b19f15` on
 `feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
-is `a56e50e13` on `feature/capability-runtime-logging` in the `thetopham` fork.
+is `8afe4a285` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -91,9 +91,11 @@ Already implemented in the candidate:
 - a source-only Maps build root that no longer copies captured generic Engine
   sources before bundling;
 - observable generic client-module loading, failure, and retry states with stable
-  skeletons, safe full-screen escape actions, and accessible error presentation;
+  skeletons, safe full-screen escape actions, accessible error presentation, and
+  44px recovery actions;
 - a Maps-owned package-root error boundary that reports runtime failures through
-  the public custom-element host event and supports a clean remount on retry;
+  the public custom-element host event, supports a clean remount on retry, and keeps
+  Maps workspace actions touch-sized at mobile widths;
 - exact-artifact owner-turn proof covering one atomic move and duplicate-command
   rejection, missing-lore warnings, runtime facade readiness, and route-level
   connection resolution through the host facade;
@@ -101,12 +103,18 @@ Already implemented in the candidate:
   snapshot replacement; and
 - a zero-private-import assertion enforced during build and catalog validation.
 
-The implementation portion of this boundary is complete at Engine `a56e50e13`
-and Agents `c5bb1ba`. The automated client regression covers a failed first module
-request, retry, simulated package runtime failure, and remount. Before publication:
+The implementation portion of this boundary is complete at Engine `8afe4a285`
+and Agents `3b19f15`. The focused client regression covers a failed first module
+request, retry, simulated package runtime failure, remount, and 44px recovery
+actions. An exact-artifact browser matrix installs through **Download Agents** on
+clean and Maps `1.0.6` profiles, verifies restart/readiness, exercises dark, light,
+and SillyTavern themes at desktop and mobile viewports, drives keyboard and touch
+paths, and confirms uninstall/reinstall preservation. This is automated evidence,
+not human platform sign-off. Before publication:
 
 1. Keep Engine support ahead of the dependent Agents catalog publication.
-2. Repeat desktop/mobile and manual package readiness proof before publishing.
+2. Complete the remaining unchecked human desktop/mobile, theme, keyboard/touch,
+   and platform package-readiness checks before publishing.
 3. Keep the manifest, payloads, ZIP, catalog entry, and exact Engine provenance
    synchronized for every candidate rebuild.
 

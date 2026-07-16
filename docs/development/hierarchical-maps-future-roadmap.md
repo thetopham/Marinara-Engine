@@ -1,6 +1,6 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation is checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on manual release proof and full V3 stabilization
+Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and full V3 stabilization
 
 Related work:
 
@@ -48,8 +48,8 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `c5bb1ba` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `a56e50e13`. That Engine slice exposes generic
+snapshot. The `3b19f15` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `8afe4a285`. That Engine slice exposes generic
 package logging/debug state, transaction-scoped chat/message and definition-metadata
 operations, lore-entry existence reads, the spatial snapshot compatibility store,
 normalized route resources, JSON-ish parsing, and secret-free language-model calls;
@@ -66,10 +66,15 @@ package-owned source tree without copying captured generic Engine dependencies.
 The host now also exposes observable client-module loading, error, and retry states
 with accessible skeleton and failure surfaces. A Maps-owned package-root boundary
 reports runtime failures through the public custom-element event so retry remounts
-the feature cleanly.
+the feature cleanly. Generic recovery actions and package-owned mobile workspace
+actions now keep 44px minimum touch targets.
 
-Phase 2 implementation is complete, but its formal exit still requires manual
-desktop/mobile, theme, keyboard/touch, package-readiness, and release-order proof.
+An exact-artifact browser matrix now passes clean install, Maps `1.0.6` update,
+restart/readiness, dark/light/SillyTavern desktop and mobile viewports, keyboard and
+touch emulation, runtime retry, uninstall, reinstall, and retained campaign state.
+Phase 2 implementation and automated closure proof are complete, but its formal
+exit still requires unchecked human platform sign-off and Engine-first release
+ordering.
 The broader recovery exit also requires the complete Phase 3 history/prompt matrix.
 No new issue, pull request, screenshots, or recordings were added, and future
 travel modes have not started.

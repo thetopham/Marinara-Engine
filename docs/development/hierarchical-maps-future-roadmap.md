@@ -4,10 +4,13 @@ Status: Exploratory future TODO; Maps 1.0.6 is published and a package-owned 1.1
 
 Related work:
 
+- [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md) is the canonical current-status and delivery-order index.
 - [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md) defines the original architecture and delivery plan.
 - [PR #3565](https://github.com/Pasta-Devs/Marinara-Engine/pull/3565) established the first hierarchical-map, spatial-context, and location-lore foundation.
 - [PR #3613](https://github.com/Pasta-Devs/Marinara-Engine/pull/3613) moved hierarchical maps into the optional-agent/package system.
 - [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) governs restoration of the extracted package before this future roadmap continues.
+- [`hierarchical-maps-creation-ux-notes.md`](./hierarchical-maps-creation-ux-notes.md) records the observed first-map and global feature-page problems behind Workstream 2.
+- [`../agents/hierarchical-maps.md`](../agents/hierarchical-maps.md) documents the current user-facing flow and workarounds.
 - [Marinara Engine PR #3644](https://github.com/Pasta-Devs/Marinara-Engine/pull/3644) and
   [Marinara Agents PR #15](https://github.com/Pasta-Devs/Marinara-Agents/pull/15)
   shipped the paired 1.0.1 compatibility recovery.
@@ -45,7 +48,9 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot.
+snapshot. The `ca697c6` candidate checkpoint also adopts manifest v2 with capability
+API `1.0`, records its exact Engine `2.3.0` source baseline, and rejects unrecorded
+additions to an explicit inventory of the remaining 52 private Engine imports.
 
 The recovery exit gate still requires a narrow generic host contract in place of
 captured Engine internals, the complete history/prompt matrix,

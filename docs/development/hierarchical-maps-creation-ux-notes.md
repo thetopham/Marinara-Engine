@@ -6,6 +6,10 @@ Date observed: 2026-07-15
 
 Audience: product, design, Marinara Engine contributors, and Marinara Agents contributors
 
+Coordination: [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md)
+owns delivery order; this note owns the walkthrough evidence and UX acceptance
+criteria.
+
 ## Summary
 
 Creating a first Hierarchical Map works, but the current journey asks the user to understand package installation, package updating, a misleading global Agent editor, per-chat agent activation, a separately mounted map setting, AI draft semantics, a non-browsable preview, a collapsed working hierarchy, starting-location rules, and separate Enabled and Save controls.

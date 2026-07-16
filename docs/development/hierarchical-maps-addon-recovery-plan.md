@@ -11,8 +11,10 @@ Implementation repositories:
 
 Planning inputs:
 
+- [`hierarchical-maps-implementation-plan.md`](./hierarchical-maps-implementation-plan.md)
 - [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md)
 - [`hierarchical-maps-future-roadmap.md`](./hierarchical-maps-future-roadmap.md)
+- [`hierarchical-maps-creation-ux-notes.md`](./hierarchical-maps-creation-ux-notes.md)
 - [`optional-agent-packages.md`](./optional-agent-packages.md)
 
 ## Purpose
@@ -60,6 +62,11 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, offline restart, remove, reinstall, full-backup creation, and full-backup
   restore.
+- The pushed `1.1.0` candidate checkpoint at `ca697c6` adopts manifest v2 with
+  capability API `1.0` and records the exact Engine `2.3.0` source baseline. A
+  package-owned boundary contract inventories the 52 remaining private Engine
+  imports (31 server and 21 client), rejects unrecorded additions during both build
+  and catalog validation, and makes the required migration to zero explicit.
 
 PR #35 restores and proves these recovery slices:
 
@@ -76,8 +83,9 @@ PR #35 restores and proves these recovery slices:
 
 The pushed recovery candidate does not complete Phase 2 host isolation or the full
 Phase 3 proof matrix. Package-owned source and automated existing-campaign
-reconciliation are now implemented, but captured generic Engine dependencies and
-raw host persistence access still need a narrow stable contract. Broader history
+reconciliation are now implemented, but the 52 inventoried private imports,
+captured generic Engine dependencies, and raw host persistence access still need a
+narrow stable contract. Broader history
 and prompt-parity coverage, manual lifecycle verification, themes, and
 keyboard/touch checks still block continuation travel features. The automated
 lifecycle checkpoint proves the stored definition and snapshot round trip, but it
@@ -402,8 +410,11 @@ merge on top of the compatibility shim.
 ### Phase 2: capability API v1 and package-owned source release 1.1.0
 
 Status: Manifest v2 and API-version compatibility landed through Engine issue
-#3651 and PR #3652. Package-owned source and any additional generic typed host
-operations remain in progress under Marinara Agents issue #16.
+#3651 and PR #3652. The `1.1.0` candidate now uses that manifest contract, records
+its Engine build provenance, and blocks additions to its 52-import private Engine
+dependency inventory. Package-owned source is established, but migration to generic
+typed host operations and a source-only build remains in progress on the existing
+Marinara Agents feature branch. Issue #16 remains closed and must not be reopened.
 
 Goal: remove the frozen private-source dependency.
 

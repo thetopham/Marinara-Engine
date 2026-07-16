@@ -48,15 +48,17 @@ existing-campaign reconciliation at `1948183`. Exact-artifact coverage now updat
 from Maps `1.0.5` through `1.0.6` to `1.1.0`, rejects partial reconciliation writes,
 proves retry safety, and covers offline restart, remove, reinstall, full-backup
 creation, and full-backup restore while preserving the definition and spatial
-snapshot. The `d7eca93` candidate checkpoint now targets capability API `1.2` and
-the exact paired Engine checkpoint `000d0d37e`. That Engine slice exposes generic
-package logging/debug state, transaction-scoped chat/message operations, and the
-spatial snapshot compatibility store; Maps consumes them for owner turns and state
-resolution without receiving raw database or table objects. Exact-artifact proof
-now also covers an atomic owner move and duplicate-command rejection. Package
-utilities and the runtime facade have reduced the guarded inventory from 52 to 28
-private imports (15 server and 13 client) without moving Maps validation, routes,
-prompts, or UI into Engine.
+snapshot. The `75d876f` candidate checkpoint now targets capability API `1.2` and
+the exact paired Engine checkpoint `81eb8d94b`. That Engine slice exposes generic
+package logging/debug state, transaction-scoped chat/message and definition-metadata
+operations, lore-entry existence reads, and the spatial snapshot compatibility
+store; Maps consumes them for owner turns, state resolution, definition persistence,
+and snapshot storage without receiving raw database or table objects. Exact-artifact
+proof now also covers an atomic owner move, duplicate-command rejection, and
+missing-lore warnings; Engine rollback proof covers atomic metadata plus bootstrap
+snapshot replacement. Package utilities and the runtime facade have reduced the
+guarded inventory from 52 to 20 private imports (7 server and 13 client) without
+moving Maps validation, routes, prompts, or UI into Engine.
 
 The recovery exit gate still requires the remaining narrow generic host contracts
 in place of captured Engine internals, the complete history/prompt matrix,

@@ -62,21 +62,21 @@ work after the optional-package extraction.
   `1.1.0` candidate and covers rejected partial reconciliation, reviewed apply,
   retry, atomic owner-turn persistence, duplicate-command rejection, offline
   restart, remove, reinstall, full-backup creation, and full-backup restore.
-- The pushed generic Engine checkpoint at `000d0d37e` exposes capability API `1.2`
-  package logging, effective agent-debug state, transaction-scoped chat/message
-  operations, and the spatial snapshot compatibility store without exposing the
-  underlying logger, runtime configuration, database handle, or table objects. It
-  remains isolated on
+- The pushed generic Engine checkpoint at `81eb8d94b` exposes capability API `1.2`
+  package logging, effective agent-debug state, transaction-scoped chat/message and
+  definition-metadata operations, lore-entry existence reads, and the spatial
+  snapshot compatibility store without exposing the underlying logger, runtime
+  configuration, database handle, or table objects. It remains isolated on
   `feature/capability-runtime-logging` in the `thetopham` fork and must land before
   the dependent Maps candidate is published.
-- The pushed Maps `1.1.0` candidate checkpoint at `d7eca93` targets that exact
-  Engine commit and consumes the new runtime facade for owner-turn commits, state
-  resolution, and assistant snapshot materialization. The package-owned boundary
-  contract now inventories 28 remaining private Engine imports (15 server and 13
-  client), rejects unrecorded additions during both build and catalog validation,
-  and makes the required migration to zero explicit. The package has removed 24
-  imports from the original 52 without moving Maps validation, routes, prompts, or
-  UI into Engine.
+- The pushed Maps `1.1.0` candidate checkpoint at `75d876f` targets that exact
+  Engine commit and consumes the runtime facade for owner-turn commits, state
+  resolution, definition metadata, lore-link warnings, and snapshot storage. The
+  package-owned boundary contract now inventories 20 remaining private Engine
+  imports (7 server and 13 client), rejects unrecorded additions during both build
+  and catalog validation, and makes the required migration to zero explicit. The
+  package has removed 32 imports from the original 52 without moving Maps
+  validation, routes, prompts, or UI into Engine.
 
 PR #35 restores and proves these recovery slices:
 
@@ -93,10 +93,10 @@ PR #35 restores and proves these recovery slices:
 
 The pushed recovery candidate does not complete Phase 2 host isolation or the full
 Phase 3 proof matrix. Package-owned source, automated existing-campaign
-reconciliation, generic package logging, and the owner-turn/state persistence
-migration are now implemented, but the 28 remaining private imports, captured
-generic Engine dependencies, and definition/route-level host access still need
-narrow stable contracts. Broader history
+reconciliation, generic package logging, owner-turn/state persistence, and atomic
+definition-metadata plus snapshot persistence are now implemented, but the 20
+remaining private imports, captured generic Engine dependencies, and route-level
+host access still need narrow stable contracts. Broader history
 and prompt-parity coverage, manual lifecycle verification, themes, and
 keyboard/touch checks still block continuation travel features. The automated
 lifecycle checkpoint proves the stored definition and snapshot round trip, but it
@@ -422,13 +422,13 @@ merge on top of the compatibility shim.
 
 Status: Manifest v2 and API-version compatibility landed through Engine issue
 #3651 and PR #3652. The `1.1.0` candidate now uses that manifest contract, records
-its Engine build provenance, and blocks additions to its 28-import private Engine
-dependency inventory. Capability API `1.2` logging/debug, transactional owner-turn,
-and compatibility snapshot operations are checkpointed at Engine `000d0d37e` and
-Agents `d7eca93`. Package-owned source is established, but the remaining definition,
-route dependency, client contribution, and source-only build work is still in
-progress on the existing feature branches. Issue #16 remains closed and must not
-be reopened.
+its Engine build provenance, and blocks additions to its 20-import private Engine
+dependency inventory. Capability API `1.2` logging/debug, transactional owner-turn
+and definition-metadata writes, lore-entry existence reads, and compatibility
+snapshot operations are checkpointed at Engine `81eb8d94b` and Agents `75d876f`.
+Package-owned source is established, but the remaining route dependency, client
+contribution, and source-only build work is still in progress on the existing
+feature branches. Issue #16 remains closed and must not be reopened.
 
 Goal: remove the frozen private-source dependency.
 
@@ -436,9 +436,10 @@ Engine work:
 
 - add manifest parsing and compatibility checks for `capabilityApi` and
   `builtAgainst`;
-- implement the remaining typed definition/metadata, lorebook, connection, and
-  provider host operations; logging/debug, owner-turn transactions, and snapshot
-  compatibility persistence are checkpointed;
+- implement the remaining typed route-level lorebook, character, connection,
+  parsing, and provider host operations; logging/debug, owner-turn and definition
+  transactions, lore existence checks, and snapshot compatibility persistence are
+  checkpointed;
 - replace raw database arguments in spatial bridge interfaces with public DTOs and
   host operations;
 - expose registered and ready lifecycle states;

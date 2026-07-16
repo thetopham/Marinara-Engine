@@ -73,7 +73,13 @@ function readOrganization(): BackgroundLibraryOrganization {
 
 function writeOrganization(organization: BackgroundLibraryOrganization) {
   ensureDir();
-  writeFileSync(ORGANIZATION_PATH, JSON.stringify(organization, null, 2), "utf-8");
+  const temporaryPath = `${ORGANIZATION_PATH}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(organization, null, 2), "utf-8");
+    renameSync(temporaryPath, ORGANIZATION_PATH);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
 }
 
 function fileCreatedAt(filePath: string): string {

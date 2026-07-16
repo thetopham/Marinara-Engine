@@ -4140,20 +4140,16 @@ test("Background library organization works with desktop drag and touch drag", a
     expect(Math.abs((starAfter?.y ?? 0) - (starBefore?.y ?? 0))).toBeLessThan(1);
     await defaultToggle.click();
 
-    const foldersBefore = (await (await page.request.get("/api/backgrounds/folders")).json()) as Array<{
-      id: string;
-      name: string;
-    }>;
-    await page.getByRole("button", { name: "New Folder" }).click();
-    await expect
-      .poll(async () => {
-        const response = await page.request.get("/api/backgrounds/folders");
-        const folders = (await response.json()) as Array<{ id: string; name: string }>;
-        const created = folders.find((folder) => !foldersBefore.some((existing) => existing.id === folder.id));
-        folderId = created?.id ?? null;
-        return folderId;
-      })
-      .not.toBeNull();
+    const [createFolderResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" && new URL(response.url()).pathname === "/api/backgrounds/folders",
+      ),
+      page.getByRole("button", { name: "New Folder" }).click(),
+    ]);
+    expect(createFolderResponse.ok()).toBeTruthy();
+    const createdFolder = (await createFolderResponse.json()) as { id: string; name: string };
+    folderId = createdFolder.id;
 
     const folder = page.locator(`[data-background-folder-id="${folderId}"]`);
     await expect(folder).toBeVisible();

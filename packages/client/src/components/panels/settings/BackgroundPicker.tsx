@@ -104,6 +104,7 @@ export function BackgroundPicker({
   const { refetch: refreshGameAssetManifest } = useGameAssetManifest();
   const qc = useQueryClient();
   const draggedBackgroundIdRef = useRef<string | null>(null);
+  const tagUpdatePendingRef = useRef(false);
 
   const { data: backgrounds = [] } = useQuery({
     queryKey: BACKGROUND_QUERY_KEY,
@@ -259,22 +260,38 @@ export function BackgroundPicker({
   );
 
   const addTag = useCallback(
-    (filename: string, currentTags: string[]) => {
+    async (filename: string, currentTags: string[]) => {
+      if (tagUpdatePendingRef.current) return;
       const tag = tagInput
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9 _-]/g, "");
       if (!tag || currentTags.includes(tag)) return;
-      updateTags.mutate({ filename, tags: [...currentTags, tag] });
-      setTagInput("");
+      tagUpdatePendingRef.current = true;
+      try {
+        await updateTags.mutateAsync({ filename, tags: [...currentTags, tag] });
+        setTagInput("");
+      } catch {
+        toast.error("Failed to update background tags.");
+      } finally {
+        tagUpdatePendingRef.current = false;
+      }
     },
     [tagInput, updateTags],
   );
 
   const removeTag = useCallback(
-    (filename: string, currentTags: string[], tagToRemove: string) => {
-      updateTags.mutate({ filename, tags: currentTags.filter((tag) => tag !== tagToRemove) });
-      setIncludedTagValues((current) => current.filter((tag) => tag !== tagToRemove));
+    async (filename: string, currentTags: string[], tagToRemove: string) => {
+      if (tagUpdatePendingRef.current) return;
+      tagUpdatePendingRef.current = true;
+      try {
+        await updateTags.mutateAsync({ filename, tags: currentTags.filter((tag) => tag !== tagToRemove) });
+        setIncludedTagValues((current) => current.filter((tag) => tag !== tagToRemove));
+      } catch {
+        toast.error("Failed to update background tags.");
+      } finally {
+        tagUpdatePendingRef.current = false;
+      }
     },
     [updateTags],
   );
@@ -360,9 +377,13 @@ export function BackgroundPicker({
         tone: "destructive",
       });
       if (!confirmed) return;
-      if (selected === background.url) onSelect(null);
-      if (defaultRoleplayBackground === background.url) onDefaultChange(DEFAULT_ROLEPLAY_BACKGROUND_URL);
-      deleteBackground.mutate(background.filename);
+      try {
+        await deleteBackground.mutateAsync(background.filename);
+        if (selected === background.url) onSelect(null);
+        if (defaultRoleplayBackground === background.url) onDefaultChange(DEFAULT_ROLEPLAY_BACKGROUND_URL);
+      } catch {
+        toast.error("Failed to delete background.");
+      }
     },
     [defaultRoleplayBackground, deleteBackground, onDefaultChange, onSelect, selected],
   );
@@ -515,7 +536,8 @@ export function BackgroundPicker({
                 {isEditing && isEditable && (
                   <button
                     type="button"
-                    onClick={() => removeTag(background.filename, background.tags, tag)}
+                    onClick={() => void removeTag(background.filename, background.tags, tag)}
+                    disabled={updateTags.isPending}
                     className="ml-0.5 rounded-full hover:text-[var(--destructive)]"
                     aria-label={`Remove tag ${tag}`}
                   >
@@ -555,7 +577,7 @@ export function BackgroundPicker({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    addTag(background.filename, background.tags);
+                    void addTag(background.filename, background.tags);
                   }
                   if (event.key === "Escape") setEditingTags(null);
                 }}
@@ -573,8 +595,8 @@ export function BackgroundPicker({
               </datalist>
               <button
                 type="button"
-                onClick={() => addTag(background.filename, background.tags)}
-                disabled={!tagInput.trim()}
+                onClick={() => void addTag(background.filename, background.tags)}
+                disabled={!tagInput.trim() || updateTags.isPending}
                 className={INLINE_ACCENT_BUTTON_CLASS}
               >
                 Add

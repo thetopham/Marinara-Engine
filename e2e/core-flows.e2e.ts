@@ -1928,7 +1928,71 @@ test("Game setup only shows features owned by installed agents", async ({ page, 
 
   try {
     await page.goto("/");
-    let dialog = await openLorebooksStep();
+    const initialDialog = page.getByRole("dialog", { name: "New Game" });
+    const importButton = initialDialog.getByRole("button", { name: "Import setup", exact: true });
+    await expect(importButton).toBeEnabled();
+    await initialDialog.getByLabel("Import Game Mode setup file").setInputFiles({
+      name: "tower-run.marinara-game-setup.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        JSON.stringify({
+          format: "marinara-game-setup",
+          version: 1,
+          exportedAt: "2026-07-16T12:00:00.000Z",
+          gameName: "Imported Tower Run",
+          setup: {
+            config: {
+              genre: "Fantasy",
+              setting: "A city built around a shifting dungeon tower",
+              tone: "Heroic",
+              difficulty: "Hard",
+              playerGoals: "Reach the final floor",
+              gmMode: "standalone",
+              rating: "sfw",
+              partyCharacterIds: [],
+              generationParameters: { temperature: 0.65 },
+            },
+            effectiveGenerationParameters: { temperature: 0.65, maxTokens: 8192 },
+            preferences: "Use clear progression and frequent loot rewards.",
+            createdAt: "2026-07-16T11:00:00.000Z",
+          },
+        }),
+      ),
+    });
+    await expect(initialDialog.locator('input[placeholder="Name your adventure..."]')).toHaveValue(
+      "Imported Tower Run",
+    );
+    await expect(
+      initialDialog.getByText(
+        "tower-run.marinara-game-setup.json loaded. Review the steps, then start the new game.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    const temperatureField = initialDialog.locator('input[inputmode="decimal"]').first();
+    await expect(temperatureField).toHaveValue("0.65");
+    await initialDialog.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(initialDialog.getByRole("heading", { name: "World", exact: true })).toBeVisible();
+    await expect(initialDialog.locator('input[placeholder="Describe your world…"]')).toHaveValue(
+      "A city built around a shifting dungeon tower",
+    );
+    await expect(initialDialog.getByRole("button", { name: "Hard", exact: true })).toHaveClass(
+      /bg-\[var\(--primary\)\]\/20/,
+    );
+    await initialDialog.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(initialDialog.getByRole("heading", { name: "Party", exact: true })).toBeVisible();
+    await initialDialog.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(initialDialog.getByRole("heading", { name: "Goals", exact: true })).toBeVisible();
+    await expect(initialDialog.locator('textarea[placeholder="What do you want to achieve?"]')).toHaveValue(
+      "Reach the final floor",
+    );
+    await expect(initialDialog.locator('textarea[placeholder="Any extra details for the GM?"]')).toHaveValue(
+      "Use clear progression and frequent loot rewards.",
+    );
+    await initialDialog.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(initialDialog.getByRole("heading", { name: "Lorebooks", exact: true })).toBeVisible();
+
+    let dialog = initialDialog;
     await expect(dialog.getByText("Hierarchical world map", { exact: true })).toHaveCount(0);
     await dialog.getByRole("button", { name: "Next", exact: true }).click();
     await expect(dialog.getByRole("heading", { name: "Features", exact: true })).toBeVisible();

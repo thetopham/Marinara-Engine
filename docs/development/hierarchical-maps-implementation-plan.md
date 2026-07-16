@@ -28,23 +28,23 @@ and status, not the detailed requirements.
 
 ## Current implementation snapshot
 
-| Area                                 | Status                      | Evidence or remaining gap                                                                                                                                                                                                                         |
-| ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stable user release                  | Shipped                     | Maps 1.0.6 is in the main Agents catalog; the broken 1.0.0 experience is no longer the offered release                                                                                                                                            |
-| Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                                                                                           |
-| Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                                                                                            |
-| Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                                                                                                     |
-| Exact lifecycle proof                | Candidate                   | The exact 1.1.0 archive passes update, owner turns, prompt projection, history mutation, branch/delete/import/export/checkpoint, offline restart, remove, reinstall, backup, and restore coverage                                                 |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `20bd419e9`; Engine support must land before publication                                                                                                 |
-| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                            |
-| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks                                                                                        |
-| Full V3 history and prompt parity    | In progress                 | Live Roleplay/Game Peek Prompt location lore plus representative continuation, regeneration, swipe, branch, deletion, import/export, and immutable checkpoint paths now pass; the normalized all-prompt and lore-eligibility matrices remain open |
-| Creation UX                          | In progress                 | The candidate now provides a recursively browsable AI draft preview with search, depth/count/start status, location details, provenance, and clearer decisions; the broader first-map funnel remains open                                         |
-| Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                         |
+| Area                                 | Status                      | Evidence or remaining gap                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable user release                  | Shipped                     | Maps 1.0.6 is in the main Agents catalog; the broken 1.0.0 experience is no longer the offered release                                                                                                                                                                                                          |
+| Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                                                                                                                                                         |
+| Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                                                                                                                                                          |
+| Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                                                                                                                                                                   |
+| Exact lifecycle proof                | In progress                 | Update, owner turns, prompt projection, history mutation, branch/delete/import/export/checkpoint, offline restart, remove, reinstall, backup, and restore were previously checkpointed; the current exact-artifact rerun deterministically fails the Phase 3 continuation anchor assertion and must be resolved |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `00cbd0420`; Engine support must land before publication                                                                                                                                                               |
+| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                                                                                          |
+| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks                                                                                                                                                      |
+| Full V3 history and prompt parity    | In progress                 | Live Roleplay/Game Peek Prompt location lore and most representative history paths were checkpointed; the current continuation anchor failure, normalized all-prompt comparison, and lore-eligibility matrices remain open                                                                                      |
+| Creation UX                          | In progress                 | The candidate now provides a recursively browsable AI draft preview plus in-place per-chat activation beside the map controls; search, depth/count/start status, details, provenance, and clearer decisions are implemented while the broader first-map funnel remains open                                     |
+| Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                                                                                       |
 
-The current Agents candidate checkpoint is `9e1883f` on
+The current Agents candidate checkpoint is `e1e4cec` on
 `feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
-is `20bd419e9` on `feature/capability-runtime-logging` in the `thetopham` fork.
+is `00cbd0420` on `feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -104,8 +104,8 @@ Already implemented in the candidate:
   snapshot replacement; and
 - a zero-private-import assertion enforced during build and catalog validation.
 
-The implementation portion of this boundary is complete at Engine `20bd419e9`
-and Agents `9e1883f`. The focused client regression covers a failed first module
+The implementation portion of this boundary is complete at Engine `00cbd0420`
+and Agents `e1e4cec`. The focused client regression covers a failed first module
 request, retry, simulated package runtime failure, remount, and 44px recovery
 actions. An exact-artifact browser matrix installs through **Download Agents** on
 clean and Maps `1.0.6` profiles, verifies restart/readiness, exercises dark, light,
@@ -148,8 +148,9 @@ Exit: Phase 3 and the applicable Phase 4 recovery gates in the recovery plan pas
 Priority: P1 after recovery-critical parity, with independent Agents-owned editor
 slices allowed once they cannot destabilize the package boundary.
 
-The first independently safe package-owned slice is checkpointed at Agents
-`9e1883f`. Before a generated map enters the working editor, Draft preview now
+The first independently safe package-owned slices are checkpointed at Engine
+`00cbd0420` and Agents `e1e4cec`. Before a generated map enters the working editor,
+Draft preview now
 shows its recursively browsable hierarchy, location count and depth, proposed
 start, searchable names and content, public descriptions, private model memories,
 and lore provenance. Root locations open through the first useful level, while
@@ -158,6 +159,12 @@ are now **Regenerate**, **Edit prompt**, **Discard draft**, and **Continue to
 editor**. Focused exact-artifact browser coverage passes creation, expansion, Game
 setup review, and skip behavior on desktop and mobile. No save, stable-ID, history,
 or Engine contract changed.
+
+The installed **Hierarchical map** setting also remains visible before per-chat
+activation. Its package-owned **Use in this chat** switch calls a generic Engine
+activation prop, then exposes Create/Edit in the same section. Exact-artifact
+desktop/mobile proof verifies inactive discovery, persistence, a 44px target, and
+the resulting create action without scrolling through the lower Agents catalog.
 
 Use the creation UX notes as the acceptance source. The intended result is one clear
 path from activation to a fully inspectable draft, explicit regenerate/discard

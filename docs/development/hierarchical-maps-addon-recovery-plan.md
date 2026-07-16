@@ -450,7 +450,7 @@ its Engine build provenance, and enforces a zero-private-import boundary.
 Capability API `1.2` logging/debug, transactional owner-turn
 and definition-metadata writes, lore-entry existence reads, compatibility snapshot
 operations, route resources, JSON parsing, and model calls are checkpointed at
-Engine `20bd419e9` and Agents `9e1883f`. Package-owned source, the server and client
+Engine `00cbd0420` and Agents `e1e4cec`. Package-owned source, the server and client
 boundaries, the source-only build, generic client loading/error/retry presentation,
 and touch-sized recovery/workspace actions are established. An exact-artifact
 browser matrix passes clean and upgraded-profile Download Agents lifecycle checks,
@@ -497,20 +497,29 @@ Exit gate:
 
 Goal: prove that extraction preserved all delivered V3 behavior.
 
-Status: In progress at Engine `20bd419e9` and Agents `9e1883f`. The exact candidate
-now proves live Roleplay/Game Peek Prompt location lore, representative
-continuation, regeneration, swipe, branch, deletion, JSONL import/export, and
-immutable Game/Spatial checkpoint behavior. This is a checkpoint, not Phase 3
-closure: retry combinations, both-owner-mode coverage, the normalized normal/Game
+Status: In progress at Engine `00cbd0420` and Agents `e1e4cec`. The exact candidate
+has checkpointed live Roleplay/Game Peek Prompt location lore, regeneration,
+swipe, branch, deletion, JSONL import/export, and immutable Game/Spatial checkpoint
+behavior. This is not Phase 3 closure: the current continuation anchor failure,
+retry combinations, both-owner-mode coverage, the normalized normal/Game
 GM/dry-run/live Peek/cached Peek comparison, lore eligibility edge cases, and
 remaining browser/platform proof are still open.
+
+The current broad exact-artifact lifecycle rerun reaches the Phase 3 continuation
+proof but deterministically resolves `lifecycle_harbor` where the fixture expects
+`lifecycle_world`. The focused spatial baseline remains green and the activation
+UX does not touch state resolution, but this continuation anchor failure must be
+resolved before claiming the complete lifecycle matrix is green.
 
 An independently safe package-owned creation slice is also checkpointed at that
 Agents head. Generated Draft preview now exposes the complete browsable hierarchy,
 count, depth, proposed start, location descriptions, private model memories, lore
 provenance, search, and explicit regenerate/edit/discard/continue decisions before
-the draft enters the working editor. This does not close Phase 3 or change the
-Engine boundary, save semantics, stable IDs, or committed history.
+the draft enters the working editor. The same candidate keeps the installed map
+setting visible before per-chat activation and exposes a package-owned **Use in
+this chat** switch through a generic Engine callback, removing the lower-Agents
+scroll detour. This does not close Phase 3 or change save semantics, stable IDs, or
+committed history.
 
 #### P0 release blocker: reconcile Game setup maps
 

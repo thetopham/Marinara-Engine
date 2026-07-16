@@ -1,7 +1,8 @@
 # Hierarchical Maps Creation UX Notes
 
-Status: observed baseline for Hierarchical Maps 1.0.6; recursive Draft preview is
-implemented in the unreleased 1.1.0 candidate at `9e1883f`
+Status: observed baseline for Hierarchical Maps 1.0.6; recursive Draft preview and
+in-place per-chat activation are implemented in the unreleased 1.1.0 candidate at
+Engine `00cbd0420` and Agents `e1e4cec`
 
 Date observed: 2026-07-15
 
@@ -39,11 +40,25 @@ package-owned client boundary:
 - exact-artifact creation, expansion, Game setup review, and skip flows pass on
   desktop and mobile.
 
+The paired activation slice also removes the bottom-to-top Chat Settings detour:
+
+- the installed **Hierarchical map** contribution remains visible before it is
+  active for the current chat;
+- expanding it exposes a package-owned **Use in this chat** switch beside the map
+  setup status;
+- the generic Engine callback enables the Agents runtime and adds Maps to the
+  current chat without embedding Maps policy in Engine;
+- **Create hierarchical map** or **Edit hierarchical map** appears in the same
+  expanded section after activation; and
+- exact-artifact desktop and mobile browser proof covers inactive discovery,
+  activation persistence, the resulting create action, and a 44px touch target.
+
 This checkpoint changes no persistence or history contract. Continuing still
 loads an unsaved working copy, and Save remains the persistence boundary. The
-global Maps home, direct activation handoff, first-map progress strip,
-applied-draft regeneration, inline starting-location confirmation, one-step enable
-and save, and simplified expansion controls remain open.
+global Maps home, an optional same-row handoff from the lower Agents list,
+first-map progress strip, applied-draft regeneration, inline starting-location
+confirmation, one-step enable and save, and simplified expansion controls remain
+open.
 
 ## Observed first-map journey
 
@@ -95,6 +110,10 @@ This is more than an empty-state problem. It creates a parallel false setup path
 ### The map setting appears away from the activation control
 
 After enabling Hierarchical Maps under Tracker Agents, the user must scroll back to find the map card that was just mounted. There is no direct **Configure map** handoff from the activation row.
+
+Candidate correction: Maps `1.1.0` keeps the installed map setting visible and
+puts **Use in this chat** inside it, so the user can activate and configure Maps in
+one place. The lower Tracker Agent row remains a secondary activation route.
 
 ### The creation flow has too many nested starts
 

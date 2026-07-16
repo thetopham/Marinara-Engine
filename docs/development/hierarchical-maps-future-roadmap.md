@@ -52,6 +52,25 @@ captured Engine internals, the complete history/prompt matrix,
 accessibility/theme review, and manual lifecycle proof. No new issue, pull request,
 screenshots, or recordings were added, and future travel modes have not started.
 
+A hands-on first-map walkthrough on July 15 also exposed a separate product gap.
+The user had to install Maps, install an offered update, restart, activate Maps
+again under the chat's Tracker Agents, scroll back to the newly mounted map
+setting, enter the editor, start AI drafting, accept a top-level-only preview,
+expand a collapsed working hierarchy, find the starting-location control, enable
+the map, and save it. Rejecting the unsaved draft required leaving the editor,
+discarding changes, reopening it, and starting again. This flow works, but its
+safety boundaries and next actions are not understandable enough. Workstream 2
+now treats first-map creation as a required product slice rather than incidental
+editor polish.
+
+The walkthrough also exposed a false global setup route. Opening **Agents →
+Hierarchical Maps** presents the generic pipeline-agent editor with empty prompt,
+named-option, connection, tool, and execution fields. Maps declares feature-owned
+execution and has no default prompt or settings, so these controls are inapplicable
+and make the installed package appear unfinished. The offered immediate update was
+observed during a catalog transition; a fresh current-version install should not
+normalize that extra step.
+
 ## Purpose
 
 This document records possible work after the V3 foundation. It exists because
@@ -74,15 +93,16 @@ instead.
 The following is the planning assumption, not a substitute for reviewing the
 merged diff or revalidating the extracted package:
 
-| Area                                         | Working status                                                                | Follow-up treatment                                                          |
-| -------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| V3 Packages A through F                      | Foundation delivered by PR #3565                                              | Stabilize and revalidate after extraction                                    |
-| V3 Package F.1: location lore bindings       | Foundation delivered by PR #3565                                              | Verify eligibility, prompt parity, history, and token bounds                 |
-| V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                                              | Retain only if it proves useful; avoid more generation modes                 |
-| V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                                         | Re-evaluate as separate product work rather than automatically continuing V3 |
-| V3 Package G: Connected Conversation         | Not assumed delivered                                                         | Re-evaluate after the owner experience proves value                          |
-| Optional-agent extraction                    | 1.0.1 shipped; 1.0.6 recovery merged to staging; source migration in progress | Complete package-owned source and cross-repository proof before feature work |
-| Destination routing                          | Local design/helper work exists, but is not a finished feature                | Redesign around selectable travel pace before continuing                     |
+| Area                                         | Working status                                                                     | Follow-up treatment                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| V3 Packages A through F                      | Foundation delivered by PR #3565                                                   | Stabilize and revalidate after extraction                                    |
+| V3 Package F.1: location lore bindings       | Foundation delivered by PR #3565                                                   | Verify eligibility, prompt parity, history, and token bounds                 |
+| V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                                                   | Retain only if it proves useful; avoid more generation modes                 |
+| V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                                              | Re-evaluate as separate product work rather than automatically continuing V3 |
+| V3 Package G: Connected Conversation         | Not assumed delivered                                                              | Re-evaluate after the owner experience proves value                          |
+| Optional-agent extraction                    | 1.0.1 shipped; 1.0.6 is in the main catalog; source migration remains in progress  | Complete package-owned source and cross-repository proof before feature work |
+| Destination routing                          | Local design/helper work exists, but is not a finished feature                     | Redesign around selectable travel pace before continuing                     |
+| First-map creation                           | Functional, but activation, draft review, rejection, and first save are fragmented | Build one guided creation path before adding more authoring modes            |
 
 This roadmap deliberately does not inherit every unfinished V3 package. A later
 package must still justify its user value, size, and maintenance cost.
@@ -197,10 +217,115 @@ focused spatial regression. Known prompt, eligibility, history, and mobile issue
 are either fixed or recorded as explicit blockers. No new travel feature begins
 on an unverified state foundation.
 
-## Workstream 2: create one understandable runtime map
+## Workstream 2: make map creation and runtime understandable
 
-The current system exposes substantial authoring power, but ordinary play should
-feel simpler than authoring.
+The current system exposes substantial authoring power, but neither first-map
+creation nor ordinary play should require the user to understand package state,
+working-copy semantics, graph storage, or prompt architecture.
+
+### Creation and activation
+
+The first-map flow should become one explicit sequence:
+
+```text
+Install or update package
+  -> activate for this chat
+  -> build
+  -> review the complete hierarchy
+  -> confirm starting location
+  -> enable and save
+```
+
+Implement the smallest coherent version of that sequence:
+
+- After Hierarchical Maps is enabled under Tracker Agents, show a direct
+  `Create map` action when the chat has no definition and `Open map` when it does.
+  Do not require the user to scroll until they discover a separately mounted
+  configuration card.
+- Keep package availability and per-chat activation distinct, but present
+  `Install`, `Update`, `Restart required`, `Activate for this chat`, and
+  `Configure map` as an ordered readiness path rather than repeated enablement.
+- A fresh install of the current catalog version should not immediately offer an
+  update. Treat that result as a version/readiness defect to investigate, not a
+  permanent step in the creation funnel.
+- When a downloaded agent declares feature-owned execution, replace the generic
+  pipeline-agent editor with a generic feature-detail host. Let the package mount
+  a feature-owned global page; fall back to a read-only summary only when no page
+  is contributed.
+- Make the package-owned Maps page the global home for installed version,
+  readiness or restart state, supported modes, concise help, current-chat
+  activation and map status, `Create map` or `Open map`, and `Manage package`.
+- Evaluate genuine global Maps defaults there: draft and expansion sizes,
+  reusable world-building guidance, an optional generation connection override
+  that defaults to the chat connection, and an advanced package-owned generation
+  prompt override with visible default and reset behavior. Do not expose a setting
+  until it is wired to real package behavior.
+- Keep hierarchy contents, starting and current location, selected lorebooks,
+  Game bindings, enabled state, committed history, and unsaved drafts scoped to
+  their chat.
+- Use stable language for `Installed in Marinara`, `Active in this chat`,
+  `Working draft, not saved`, `Saved, map disabled`, and `Saved, map active for
+turns`.
+- Present first creation as four clear stages, `Build`, `Review`, `Start here`,
+  and `Enable map`, inside one workspace. Treat them as a compact progress strip
+  or state checklist, not four new mandatory pages. Existing maps and returning
+  users bypass first-map guidance.
+- Label the generated result as a working draft that is not saved or active yet.
+- Replace the top-level-only Draft preview with a recursively browsable hierarchy
+  that shows every generated location, total location count, maximum depth,
+  proposed starting location, validation issues, and optional lore provenance.
+- Let the user inspect a generated location's public description and private
+  model memory before accepting the draft.
+- Keep large previews bounded: expand only the first useful level, provide search,
+  expand/collapse and issue filters, and use incremental or virtualized rendering
+  if measurement shows it is needed.
+- The limited preview already offers `Generate another`; make that capability
+  prominent as `Regenerate`, then keep `Edit prompt` and `Continue to editor`.
+  The last label should make the local working-copy boundary clearer than `Use
+this draft`.
+- When the draft enters the editor, expand the root and one useful descendant
+  level, select the proposed starting location, and show a compact summary such
+  as `16 locations · 4 levels · not saved`.
+- Keep `Discard draft` and `Regenerate` available until the first save. Do not
+  require leaving the editor and reopening it merely to reject an unsaved result.
+- Preserve the generation inputs and generated candidate until first save.
+  Regeneration after complete inspection replaces only the applied generated
+  draft after confirmation; it does not silently discard unrelated manual edits,
+  imports, or saved work.
+- For a valid new map, provide one primary `Enable and save map` action. If the
+  starting location is missing, open a focused chooser from that action.
+- Retain ordinary Save and Enabled controls for later editing and temporary
+  deactivation.
+- End the first successful save with a concrete summary such as `Map ready · 16
+locations · Starting at Tideglass Inn`, one `Return to chat` action, and a cue
+  explaining where Story location now appears.
+- Make `Expand with AI` default to the currently selected location and initially
+  ask only what should be added and how large the expansion should be. Put setup
+  versus lore grounding, lorebook selection, and replacement under progressive
+  `Advanced options`.
+- Before committed history exists, expose replacement as a clearly destructive
+  alternative. After committed history exists, preserve the current stable-ID
+  protection and explain why replacement is unavailable.
+
+This slice crosses repository ownership:
+
+- Marinara Engine owns catalog readiness, the generic feature-detail host and
+  contribution contract, per-chat Tracker Agent activation, contribution
+  placement, scroll/focus behavior, and any generic capability contract needed
+  to carry readiness or navigation state.
+- Marinara Agents owns the package-provided global Maps page, global Maps defaults
+  and validation, the package editor, AI builder, recursive preview, draft
+  rejection/regeneration, starting-location confirmation, first-save flow, and
+  expansion progressive disclosure.
+
+Start with the highest-value Agents-owned slice where possible: recursive review,
+applied-draft regeneration, starting-location confirmation, first-save completion,
+and simplified expansion. Keep Engine follow-up generic and narrow. Do not block
+package-owned editor work on Engine changes unless a genuinely shared host contract
+is required, and do not move package-owned map UI back into Engine to simplify the
+funnel.
+
+### Runtime world map
 
 Create a shared runtime world-map experience for Roleplay and Game:
 
@@ -225,9 +350,15 @@ hierarchical map describes story-scale location and travel between places.
 
 ### Exit gate
 
-A new user can identify where they are, inspect a destination, and start the
-intended kind of travel without opening creator controls or learning the storage
-model.
+A new user can move directly from per-chat activation into map creation, inspect
+the complete AI-generated hierarchy before accepting it, reject and regenerate an
+unsaved draft in place, confirm the starting location, and enable and save the
+first map without inferring hidden steps. The global feature entry presents a
+package-owned Maps home with meaningful defaults and current-chat actions instead
+of irrelevant pipeline-agent fields. First save reports what became active and
+returns the user to play. During play, the user can identify where they are,
+inspect a destination, and start the intended kind of travel without opening
+creator controls or learning the storage model.
 
 ## Workstream 3: destination planning with player-controlled pace
 
@@ -436,22 +567,25 @@ The following ideas remain recorded but are not next-step scope:
 
 The order below is a planning sequence, not a single implementation project. The
 Engine manifest prerequisite landed in PR #3652, while item 1 remains active
-through Marinara Agents issue #16. Merged PR #35 advances part of items 2 and 3 but
+through Marinara Agents issue #16. Merged PR #35 advances part of items 2 and 4 but
 does not complete either exit gate:
 
 1. Finish the package-owned source migration and exact-artifact compatibility
    proof in Marinara Agents, with only generic paired host support in Engine.
 2. Stabilize and revalidate the extracted V3 foundation.
-3. Build the shared Roleplay/Game runtime world-map surface.
-4. Implement destination preview and `Travel now` with an explicit history
+3. Simplify global feature-agent presentation, package-to-chat activation,
+   first-map creation, recursive draft review, rejection/regeneration,
+   starting-location confirmation, and first save.
+4. Build the shared Roleplay/Game runtime world-map surface.
+5. Implement destination preview and `Travel now` with an explicit history
    anchor.
-5. Add `Narrate journey`, `Explore each stop`, waypoints, and `Set as goal` as
+6. Add `Narrate journey`, `Explore each stop`, waypoints, and `Set as goal` as
    independently reviewable slices.
-6. Run the old-map/lorebook/hierarchical-map comparison and decide whether the
+7. Run the old-map/lorebook/hierarchical-map comparison and decide whether the
    feature has earned more investment.
-7. Add creator starter maps if the result is positive.
-8. Consider constrained model-requested movement.
-9. Re-evaluate each postponed V3 package separately.
+8. Add creator starter maps if the result is positive.
+9. Consider constrained model-requested movement.
+10. Re-evaluate each postponed V3 package separately.
 
 Do not begin all numbered items under one issue or pull request.
 
@@ -474,6 +608,18 @@ Marinara Agents:
 - How does a Game quest identify a spatial destination without making the map
   depend on a future quest engine?
 - Which controls appear in Roleplay, Game World, and Game Local views?
+- Should per-chat activation open the creator immediately, focus a newly mounted
+  card, or keep both behaviors behind an explicit `Create map` action?
+- What generic contribution should let every feature-backed Agent provide a
+  package-owned global page, and what fallback summary should Engine show when it
+  does not?
+- Which Maps defaults are genuinely global, and which would create surprising
+  cross-chat behavior if moved out of the chat workspace?
+- How much generated hierarchy must remain visible at once on mobile and for
+  large maps while still making Draft preview truthful?
+- Can first activation combine starting-location confirmation, Enabled, and Save
+  without making later temporary disablement or revision-conflict handling less
+  explicit?
 - What metrics and thresholds determine whether the feature is worth retaining?
 - Which unfinished V3 packages still solve an observed user problem after the
   runtime travel experience is complete?
@@ -485,17 +631,17 @@ stabilization, documentation, or evaluation work.
 
 Every accepted slice must identify its core claim and verify the relevant rows:
 
-| Area               | Minimum proof                                                                                                                |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Package transition | Install, enable, disable, upgrade, remove, reinstall, backup, and restore without silent data loss                           |
-| Prompt behavior    | Live generation, Game GM, dry run, live Peek Prompt, and cached Peek Prompt agree for the same accepted state                |
-| Lore eligibility   | Enabled, disabled, excluded, missing, duplicate, and truncated entries behave consistently                                   |
-| History            | Reload, continuation, regeneration, swipes, branches, deletion, import/export, and checkpoints resolve the expected location |
-| Travel             | Valid, blocked, hidden, archived, disconnected, stale, waypoint, and idempotent routes have deterministic results            |
-| Travel modes       | Instant, narrated, stepwise, and goal-only modes produce the documented number of turns and context behavior                 |
-| Compatibility      | Old-map-only, hierarchy-only, combined World/Local, and spatial-disabled Game paths retain one location authority            |
-| UI                 | Desktop, mobile, keyboard, touch, themes, long labels, empty state, error state, and revision conflict are manually checked  |
-| Performance        | Prompt size, route-search bounds, large-map rendering, and generation latency are measured against declared limits           |
+| Area               | Minimum proof                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package transition | Install, enable, disable, upgrade, remove, reinstall, backup, and restore without silent data loss                                                                                                                                                                                                                                                                                                |
+| Prompt behavior    | Live generation, Game GM, dry run, live Peek Prompt, and cached Peek Prompt agree for the same accepted state                                                                                                                                                                                                                                                                                     |
+| Lore eligibility   | Enabled, disabled, excluded, missing, duplicate, and truncated entries behave consistently                                                                                                                                                                                                                                                                                                        |
+| History            | Reload, continuation, regeneration, swipes, branches, deletion, import/export, and checkpoints resolve the expected location                                                                                                                                                                                                                                                                      |
+| Travel             | Valid, blocked, hidden, archived, disconnected, stale, waypoint, and idempotent routes have deterministic results                                                                                                                                                                                                                                                                                 |
+| Travel modes       | Instant, narrated, stepwise, and goal-only modes produce the documented number of turns and context behavior                                                                                                                                                                                                                                                                                      |
+| Compatibility      | Old-map-only, hierarchy-only, combined World/Local, and spatial-disabled Game paths retain one location authority                                                                                                                                                                                                                                                                                 |
+| UI                 | Package-owned global Maps page and fallback feature summary, install/update readiness, per-chat activation handoff, bounded full draft preview, pre-apply and post-apply regeneration, first-save summary and return, desktop, mobile, keyboard, screen reader, touch, themes, deep maps, long labels, empty state, error state, interruption, reload, and revision conflict are manually checked |
+| Performance        | Prompt size, route-search bounds, large-map rendering, and generation latency are measured against declared limits                                                                                                                                                                                                                                                                                |
 
 Use focused deterministic regression coverage plus the repository checks required
 by the files touched. Manual PR checklist items remain unchecked until a human

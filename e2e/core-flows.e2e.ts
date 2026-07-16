@@ -8,6 +8,14 @@ const APP_VERSION = (
   JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
 ).version;
 
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function collectUnexpectedErrors(page: Page) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -73,8 +81,10 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   const announcement = page.getByRole("dialog", { name: "What's New?" });
   await expect(announcement).toBeVisible();
   await expect(announcement.getByText(`Version ${APP_VERSION}`)).toBeVisible();
-  await expect(announcement.getByText("Hierarchical Maps")).toBeVisible();
-  await expect(announcement.getByText("NoodleR")).toBeVisible();
+  await expect(announcement.getByRole("heading", { name: "A quick patch with bug fixes!" })).toBeVisible();
+  await expect(announcement.getByText("Marinara Engine has been updated.", { exact: true })).toHaveCount(0);
+  await expect(announcement.getByText("Hierarchical Maps")).toHaveCount(0);
+  await expect(announcement.getByText("Tactical Combat Mode in Games")).toHaveCount(0);
   await expect(announcement.getByRole("link", { name: "View release" })).toHaveAttribute(
     "href",
     `https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v${APP_VERSION}`,
@@ -97,8 +107,36 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   await expect(announcement).toBeVisible();
 });
 
-test("initial Roleplay character assignment does not block greeting seeding", async ({ request }, testInfo) => {
-  test.skip(!testInfo.project.name.includes("desktop"), "Roleplay setup regression is covered on desktop.");
+test("turning off the custom mouse pointer persists immediately and after reload", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Appearance preference persistence is covered on desktop.");
+
+  await page.goto("/");
+  await page.locator('[data-tour="panel-settings"]').click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
+
+  const cursorToggle = page.getByLabel("Custom Mouse Pointer");
+  await expect(cursorToggle).toBeChecked();
+  await page.getByText("Custom Mouse Pointer", { exact: true }).click();
+  await expect(cursorToggle).not.toBeChecked();
+  await page.waitForTimeout(100);
+
+  const persistedCursorPreference = await page.evaluate(() => {
+    const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+      state?: { customCursorEnabled?: unknown };
+    };
+    return persisted.state?.customCursorEnabled;
+  });
+  expect(persistedCursorPreference).toBe(false);
+
+  await page.reload();
+  await expect(page.getByLabel("Custom Mouse Pointer")).not.toBeChecked();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.marinaraCustomCursor ?? null))
+    .toBeNull();
+});
+
+test("Conversation membership notices begin only after the chat starts", async ({ request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Conversation membership regression is covered on desktop.");
 
   const createCharacter = async (name: string) => {
     const response = await request.post("/api/characters", {
@@ -110,8 +148,9 @@ test("initial Roleplay character assignment does not block greeting seeding", as
 
   const firstCharacter = await createCharacter("Greeting Seed One");
   const secondCharacter = await createCharacter("Greeting Seed Two");
+  const thirdCharacter = await createCharacter("Later Join Three");
   const chatResponse = await request.post("/api/chats", {
-    data: { name: "Roleplay Greeting Seed Smoke", mode: "roleplay", characterIds: [] },
+    data: { name: "Conversation Membership Smoke", mode: "conversation", characterIds: [] },
   });
   expect(chatResponse.ok()).toBeTruthy();
   const chat = (await chatResponse.json()) as { id: string };
@@ -131,6 +170,21 @@ test("initial Roleplay character assignment does not block greeting seeding", as
       data: { characterIds: [firstCharacter.id, secondCharacter.id] },
     });
     expect(laterAssignment.ok()).toBeTruthy();
+    const messagesAfterSetupChanges = (await (await request.get(`/api/chats/${chat.id}/messages`)).json()) as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(messagesAfterSetupChanges).toEqual([]);
+
+    const finishSetup = await request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: { conversationSetupComplete: true },
+    });
+    expect(finishSetup.ok()).toBeTruthy();
+
+    const postStartAssignment = await request.patch(`/api/chats/${chat.id}`, {
+      data: { characterIds: [firstCharacter.id, secondCharacter.id, thirdCharacter.id] },
+    });
+    expect(postStartAssignment.ok()).toBeTruthy();
     const messagesAfterLaterJoin = (await (await request.get(`/api/chats/${chat.id}/messages`)).json()) as Array<{
       role: string;
       content: string;
@@ -138,12 +192,13 @@ test("initial Roleplay character assignment does not block greeting seeding", as
     expect(messagesAfterLaterJoin).toHaveLength(1);
     expect(messagesAfterLaterJoin[0]).toMatchObject({
       role: "system",
-      content: "Greeting Seed Two has joined the chat.",
+      content: "Later Join Three has joined the chat.",
     });
   } finally {
     await request.delete(`/api/chats/${chat.id}`);
     await request.delete(`/api/characters/${firstCharacter.id}`);
     await request.delete(`/api/characters/${secondCharacter.id}`);
+    await request.delete(`/api/characters/${thirdCharacter.id}`);
   }
 });
 
@@ -757,9 +812,7 @@ test("Game history above the dialogue box opens a historical Peek Prompt", async
     await expect(peekButton).toBeVisible();
     await peekButton.click();
     await expect(page.getByRole("heading", { name: "Assembled Prompt" })).toBeVisible();
-    await expect(
-      page.getByText("This is the exact cached text prompt sent for the selected Game Mode turn."),
-    ).toBeVisible();
+    await expect(page.getByText("This is the exact cached text prompt sent for the selected turn.")).toBeVisible();
     await page.getByRole("button", { name: /System/ }).click();
     await expect(page.getByText("Exact historical Game Master prompt")).toBeVisible();
   } finally {
@@ -804,11 +857,29 @@ test("home shell and primary topbar panels open without client errors", async ({
 
 test("Card Browser labels and the Persona full library stay available across viewports", async ({ page }) => {
   const errors = collectUnexpectedErrors(page);
+  await page.route("**/api/bot-browser/chub/search?*", async (route) => {
+    await route.fulfill({
+      status: 503,
+      json: { error: "offline" },
+    });
+  });
   await page.goto("/");
 
   await page.locator('[data-tour="panel-bot-browser"]').click();
   await expect(page.getByText("Card Browser", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download Cards" })).toBeVisible();
+  const downloadCards = page.getByRole("button", { name: "Download Cards" });
+  await expect(downloadCards).toBeVisible();
+  await downloadCards.click();
+
+  const cardLibrary = page.locator('[data-component="BotBrowserView"]');
+  await expect(cardLibrary.getByText("Cards Library", { exact: true })).toBeVisible();
+  await expect(cardLibrary.getByRole("heading", { name: "Browse character cards online" })).toBeVisible();
+  const searchError = cardLibrary.getByText("Search failed", { exact: true });
+  await expect(searchError).toBeVisible();
+  await expect(searchError).toHaveClass(/marinara-chat-chrome-panel-title/);
+  const closeCardLibrary = cardLibrary.getByRole("button", { name: "Close library" });
+  await expect(closeCardLibrary).toBeVisible();
+  await closeCardLibrary.click();
 
   await page.locator('[data-tour="panel-personas"]').click();
   const openPersonaLibrary = page.getByRole("button", { name: "Open Full Library" });
@@ -823,7 +894,7 @@ test("Card Browser labels and the Persona full library stay available across vie
   ).toBeVisible();
   await expect(page.locator('[data-tour="panel-personas"]')).toHaveClass(/mari-topbar-panel-icon--active/);
   await expect(page.locator('[data-tour="panel-characters"]')).not.toHaveClass(/bg-\[var\(--accent\)\]/);
-  expect(errors).toEqual([]);
+  expect(errors.filter((error) => !error.includes("status of 503 (Service Unavailable)"))).toEqual([]);
 });
 
 test("downloadable agent catalog is usable on desktop and mobile", async ({ page }, testInfo) => {
@@ -2556,6 +2627,7 @@ test("Noodle interface icons consistently use Noodle blue", async ({ page }, tes
   await expectBlueIcons('[data-component="NoodleView"]');
   await noodle.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(noodle.getByRole("button", { name: "Reset Noodle Timeline" })).toBeVisible();
+  await expect(noodle.getByRole("button", { name: "Uninvite everybody" })).toHaveCSS("color", "rgb(126, 167, 255)");
   const scheduleCard = noodle.locator('[data-component="NoodleView.RefreshSchedule"]');
   await expect(scheduleCard).toBeVisible();
   await expect(scheduleCard.getByText("Automatic schedule")).toBeVisible();
@@ -2596,6 +2668,78 @@ test("Noodle interface icons consistently use Noodle blue", async ({ page }, tes
   await resetDialog.getByRole("button", { name: "Cancel" }).click();
 
   expect(errors).toEqual([]);
+});
+
+test("Noodle settings edit and restore the timeline base prompt", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "The complete prompt editing flow is covered on desktop.");
+
+  const promptKey = "noodle.timelineBase";
+  const initialDetailResponse = await page.request.get(`/api/prompt-overrides/${promptKey}`);
+  expect(initialDetailResponse.ok()).toBe(true);
+  const initialDetail = (await initialDetailResponse.json()) as {
+    override: { template: string; enabled: boolean } | null;
+  };
+  const customPrompt = `Custom Noodle timeline base prompt ${Date.now()}.`;
+
+  try {
+    await page.goto("/");
+    await page.locator('[data-tour="noodle-tab"]').click();
+    const noodle = page.locator('[data-component="NoodleView"]');
+    await noodle.getByRole("button", { name: "Settings", exact: true }).click();
+
+    const promptSetting = noodle.locator('[data-component="NoodleView.PromptSetting"]');
+    await expect(promptSetting).toBeVisible();
+    const promptRect = await promptSetting.boundingBox();
+    const invitesRect = await noodle.getByRole("heading", { name: "Invites" }).boundingBox();
+    expect(promptRect).not.toBeNull();
+    expect(invitesRect).not.toBeNull();
+    expect(promptRect!.y).toBeLessThan(invitesRect!.y);
+
+    const editPromptButton = promptSetting.getByRole("button", { name: "Edit prompt" });
+    await expect(editPromptButton).toHaveCSS("align-items", "center");
+    await expect(editPromptButton).toHaveCSS("justify-content", "center");
+    await expect(editPromptButton.locator("svg")).toBeVisible();
+    await expect(editPromptButton.locator("svg")).toHaveCSS("color", "rgb(126, 167, 255)");
+    await editPromptButton.click();
+    const editor = page.locator('[data-component="ExpandedTextarea"]');
+    await expect(editor.getByRole("heading", { name: "Edit Noodle Prompt" })).toBeVisible();
+    const promptTextarea = editor.locator("textarea");
+    await expect(promptTextarea).toHaveValue(
+      /You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle\./,
+    );
+    await promptTextarea.fill(customPrompt);
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === `/api/prompt-overrides/${promptKey}`,
+    );
+    await editor.getByRole("button", { name: "Save prompt" }).click();
+    expect((await saveResponse).ok()).toBe(true);
+    await expect(promptSetting).toContainText(customPrompt);
+    await expect(promptSetting).toContainText("Custom");
+
+    const restoreResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        new URL(response.url()).pathname === `/api/prompt-overrides/${promptKey}`,
+    );
+    await promptSetting.getByRole("button", { name: "Restore default" }).click();
+    expect((await restoreResponse).ok()).toBe(true);
+    await expect(promptSetting).toContainText("Default");
+
+    await promptSetting.getByRole("button", { name: "Edit prompt" }).click();
+    await expect(page.locator('[data-component="ExpandedTextarea"] textarea')).toHaveValue(
+      /You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle\./,
+    );
+  } finally {
+    if (initialDetail.override) {
+      await page.request.put(`/api/prompt-overrides/${promptKey}`, {
+        data: initialDetail.override,
+      });
+    } else {
+      await page.request.delete(`/api/prompt-overrides/${promptKey}`);
+    }
+  }
 });
 
 test("Noodle settings persist through refetch and reload", async ({ page }, testInfo) => {
@@ -2722,10 +2866,11 @@ test("Noodle settings persist through refetch and reload", async ({ page }, test
   }
 });
 
-test("Noodle restores the last selected persona after reload", async ({ page }, testInfo) => {
+test("Noodle restores the selected persona and preserves per-persona post authorship", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Noodle persona persistence is covered on desktop.");
 
   const createdPersonaIds: string[] = [];
+  const createdPostIds: string[] = [];
   try {
     for (const name of ["Noodle Persona One", "Noodle Persona Two"]) {
       const response = await page.request.post("/api/characters/personas", {
@@ -2736,6 +2881,30 @@ test("Noodle restores the last selected persona after reload", async ({ page }, 
     }
     const selectedPersonaId = createdPersonaIds[1]!;
     expect((await page.request.get("/api/noodle")).ok()).toBe(true);
+    const authoredPosts = [];
+    for (const [index, personaId] of createdPersonaIds.entries()) {
+      const response = await page.request.post("/api/noodle/posts", {
+        data: {
+          authorKind: "persona",
+          authorEntityId: personaId,
+          content: `Authorship regression post ${index + 1}`,
+        },
+      });
+      expect(response.ok()).toBe(true);
+      const post = (await response.json()) as {
+        id: string;
+        authorAccountId: string;
+        authorSnapshot: { kind: string; entityId: string; displayName: string; handle: string } | null;
+      };
+      createdPostIds.push(post.id);
+      authoredPosts.push(post);
+      expect(post.authorSnapshot).toMatchObject({
+        kind: "persona",
+        entityId: personaId,
+        displayName: `Noodle Persona ${index === 0 ? "One" : "Two"}`,
+      });
+    }
+    expect(authoredPosts[0]?.authorAccountId).not.toBe(authoredPosts[1]?.authorAccountId);
 
     await page.goto("/");
     await page.locator('[data-tour="noodle-tab"]').click();
@@ -2761,7 +2930,15 @@ test("Noodle restores the last selected persona after reload", async ({ page }, 
     await page.locator('[data-tour="noodle-tab"]').click();
     await expect(noodle).toBeVisible();
     await expect(accountSwitcher).toContainText("Noodle Persona Two");
+    for (const [index, post] of authoredPosts.entries()) {
+      const article = noodle.locator(`[data-noodle-post-id="${post.id}"]`);
+      await expect(article).toContainText(`Noodle Persona ${index === 0 ? "One" : "Two"}`);
+      await expect(article).toContainText(`@${post.authorSnapshot?.handle}`);
+    }
   } finally {
+    for (const postId of createdPostIds) {
+      await page.request.delete(`/api/noodle/posts/${postId}`, { timeout: 5_000 }).catch(() => undefined);
+    }
     for (const personaId of createdPersonaIds) {
       await page.request.delete(`/api/characters/personas/${personaId}`, { timeout: 5_000 }).catch(() => undefined);
     }
@@ -2998,7 +3175,6 @@ test("liking one Noodle post leaves unrelated reaction controls visually stable"
   let personaId = activePersona?.id ?? null;
   let createdPersonaId: string | null = null;
   const createdPostIds: string[] = [];
-  let releaseReactionRequest: (() => void) | null = null;
   if (!personaId) {
     const personaResponse = await page.request.post("/api/characters/personas", {
       data: { name: "Noodle Reaction Regression", description: "Temporary browser regression persona." },
@@ -3024,6 +3200,9 @@ test("liking one Noodle post leaves unrelated reaction controls visually stable"
     createdPostIds.push(((await response.json()) as { id: string }).id);
   }
 
+  const reactionRequestStarted = createDeferred();
+  const releaseReaction = createDeferred();
+
   try {
     await page.goto("/");
     await page.locator('[data-tour="noodle-tab"]').click();
@@ -3039,17 +3218,10 @@ test("liking one Noodle post leaves unrelated reaction controls visually stable"
     await expect(targetLike.locator("svg")).toHaveAttribute("fill", "none");
     const unrelatedClass = await unrelatedLike.getAttribute("class");
     const unrelatedText = await unrelatedLike.textContent();
-    let markReactionRequestStarted: (() => void) | null = null;
-    const reactionRequestStarted = new Promise<void>((resolve) => {
-      markReactionRequestStarted = resolve;
-    });
-    const releaseReaction = new Promise<void>((resolve) => {
-      releaseReactionRequest = resolve;
-    });
     await page.route("**/api/noodle/posts/*/interactions", async (route) => {
       if (route.request().method() === "POST") {
-        markReactionRequestStarted?.();
-        await releaseReaction;
+        reactionRequestStarted.resolve();
+        await releaseReaction.promise;
       }
       await route.continue();
     });
@@ -3064,15 +3236,14 @@ test("liking one Noodle post leaves unrelated reaction controls visually stable"
 
     countBootstrapRequests = true;
     await targetLike.click();
-    await reactionRequestStarted;
+    await reactionRequestStarted.promise;
     await expect(targetLike).toBeDisabled();
     await expect(targetLike).toHaveAttribute("aria-busy", "true");
     await expect(unrelatedLike).toBeEnabled();
     await expect(unrelatedLike).toHaveAttribute("class", unrelatedClass ?? "");
     await expect(unrelatedLike).toHaveText(unrelatedText ?? "");
 
-    releaseReactionRequest?.();
-    releaseReactionRequest = null;
+    releaseReaction.resolve();
     const targetUnlike = targetPost.getByRole("button", { name: "Unlike post" });
     await expect(targetUnlike).toBeEnabled();
     await expect(targetUnlike.locator("svg")).toHaveAttribute("fill", "currentColor");
@@ -3082,7 +3253,7 @@ test("liking one Noodle post leaves unrelated reaction controls visually stable"
     expect(bootstrapRequestsAfterLike).toBe(0);
     expect(errors).toEqual([]);
   } finally {
-    releaseReactionRequest?.();
+    releaseReaction.resolve();
     for (const postId of createdPostIds) {
       await page.request.delete(`/api/noodle/posts/${postId}`, { timeout: 5_000 }).catch(() => undefined);
     }
@@ -3580,7 +3751,7 @@ test("Noodle only bumps posts when another account replies to the persona's comm
           (elements, postIds) =>
             elements
               .map((element) => element.getAttribute("data-noodle-post-id"))
-              .filter((postId): postId is string => Boolean(postId) && postIds.includes(postId)),
+              .filter((postId): postId is string => postId !== null && postIds.includes(postId)),
           [olderPost.id, newerPost.id],
         );
 
@@ -3704,6 +3875,17 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   await accountMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(noodle.getByRole("heading", { name: "Noodle settings" })).toBeVisible();
+  const promptSetting = noodle.locator('[data-component="NoodleView.PromptSetting"]');
+  await expect(promptSetting).toBeVisible();
+  const editPromptButton = promptSetting.getByRole("button", { name: "Edit prompt" });
+  await expect(editPromptButton).toHaveCSS("justify-content", "center");
+  await expect(editPromptButton.locator("svg")).toBeVisible();
+  await expect(editPromptButton.locator("svg")).toHaveCSS("color", "rgb(126, 167, 255)");
+  await editPromptButton.click();
+  const promptEditor = page.locator('[data-component="ExpandedTextarea"]');
+  await expect(promptEditor.getByRole("heading", { name: "Edit Noodle Prompt" })).toBeVisible();
+  await promptEditor.getByRole("button", { name: "Cancel" }).first().click();
+  await expect(promptEditor).toBeHidden();
   await expect(bottomNav).toBeVisible();
   await noodle.getByRole("button", { name: "Back to Noodle timeline" }).click();
   await expect(header).toBeVisible();

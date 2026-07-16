@@ -15,6 +15,7 @@ import {
 } from "@marinara-engine/shared";
 import { isCssGradient, RAINBOW_GRADIENT_PRESET } from "../lib/css-colors";
 import { announceChatFloatingUiDismiss } from "../lib/chat-floating-ui-events";
+import { detectConversationTimeZone, normalizeConversationTimeZone } from "../lib/conversation-time-zone";
 import { BASIC_PANEL_SORT_OPTIONS, normalizeBasicPanelSort, type BasicPanelSort } from "../lib/panel-sort";
 
 type Panel =
@@ -710,6 +711,8 @@ interface UIState {
   // ── Schedule Generation Preferences ──
   /** Free-form user guidance injected into the conversation-mode schedule generation prompt (empty = unset). */
   scheduleGenerationPreferences: string;
+  /** IANA timezone used by every Conversation schedule. Defaults to the browser-detected timezone. */
+  conversationTimeZone: string;
   /** Custom Game setup chips learned from previous games. Synced so they follow the user. */
   learnedGameSetupOptions: GameSetupLearnedOptions;
   /** Last submitted free-text Game setup fields. Synced so new games can start from the previous setup. */
@@ -966,6 +969,7 @@ interface UIState {
   setGenerationMobileNotifications: (v: boolean) => void;
   setCustomConversationPrompt: (v: string | null) => void;
   setScheduleGenerationPreferences: (v: string) => void;
+  setConversationTimeZone: (v: string) => void;
   rememberGameSetupOptions: (
     options: Partial<GameSetupLearnedOptions>,
     text?: Partial<GameSetupRememberedText>,
@@ -1181,6 +1185,7 @@ export function pickSyncedSettings(state: UIState) {
     generationMobileNotifications: state.generationMobileNotifications,
     customConversationPrompt: state.customConversationPrompt,
     scheduleGenerationPreferences: state.scheduleGenerationPreferences,
+    conversationTimeZone: state.conversationTimeZone,
     impersonatePromptTemplate: state.impersonatePromptTemplate,
     impersonateShowQuickButton: state.impersonateShowQuickButton,
     impersonateCyoaChoices: state.impersonateCyoaChoices,
@@ -1362,6 +1367,7 @@ export const useUIStore = create<UIState>()(
       generationMobileNotifications: false,
       customConversationPrompt: null,
       scheduleGenerationPreferences: "",
+      conversationTimeZone: detectConversationTimeZone(),
       learnedGameSetupOptions: DEFAULT_GAME_SETUP_LEARNED_OPTIONS,
       rememberedGameSetupText: DEFAULT_GAME_SETUP_REMEMBERED_TEXT,
       enterToSendRP: false,
@@ -2163,6 +2169,7 @@ export const useUIStore = create<UIState>()(
       setGenerationMobileNotifications: (v) => set({ generationMobileNotifications: v }),
       setCustomConversationPrompt: (v) => set({ customConversationPrompt: v }),
       setScheduleGenerationPreferences: (v) => set({ scheduleGenerationPreferences: v }),
+      setConversationTimeZone: (v) => set({ conversationTimeZone: normalizeConversationTimeZone(v) }),
       rememberGameSetupOptions: (options, text) =>
         set((state) => {
           const learned = state.learnedGameSetupOptions ?? DEFAULT_GAME_SETUP_LEARNED_OPTIONS;
@@ -2248,12 +2255,24 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: "marinara-engine-ui",
-      version: 74,
+      version: 75,
       // Debounce localStorage writes to avoid sync I/O on every state change
       storage: createJSONStorage(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
         let pendingName: string | null = null;
         let pendingValue: string | null = null;
+
+        const readCustomCursorPreference = (value: string | null): boolean | undefined => {
+          if (!value) return undefined;
+          try {
+            const parsed = JSON.parse(value) as { state?: { customCursorEnabled?: unknown } };
+            return typeof parsed.state?.customCursorEnabled === "boolean"
+              ? parsed.state.customCursorEnabled
+              : undefined;
+          } catch {
+            return undefined;
+          }
+        };
 
         const flush = () => {
           if (pendingName !== null && pendingValue !== null) {
@@ -2270,6 +2289,7 @@ export const useUIStore = create<UIState>()(
         // Flush pending writes before the tab closes
         if (typeof window !== "undefined") {
           window.addEventListener("beforeunload", flush);
+          window.addEventListener("pagehide", flush);
           document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "hidden") flush();
           });
@@ -2278,8 +2298,13 @@ export const useUIStore = create<UIState>()(
         return {
           getItem: (name: string) => localStorage.getItem(name),
           setItem: (name: string, value: string) => {
+            const previousValue = pendingValue ?? localStorage.getItem(name);
             pendingName = name;
             pendingValue = value;
+            if (readCustomCursorPreference(previousValue) !== readCustomCursorPreference(value)) {
+              flush();
+              return;
+            }
             if (timer) clearTimeout(timer);
             timer = setTimeout(flush, 1000);
           },
@@ -2773,6 +2798,9 @@ export const useUIStore = create<UIState>()(
         if (version <= 70 && persisted.professorMariSuggestionsEnabled === undefined) {
           persisted.professorMariSuggestionsEnabled = true;
         }
+        if (version <= 74) {
+          persisted.conversationTimeZone = normalizeConversationTimeZone(persisted.conversationTimeZone);
+        }
         persisted.appAccentRgbMode = persisted.appAccentRgbMode === true;
         persisted.customCursorEnabled = persisted.customCursorEnabled !== false;
         persisted.professorMariSuggestionsEnabled = persisted.professorMariSuggestionsEnabled !== false;
@@ -2954,6 +2982,7 @@ export const useUIStore = create<UIState>()(
         generationMobileNotifications: state.generationMobileNotifications,
         customConversationPrompt: state.customConversationPrompt,
         scheduleGenerationPreferences: state.scheduleGenerationPreferences,
+        conversationTimeZone: state.conversationTimeZone,
         impersonatePromptTemplate: state.impersonatePromptTemplate,
         impersonateShowQuickButton: state.impersonateShowQuickButton,
         impersonateCyoaChoices: state.impersonateCyoaChoices,

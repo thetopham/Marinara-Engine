@@ -127,6 +127,7 @@ You can set a cheaper model for agents than for chat. Many users run chat on a s
 
 ## Related guides
 
+- [Hierarchical Maps: Setup, Authoring, and Travel](../agents/hierarchical-maps.md)
 - [Roleplay Backgrounds](backgrounds.md)
 - [Roleplay HUD and Trackers](hud-and-trackers.md)
 - [Combat Encounters (Roleplay)](combat-encounters.md)

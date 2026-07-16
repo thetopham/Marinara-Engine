@@ -185,6 +185,7 @@ The full guide library is browsable inside the app: open **Documentation** from 
 | [docs/roleplay/getting-started.md](docs/roleplay/getting-started.md)                 | Roleplay Mode setup, sprites, HUD, agents, and connected chats                                                     |
 | [docs/game/getting-started.md](docs/game/getting-started.md)                         | Game Mode setup, world-gen, party play, storyboards, and troubleshooting                                           |
 | [docs/agents/built-in-agents.md](docs/agents/built-in-agents.md)                     | Complete reference for all 29 downloadable first-party agents and feature packages                                 |
+| [docs/agents/hierarchical-maps.md](docs/agents/hierarchical-maps.md)                 | Hierarchical Maps installation, authoring, linked lore, world travel, and Game map bindings                        |
 | [docs/noodle/overview.md](docs/noodle/overview.md)                                   | Noodle social timeline: setup, posting, interactions, images, and chat carryover                                   |
 | [docs/prompts/generation-parameters.md](docs/prompts/generation-parameters.md)       | Sampler and output-parameter reference across providers                                                            |
 | [docs/REMOTE_ACCESS.md](docs/REMOTE_ACCESS.md)                                       | Remote access, Basic Auth, IP allowlists, and admin access                                                         |

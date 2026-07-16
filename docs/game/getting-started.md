@@ -117,6 +117,7 @@ This guide gets you into a game. Each deeper topic has its own guide:
 - [Game Mode: Party and NPCs](party-and-npcs.md) covers the party bar, character sheets, and the Adventure Journal.
 - [Game Mode: Sessions and Saves](sessions-and-saves.md) covers ending and starting sessions and the session history.
 - [Game Mode: Map, Time, and Weather](map-time-weather.md) covers the map views and the automatic clock and weather.
+- [Hierarchical Maps: Setup, Authoring, and Travel](../agents/hierarchical-maps.md) covers persistent nested world locations, map authoring, linked lore, and deliberate travel.
 - [Game Mode: Dice and Skill Checks](dice-and-skill-checks.md) covers the dice menu and skill-check rules.
 - [Game Mode: HUD Widgets](hud-widgets.md) covers the on-screen status widgets.
 - [Game Assets](game-assets.md) covers the music, sound, sprite, and background library.
@@ -148,6 +149,7 @@ Some models stay upbeat no matter the tone. You have two options. Add a clear in
 - [Game Mode: Party and NPCs](party-and-npcs.md)
 - [Game Mode: Sessions and Saves](sessions-and-saves.md)
 - [Game Mode: Map, Time, and Weather](map-time-weather.md)
+- [Hierarchical Maps: Setup, Authoring, and Travel](../agents/hierarchical-maps.md)
 - [Game Mode: Dice and Skill Checks](dice-and-skill-checks.md)
 - [Game Mode: HUD Widgets](hud-widgets.md)
 - [Game Assets](game-assets.md)

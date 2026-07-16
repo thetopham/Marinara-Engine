@@ -128,6 +128,7 @@ const DOC_ORDER: Record<string, string[]> = {
   agents: [
     "agents-overview.md",
     "built-in-agents.md",
+    "hierarchical-maps.md",
     "custom-agents.md",
     "knowledge-sources.md",
     "memory.md",

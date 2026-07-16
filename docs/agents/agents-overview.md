@@ -77,6 +77,7 @@ Did an agent you expected not run? Check that **Enable Agents** is on. Check tha
 
 ## Related guides
 
+- [Hierarchical Maps: Setup, Authoring, and Travel](hierarchical-maps.md)
 - [Downloadable Agents Reference](built-in-agents.md)
 - [Official Marinara Agents repository](https://github.com/Pasta-Devs/Marinara-Agents)
 - [Creating Custom Agents](custom-agents.md)

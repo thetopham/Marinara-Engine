@@ -2,6 +2,8 @@
 
 This guide covers the Game Mode map panel and the systems that track the world around your party. Those systems are the day and time, the weather, and party morale. It explains the map views, how to move and zoom, and how to set the day and time by hand.
 
+This grid or node map is the local, tactical map. The optional **Hierarchical Maps** package adds a separate persistent world map and authoritative story location. When both are active, the regular Game map stays local to the current hierarchical location unless you explicitly bind a map, cell, or node. See [Hierarchical Maps: Setup, Authoring, and Travel](../agents/hierarchical-maps.md).
+
 ## The map panel
 
 Game Mode shows a small map panel on the game screen. The panel lists the current map name, the game day, and a time-of-day sky icon.
@@ -92,6 +94,7 @@ Morale is not shown as a number in the game. Instead it works in the background.
 
 ## Related guides
 
+- [Hierarchical Maps: Setup, Authoring, and Travel](../agents/hierarchical-maps.md)
 - [Game Mode: Getting Started](getting-started.md)
 - [Game Mode: HUD Widgets](hud-widgets.md)
 - [Appearance Settings](../appearance/appearance-settings.md)

@@ -529,46 +529,250 @@ Define acceptable thresholds before running the comparison. If the hierarchy
 does not measurably reduce spatial mistakes or improve authoring/navigation, stop
 expanding it and simplify the surface.
 
-## Workstream 5: creator starter maps
+## Workstream 5: shareable Game templates and creator starter maps
 
-If the runtime and evaluation gates succeed, implement the original creator
-value proposition: a character or Game template can provide a pre-made starting
-map.
+Creating a complete Game world and then generating or manually authoring its map
+can take long enough to discourage retries, alternate campaigns, and community
+sharing. Treat reuse as a first-class feature rather than asking every recipient to
+repeat both creation flows.
 
-- A template references a starter map rather than sharing mutable live state.
-- Starting a chat copies the map so each user owns an independent definition.
-- Preserve stable location and lore references where possible.
-- Warn about missing lorebook entries or unavailable optional-package features.
-- Never overwrite a map that already has committed spatial history.
-- Keep first-version updates simple; do not invent a general campaign merge
-  system.
-- Define export and licensing behavior before bundling lorebooks or image assets.
+The current Game Setup and Hierarchical Map exports are separate. Add a lightweight
+Game Template that combines the reusable initial setup with a clean starting map:
+
+```text
+Marinara Game Template
+├── template metadata and compatibility
+├── initial Game setup and generation instructions
+├── optional accepted starting-world overview
+├── hierarchical map definition and starting location
+└── named references to required characters, lore, presets, and packages
+```
+
+### Version 1 template boundary
+
+- Reuse the existing safe Game Setup snapshot and hierarchical-map definition
+  formats inside one versioned template envelope rather than inventing duplicate
+  schemas.
+- Include genre, setting, tone, difficulty, goals, preferences, Game system and
+  special instructions, safe generation settings, feature selections, the map
+  hierarchy, authored descriptions, private model memory, links, and the intended
+  starting location.
+- Allow an optional frozen starting-world overview so a creator can share the
+  accepted premise that the map was built for. Do not include later campaign
+  summaries or mutable play state.
+- Preserve internal stable location IDs inside the template. Starting a new Game
+  copies the definition so each recipient owns an independent map and runtime.
+- Carry human-readable resource labels and compatibility requirements. Remap local
+  characters, Personas, lorebooks, entries, prompt presets, connections, and
+  installed packages during import, and report every unresolved dependency before
+  creation.
+- Never include API keys, connection URLs, messages, current campaign location,
+  movement snapshots, quests, inventories, trackers, tactical state, swipes,
+  checkpoints, or other live campaign history.
+- Preview exactly what will be shared. Let the creator remove private model memory
+  and non-portable linked-lore references before downloading the template.
+
+### Import and map-generation flow
+
+Import the template from the first step of New Game, populate the normal wizard,
+and let the recipient review or change every setting. When the template contains a
+hierarchical map, offer:
+
+- `Use included world map` (recommended): skip the normal AI hierarchical-map
+  draft, copy the included definition, confirm the starting location, and review it
+  before enabling and saving.
+- `Generate a new map`: keep the imported Game settings but discard the included
+  map and run the normal map-drafting flow.
+- `Start without Hierarchical Maps`: keep the setup while leaving the optional
+  package inactive.
+
+The included hierarchical map replaces only the optional setup-time hierarchical
+draft. Core Game grid and node maps remain local tactical views and may still be
+created during play. Never create two competing hierarchical maps silently.
+
+Version 1 may reference matching local Character Cards and lorebooks rather than
+embedding their full content. Bundling licensed cards, lorebooks, images, audio, or
+other assets belongs to a separately reviewed portable-package format.
+
+Do not overwrite a map that already has committed spatial history. A later
+`Add to existing map` workflow may import a subtree with new IDs, but it is not part
+of the first Game Template slice.
 
 ### Exit gate
 
-A creator can distribute an intentional starting world, and a user can begin a
-new independent chat from it without damaging existing campaigns or silently
-losing referenced lore.
+A creator can distribute one Game Template containing the intended starting setup
+and world map. A recipient can import it, resolve dependencies, choose whether to
+use or regenerate the map, and begin a new independent Game without repeating the
+long map-authoring flow, damaging an existing campaign, leaking private state, or
+silently losing referenced lore.
 
-## Workstream 6: constrained model-requested movement
+## Workstream 6: reviewed lore-to-map upkeep
 
-Consider this only after manual travel is dependable and its validation API is
-stable.
+Game Mode's Session Keeper already creates and updates a game-scoped lorebook after
+a session concludes. Maps can use selected lorebooks when manually drafting or
+expanding a hierarchy, and locations can manually link specific lore entries. The
+current systems do not otherwise synchronize: Lorebook Keeper does not create,
+move, rename, connect, archive, or update map locations automatically.
 
-- Expose a typed destination request using stable location IDs.
-- Let the existing server route and movement validators decide whether it is
-  possible.
-- Require visible user approval before committing movement unless a later product
-  setting explicitly establishes a narrower trusted behavior.
-- Show why a requested destination is unavailable.
-- Keep model-requested movement out of visible prose and out of free-form name
-  parsing.
-- Do not add a separate action-inference LLM merely to select movement.
+Keep the responsibilities explicit:
+
+| System             | Owns                                                                                    | Does not own                                                       |
+| ------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Lorebook Keeper    | Durable facts about people, places, factions, items, events, history, and world changes | Authoritative topology, travel validity, or current location       |
+| Hierarchical Maps  | Location identity, hierarchy, direct links, route state, starting and current place     | General world knowledge unrelated to location structure            |
+| Lore-to-map upkeep | Reviewed proposals derived from new or changed lore                                     | Silent canon changes, automatic travel, or deleting historical IDs |
+
+### Initial map from campaign lore
+
+When a Game has Session Keeper lore but no hierarchy, offer `Draft map from campaign
+lore`. This preselects the game-scoped lorebook and uses the existing lore-grounded
+AI builder. The complete draft still requires normal preview, starting-location
+confirmation, enablement, and save; lore entries never become map canon merely
+because Session Keeper wrote them.
+
+### Ongoing map-upkeep suggestions
+
+After Session Keeper adds or changes entries, Maps may prepare a reviewed batch of
+spatial suggestions:
+
+- match a new place entry to an existing location and attach the lore reference;
+- propose a new location beneath a suggested parent;
+- propose updates to public description or private model memory;
+- propose a direct link or a change between available and blocked route state; or
+- report an ambiguous, conflicting, archived, or unresolved place without changing
+  anything.
+
+Examples:
+
+- `The party discovered Ashfall Village` may propose a new settlement and attach
+  the village lore entry.
+- `The western bridge collapsed` may propose blocking the matching direct route.
+- `The king died` remains a lore update and produces no map change.
+- `The party arrived at the castle` may produce a travel suggestion under
+  Workstream 7, but it does not create a new castle or move the party by itself.
+
+Present one review surface after the Session Keeper result:
+
+```text
+Map upkeep found 3 possible changes
+
+[Link lore to Ashfall Village]  [Review]
+[Add Sunken Chapel under Old Marsh]  [Review]
+[Block Western Bridge route]  [Review]
+
+[Apply selected] [Dismiss]
+```
+
+Offer per-chat behavior:
+
+- `Off`: Lorebook Keeper and Maps remain independent.
+- `Suggest map changes` (default): prepare a review batch without mutating the map.
+- `Auto-link exact matches`: automatically attach a new lore entry only when its
+  stable reference or unique normalized name matches one existing active location;
+  all structural changes still require review.
+
+### Validation and history rules
+
+- Never create a second location solely because a lore entry uses another spelling
+  for an existing place. Show ambiguous matches and let the user choose.
+- Never delete or replace a stable location ID. Accepted additions receive new IDs;
+  reparenting, archiving, and link-state changes require explicit review.
+- Never change the current location, starting location, or pending destination as a
+  side effect of lore synchronization.
+- Validate the complete accepted batch against the expected definition revision and
+  apply it atomically as one inspectable map revision. A stale batch becomes
+  `Needs review` and applies nothing.
+- Respect disabled books, entries, folders, chat exclusions, protected Lorebook
+  Keeper entries, and Maps limits. Removing or disabling lore does not delete a
+  location automatically.
+- Avoid a second inference model by default. Prefer structured spatial hints from
+  the existing Session Keeper result or deterministic matching; require an explicit
+  product decision before adding another model call for map upkeep.
+- Keep Maps package-owned. Engine may expose only generic lore-change events,
+  resource lookup, transactions, and review-host contracts needed by multiple
+  packages.
 
 ### Exit gate
 
-The model can suggest a valid destination without bypassing user control, route
-rules, spatial history, or prompt budgets.
+A campaign can draft its first hierarchy from Session Keeper lore and later review
+useful lore-derived map additions, links, and route-state changes without duplicate
+places, silent movement, broken history, or automatic promotion of every lore fact
+into map canon.
+
+## Workstream 7: constrained model-suggested movement
+
+Consider this only after manual travel is dependable and its destination and route
+validation APIs are stable. The goal is to remove map-administration friction from
+creative writing without letting generated prose silently mutate authoritative
+location state.
+
+### Suggest and stage experience
+
+When the user writes naturally about travel, the existing generation model may
+emit a typed destination suggestion using a stable location ID. Marinara validates
+the request against the current location, definition revision, active graph, and
+available route before showing it.
+
+```text
+Suggested destination: Castle
+Route: Tideglass Inn -> Harbor District -> Brinewatch -> Castle
+
+[Accept] [Choose another] [Dismiss]
+```
+
+- `Accept` stages the validated destination or route through the same typed travel
+  contract as manual map selection. It must not require reopening the map.
+- `Choose another` opens the destination picker without discarding the message
+  draft or generated reply.
+- `Dismiss` removes the suggestion without changing location or chat history.
+- An adjacent suggestion can initially reuse the existing one-hop pending spatial
+  transition. Distant suggestions depend on the Workstream 3 travel-plan contract.
+- Until the durable zero-turn travel history anchor exists, an accepted suggestion
+  follows the current commit-with-next-owner-turn rule. After that anchor exists,
+  an explicit `Accept and move` action may commit without requiring another story
+  message.
+
+Offer per-chat assistance settings:
+
+- `Off`: never request or display model travel suggestions.
+- `Suggest` (default): display a validated suggestion and require approval.
+- `Auto-stage explicit travel`: stage an unambiguous, valid request immediately,
+  but keep it visible and cancelable; never commit it silently.
+
+### Authority and safety rules
+
+- Expose a typed destination request using stable location IDs. Do not treat the
+  model saying that someone arrived as proof that movement occurred.
+- Keep destination requests out of visible prose and out of free-form location-name
+  parsing. Do not add a separate action-inference LLM merely to select movement.
+- Let the existing server destination, route, revision, and idempotency validators
+  decide whether a suggestion is possible.
+- Show ambiguity or failure clearly, including same-name matches, blocked routes,
+  archived locations, stale revisions, and disconnected destinations.
+- A suggestion becomes `Needs review` when the current location or map revision
+  changes. Never silently substitute another route or destination.
+- AI-written arrivals, unbound Game-map markers, and ordinary tactical movement do
+  not change the hierarchy on their own. A bound Game position may stage the same
+  validated transition through the existing binding contract.
+- Only one destination or travel plan may be staged at a time. Accepting a new one
+  visibly replaces or rejects the older draft.
+- Record accepted and rejected typed requests in debug diagnostics without adding
+  hidden user dialogue.
+
+### Current implementation boundary
+
+Maps 1.1.5 implements manual one-hop `Set destination`, validated pending spatial
+transitions, visible queued and `Needs review` states, and bound Game-position
+staging. It does not implement model suggestions, natural-writing travel staging,
+multi-hop route plans, `Travel now`, or `Accept and move`. Those remain future work,
+and distant suggestions depend on Workstream 3 rather than bypassing it.
+
+### Exit gate
+
+The user can write travel naturally, receive or automatically stage a visible and
+valid destination suggestion, approve or dismiss it without reopening Maps, and
+retain deterministic route rules, spatial history, and prompt budgets. Generated
+prose alone never changes the authoritative location.
 
 ## Separate RFC: generic reactive scenarios
 
@@ -617,7 +821,9 @@ The following ideas remain recorded but are not next-step scope:
 - AI-selected "scenic" routing without authored route metadata.
 - A general quest engine; quest destinations may integrate later through a small,
   typed contract.
-- Portable campaign packages that merge live maps, lorebooks, and image assets.
+- Full portable campaign packages that merge live history, lorebooks, Character
+  Cards, and media assets. The lightweight setup-plus-map Game Template is covered
+  by Workstream 5.
 - Automatic promotion of generated content into map canon.
 
 ## Suggested delivery order
@@ -625,7 +831,7 @@ The following ideas remain recorded but are not next-step scope:
 The order below is a planning sequence, not a single implementation project. The
 Engine manifest prerequisite landed in PR #3652, while item 1 remains active on the
 existing Maps feature branch; issue #16 stays closed. Merged PR #35 advances part
-of items 2 and 4 but does not complete either exit gate:
+of items 2 and 5 but does not complete either exit gate:
 
 1. Finish the package-owned source migration and exact-artifact compatibility
    proof in Marinara Agents, with only generic paired host support in Engine.
@@ -633,16 +839,21 @@ of items 2 and 4 but does not complete either exit gate:
 3. Simplify global feature-agent presentation, package-to-chat activation,
    first-map creation, recursive draft review, rejection/regeneration,
    starting-location confirmation, and first save.
-4. Build the shared Roleplay/Game runtime world-map surface.
-5. Implement destination preview and `Travel now` with an explicit history
+4. Add the lightweight shareable Game Template using the stable Game Setup and
+   hierarchical-map import/export formats, with included-map review and explicit
+   duplicate-generation handling.
+5. Build the shared Roleplay/Game runtime world-map surface.
+6. Add reviewed lore-to-map upkeep: first-map drafting from Session Keeper lore,
+   exact-match linking, and atomic review batches for structural suggestions.
+7. Implement destination preview and `Travel now` with an explicit history
    anchor.
-6. Add `Narrate journey`, `Explore each stop`, waypoints, and `Set as goal` as
+8. Add `Narrate journey`, `Explore each stop`, waypoints, and `Set as goal` as
    independently reviewable slices.
-7. Run the old-map/lorebook/hierarchical-map comparison and decide whether the
+9. Run the old-map/lorebook/hierarchical-map comparison and decide whether the
    feature has earned more investment.
-8. Add creator starter maps if the result is positive.
-9. Consider constrained model-requested movement.
-10. Re-evaluate each postponed V3 package separately.
+10. Consider constrained model-suggested movement with `Suggest` and
+    `Auto-stage explicit travel` assistance modes.
+11. Re-evaluate each postponed V3 package separately.
 
 Do not begin all numbered items under one issue or pull request.
 
@@ -653,6 +864,20 @@ the tracking issue. Canonical source ownership is already resolved in favor of
 Marinara Agents:
 
 - What remains readable when the optional package is absent?
+- Is the first Game Template a plain JSON envelope or a ZIP even though version 1
+  intentionally contains no bundled media?
+- Is the accepted starting-world overview included by default, offered as an
+  explicit share option, or regenerated from the imported settings?
+- How are location-linked lore entry IDs represented and remapped when the
+  recipient has the lore under different local IDs?
+- Should an included map remain disabled until its dependency review passes, or
+  may the recipient explicitly approve and enable it in the New Game wizard?
+- Should Game Session Keeper emit typed spatial hints in its existing response, or
+  should Maps derive proposals from a generic lore-change event?
+- Which exact-match evidence is strong enough for `Auto-link exact matches`, and
+  how are aliases distinguished from genuinely different places?
+- How long are dismissed map-upkeep suggestions suppressed when Lorebook Keeper
+  updates the same entry again?
 - What is the durable history anchor for zero-turn travel?
 - Is the route API a single destination request or an explicit client-proposed
   route checked by the server?
@@ -662,6 +887,12 @@ Marinara Agents:
 - Does fast travel require creator-authored restrictions beyond graph reachability?
 - Should adjacent `Go here` default to instant movement or preserve the current
   send-with-next-turn behavior?
+- Can a typed model suggestion be validated early enough for destination context
+  to affect the same generated reply, or must it reconcile after the reply?
+- Does `Accept and move` attach its spatial snapshot to the generated assistant
+  message or create the same explicit history event as `Travel now`?
+- Are dismissed and unaccepted suggestions ephemeral, or must regeneration,
+  swipes, reload, and branches reproduce them?
 - How does a Game quest identify a spatial destination without making the map
   depend on a future quest engine?
 - Which controls appear in Roleplay, Game World, and Game Local views?
@@ -691,6 +922,8 @@ Every accepted slice must identify its core claim and verify the relevant rows:
 | Area               | Minimum proof                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Package transition | Install, enable, disable, upgrade, remove, reinstall, backup, and restore without silent data loss                                                                                                                                                                                                                                                                                                |
+| Game templates     | Setup-only, setup-plus-map, missing package, missing Character Card, missing lore, remapped local IDs, stripped private memory, included-map, regenerate-map, and no-map imports produce one reviewed starting configuration without secrets, history, or duplicate maps                                                                                                                          |
+| Lore-to-map upkeep | First-map draft, exact match, alias, duplicate name, new place, description update, route-state suggestion, irrelevant fact, disabled lore, stale revision, dismissed proposal, atomic apply, and failed apply preserve lore and map authority without silent movement or partial mutation                                                                                                        |
 | Prompt behavior    | Live generation, Game GM, dry run, live Peek Prompt, and cached Peek Prompt agree for the same accepted state                                                                                                                                                                                                                                                                                     |
 | Lore eligibility   | Enabled, disabled, excluded, missing, duplicate, and truncated entries behave consistently                                                                                                                                                                                                                                                                                                        |
 | History            | Reload, continuation, regeneration, swipes, branches, deletion, import/export, and checkpoints resolve the expected location                                                                                                                                                                                                                                                                      |

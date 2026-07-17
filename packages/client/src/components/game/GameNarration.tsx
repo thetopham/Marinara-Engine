@@ -4404,6 +4404,7 @@ export function GameNarration({
 
         <div
           data-game-skip-bg-nav="true"
+          data-component="GameNarration.ActivePanel"
           className="shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--card)]/90 p-3 shadow-[0_16px_38px_rgba(0,0,0,0.45)] backdrop-blur-md dark:border-white/15 dark:bg-black/50"
         >
           {/* Scene preparation gate: wait for effects before showing narration */}

@@ -21,11 +21,7 @@ import { toast } from "sonner";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useGameAssetStore } from "../../stores/game-asset.store";
 import { gameAssetKeys, useGameAssetManifest, type GameAssetManifest } from "../../hooks/use-game-assets";
-import {
-  cleanNpcAvatarDisplayName,
-  isSameNpcAvatarResource,
-  normalizeNpcAvatarName,
-} from "../../lib/game-npc-avatar";
+import { cleanNpcAvatarDisplayName, isSameNpcAvatarResource, normalizeNpcAvatarName } from "../../lib/game-npc-avatar";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useGameStateStore } from "../../stores/game-state.store";
@@ -284,6 +280,8 @@ const GAME_MOBILE_ROOT_BUTTON = getChatToolbarButtonClass({
 const GAME_MOBILE_ICON_BUTTON = getChatToolbarButtonClass({ compact: true });
 const GAME_ACTION_MENU = cn(ROLEPLAY_POPOVER_SHELL, "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-1 p-1.5");
 const GAME_MOBILE_ACTIONS_MENU = cn(CHAT_TOOLBAR_OVERFLOW_MENU_CLASS, "absolute right-0 top-9");
+const GAME_MOBILE_CHOICE_STAGE_HEIGHT =
+  "max-h-[clamp(8rem,30svh,14rem)] sm:max-h-[clamp(9rem,36svh,20rem)]";
 const GAME_MOBILE_ACTION_MENU = cn(ROLEPLAY_POPOVER_SHELL, "flex w-72 max-w-[calc(100vw-4rem)] flex-col gap-1 p-1.5");
 const GAME_MOBILE_FLOATING_PANEL =
   "fixed z-[9999] h-[min(42rem,calc(100dvh-4.75rem))] w-[min(42rem,calc(100vw-4.75rem))]";
@@ -2366,6 +2364,7 @@ function GameSurfaceComponent({
   // Sync game metadata → store
   useSyncGameState(activeChatId, chatMeta);
   const hierarchicalMapsActive =
+    chatMeta.enableAgents === true &&
     Array.isArray(chatMeta.activeAgentIds) &&
     (chatMeta.activeAgentIds as string[]).includes("hierarchical-maps");
   const spatialContext = useSpatialContext(activeChatId, hierarchicalMapsActive);
@@ -2600,13 +2599,10 @@ function GameSurfaceComponent({
     () => filterGameAssetMap(assetManifest?.assets ?? null, gameAssetExcludedFolders),
     [assetManifest?.assets, gameAssetExcludedFolders],
   );
-  const getScopedAssetMap = useCallback(
-    () => {
-      const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
-      return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
-    },
-    [gameAssetExcludedFolders, queryClient],
-  );
+  const getScopedAssetMap = useCallback(() => {
+    const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
+    return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
+  }, [gameAssetExcludedFolders, queryClient]);
   const audioMuted = useGameAssetStore((s) => s.audioMuted);
 
   useEffect(() => {
@@ -7866,9 +7862,8 @@ function GameSurfaceComponent({
               : null;
           // `battlefield` is an optional forward-compatible field the encounter blueprint
           // may add for tactical combat; read defensively in case the type lags the schema.
-          const blueprintFormation = (
-            response.combatState as { battlefield?: { formation?: unknown } }
-          ).battlefield?.formation;
+          const blueprintFormation = (response.combatState as { battlefield?: { formation?: unknown } }).battlefield
+            ?.formation;
 
           setPreparedCombatState({
             messageId,
@@ -11350,10 +11345,13 @@ function GameSurfaceComponent({
 
                 {/* Game content — Combat UI / TravelView / Narration */}
                 {(() => {
+                  const choicesVisible = Boolean(activeChoices && narrationDone);
+
                   // Mobile widget slot — rendered inside GameNarration to sit above the narration box
                   const mobileWidgetSlot =
-                    !combatUiActive && hudWidgets.length > 0 ? (
+                    !combatUiActive && hudWidgets.length > 0 && !(compactHudWidgets && choicesVisible) ? (
                       <div
+                        data-component="GameSurface.MobileWidgetTray"
                         className={cn(
                           "pointer-events-auto mb-2 flex items-end justify-between",
                           !compactHudWidgets && "md:hidden",
@@ -11366,16 +11364,66 @@ function GameSurfaceComponent({
 
                   // Choice cards slot — rendered inside GameNarration above the narration box
                   const choicesSlot =
-                    activeChoices && narrationDone ? (
-                      <div className="pointer-events-auto mb-2 flex max-h-[clamp(8rem,30svh,14rem)] min-h-0 w-full shrink justify-center overflow-hidden sm:max-h-[clamp(9rem,36svh,20rem)] md:max-h-[min(52dvh,32rem)]">
-                        <GameChoiceCards
-                          choices={activeChoices}
-                          onSelect={handleChoiceSelect}
-                          onDismiss={handleDismissChoices}
-                          disabled={isStreaming || !sessionInteractive}
-                        />
-                      </div>
-                    ) : undefined;
+                    activeChoices && narrationDone
+                      ? compactHudWidgets && !combatUiActive && hudWidgets.length > 0
+                        ? (
+                            <div
+                              data-component="GameSurface.MobileChoiceStage"
+                              className={cn(
+                                "pointer-events-auto mb-2 flex min-h-0 w-full shrink items-stretch gap-1.5 overflow-hidden",
+                                GAME_MOBILE_CHOICE_STAGE_HEIGHT,
+                              )}
+                            >
+                              <div
+                                data-component="GameSurface.MobileWidgetRailLeft"
+                                className="relative z-10 flex shrink-0 items-center"
+                              >
+                                <MobileWidgetPanel
+                                  widgets={normalizedWidgets}
+                                  position="hud_left"
+                                  chatId={activeChatId}
+                                />
+                              </div>
+                              <div
+                                data-component="GameSurface.MobileChoiceStack"
+                                className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                              >
+                                <GameChoiceCards
+                                  choices={activeChoices}
+                                  onSelect={handleChoiceSelect}
+                                  onDismiss={handleDismissChoices}
+                                  disabled={isStreaming || !sessionInteractive}
+                                />
+                              </div>
+                              <div
+                                data-component="GameSurface.MobileWidgetRailRight"
+                                className="relative z-10 flex shrink-0 items-center"
+                              >
+                                <MobileWidgetPanel
+                                  widgets={normalizedWidgets}
+                                  position="hud_right"
+                                  chatId={activeChatId}
+                                />
+                              </div>
+                            </div>
+                          )
+                        : (
+                            <div
+                              data-component="GameSurface.MobileChoiceStack"
+                              className={cn(
+                                "pointer-events-auto mb-2 flex min-h-0 w-full shrink justify-center overflow-hidden md:max-h-[min(52dvh,32rem)]",
+                                GAME_MOBILE_CHOICE_STAGE_HEIGHT,
+                              )}
+                            >
+                              <GameChoiceCards
+                                choices={activeChoices}
+                                onSelect={handleChoiceSelect}
+                                onDismiss={handleDismissChoices}
+                                disabled={isStreaming || !sessionInteractive}
+                              />
+                            </div>
+                          )
+                      : undefined;
 
                   const skillCheckSlot = pendingSkillCheck ? (
                     <GameSkillCheckResult result={pendingSkillCheck} onDismiss={() => setPendingSkillCheck(null)} />

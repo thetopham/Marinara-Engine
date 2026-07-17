@@ -80,10 +80,11 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
 
   const announcement = page.getByRole("dialog", { name: "What's New?" });
   await expect(announcement).toBeVisible();
-  await expect(announcement.getByText(`Version ${APP_VERSION}`)).toBeVisible();
-  await expect(announcement.getByRole("heading", { name: "A quick patch with bug fixes!" })).toBeVisible();
+  await expect(announcement.getByText(`Version ${APP_VERSION}`, { exact: true })).toBeVisible();
+  await expect(announcement.getByRole("heading", { name: "We fixed the most glaring issues." })).toBeVisible();
+  await expect(announcement.getByText(/We’re sorry for the inconvenience/)).toBeVisible();
   await expect(announcement.getByText("Marinara Engine has been updated.", { exact: true })).toHaveCount(0);
-  await expect(announcement.getByText("Hierarchical Maps")).toHaveCount(0);
+  await expect(announcement.getByText(/Hierarchical Maps/)).toBeVisible();
   await expect(announcement.getByText("Tactical Combat Mode in Games")).toHaveCount(0);
   await expect(announcement.getByRole("link", { name: "View release" })).toHaveAttribute(
     "href",
@@ -4500,6 +4501,191 @@ test("mobile topbar remains reachable while sidebars switch", async ({ page }, t
   await expect(page.locator('[data-component="RightPanelMobile"]')).toBeVisible();
 
   expect(errors).toEqual([]);
+});
+
+test("mobile Game keeps CYOA usable above four HUD widgets", async ({ page, request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("mobile"), "The Game viewport-pressure regression is mobile-only.");
+
+  const errors = collectUnexpectedErrors(page);
+  await expect.poll(async () => (await request.get("/api/health")).ok()).toBe(true);
+  const chatResponse = await request.post("/api/chats", {
+    data: { name: "Mobile Game CYOA Viewport Smoke", mode: "game", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  const hudWidgets = [
+    {
+      id: "widget-floor",
+      type: "counter",
+      label: "Dungeon Floor",
+      icon: "🗼",
+      position: "hud_left",
+      accent: "#9B6CFF",
+      config: { count: 1 },
+    },
+    {
+      id: "widget-exp",
+      type: "progress_bar",
+      label: "EXP to Next Level",
+      icon: "✨",
+      position: "hud_left",
+      accent: "#4FD6FF",
+      config: { value: 20, max: 100 },
+    },
+    {
+      id: "widget-bonds",
+      type: "stat_block",
+      label: "Party Bonds",
+      icon: "💞",
+      position: "hud_right",
+      accent: "#FF69B4",
+      config: { stats: [{ name: "Ally", value: 40 }] },
+    },
+    {
+      id: "widget-pressure",
+      type: "gauge",
+      label: "Curse Pressure",
+      icon: "💜",
+      position: "hud_right",
+      accent: "#C43DFF",
+      config: { value: 10, max: 100 },
+    },
+  ];
+
+  try {
+    const metadataResponse = await request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        gameId: "mobile-cyoa-viewport-smoke",
+        gameSessionStatus: "active",
+        gameSessionNumber: 1,
+        gameIntroPresented: true,
+        gameActiveState: "dialogue",
+        enableAgents: false,
+        activeAgentIds: [],
+        enableCustomWidgets: true,
+        gameBlueprint: {
+          campaignPlan: {},
+          hudWidgets,
+          introSequence: [],
+          visualTheme: {},
+        },
+      },
+    });
+    expect(metadataResponse.ok()).toBeTruthy();
+
+    const messageResponse = await request.post(`/api/chats/${chat.id}/messages`, {
+      data: {
+        role: "assistant",
+        content:
+          'The party reaches a fork in the flooded vault.\n\n[choices: "Take the surveyed stairs through the glowing nests"|"Risk the faster waterway before the chamber floods"|"Follow the unstable violet route into the unknown"]',
+      },
+    });
+    expect(messageResponse.ok()).toBeTruthy();
+
+    await page.route("**/api/game-assets/manifest", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ scannedAt: "2026-07-16T00:00:00.000Z", count: 0, assets: {}, byCategory: {} }),
+      });
+    });
+    await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "image/gif",
+        body: Buffer.from(TRANSPARENT_GIF_BASE64, "base64"),
+      });
+    });
+    await page.addInitScript((chatId) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({
+          state: {
+            hasCompletedOnboarding: true,
+            rightPanelOpen: false,
+            sidebarOpen: false,
+            gameTextSpeed: 100,
+          },
+          version: 65,
+        }),
+      );
+    }, chat.id);
+
+    await page.goto("/");
+    const choiceStage = page.locator('[data-component="GameSurface.MobileChoiceStage"]');
+    const choiceStack = page.locator('[data-component="GameSurface.MobileChoiceStack"]');
+    const leftWidgetRail = page.locator('[data-component="GameSurface.MobileWidgetRailLeft"]');
+    const rightWidgetRail = page.locator('[data-component="GameSurface.MobileWidgetRailRight"]');
+    const narrationPanel = page.locator('[data-component="GameNarration.ActivePanel"]');
+    const composer = page.getByPlaceholder("What do you do?");
+    const optionList = page.locator('[data-component="GameChoiceCards.Options"]');
+    const options = page.locator('[data-component="GameChoiceCards.Options"] > button');
+    await expect(choiceStage).toBeVisible();
+    await expect(choiceStack).toBeVisible();
+    await expect(leftWidgetRail).toBeVisible();
+    await expect(rightWidgetRail).toBeVisible();
+    await expect(composer).toBeVisible();
+    await expect(options).toHaveCount(3);
+
+    const viewport = { width: 390, height: 700 };
+    await page.setViewportSize(viewport);
+    await expect(page.getByTitle("Game actions")).toBeVisible();
+    await expect(page.locator('[data-tour="game-map"]').getByRole("button", { name: "Open map" })).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        const stageRect = await choiceStage.boundingBox();
+        const choiceRect = await choiceStack.boundingBox();
+        const leftWidgetRect = await leftWidgetRail.boundingBox();
+        const rightWidgetRect = await rightWidgetRail.boundingBox();
+        const narrationRect = await narrationPanel.boundingBox();
+        const composerRect = await composer.boundingBox();
+        if (!stageRect || !choiceRect || !leftWidgetRect || !rightWidgetRect || !narrationRect || !composerRect) {
+          return null;
+        }
+        return {
+          choiceFillsCenter: choiceRect.height >= stageRect.height - 1,
+          choiceBetweenWidgets:
+            leftWidgetRect.x + leftWidgetRect.width <= choiceRect.x + 1 &&
+            choiceRect.x + choiceRect.width <= rightWidgetRect.x + 1,
+          widgetsShareChoiceBand:
+            leftWidgetRect.y >= stageRect.y - 1 &&
+            leftWidgetRect.y + leftWidgetRect.height <= stageRect.y + stageRect.height + 1 &&
+            rightWidgetRect.y >= stageRect.y - 1 &&
+            rightWidgetRect.y + rightWidgetRect.height <= stageRect.y + stageRect.height + 1,
+          choiceStageBeforeNarration: stageRect.y + stageRect.height <= narrationRect.y + 1,
+          narrationStartsInViewport: narrationRect.y >= 0 && narrationRect.y < viewport.height,
+          composerFullyInViewport: composerRect.y >= 0 && composerRect.y + composerRect.height <= viewport.height + 1,
+        };
+      })
+      .toEqual({
+        choiceFillsCenter: true,
+        choiceBetweenWidgets: true,
+        widgetsShareChoiceBand: true,
+        choiceStageBeforeNarration: true,
+        narrationStartsInViewport: true,
+        composerFullyInViewport: true,
+      });
+
+    await optionList.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+    await expect(page.getByText("Choose your action", { exact: true })).toBeVisible();
+    await expect(options.last()).toBeVisible();
+    const optionListRect = await optionList.boundingBox();
+    const lastOptionRect = await options.last().boundingBox();
+    expect(optionListRect).not.toBeNull();
+    expect(lastOptionRect).not.toBeNull();
+    expect(lastOptionRect!.y).toBeGreaterThanOrEqual(optionListRect!.y - 1);
+    expect(lastOptionRect!.y + lastOptionRect!.height).toBeLessThanOrEqual(
+      optionListRect!.y + optionListRect!.height + 1,
+    );
+    await expect(page.getByText("The party reaches a fork in the flooded vault.", { exact: true })).toBeVisible();
+
+    expect(errors).toEqual([]);
+  } finally {
+    await request.delete(`/api/chats/${chat.id}`);
+  }
 });
 
 test("Roleplay displays a selected background when its file route is GET-only", async ({ page }) => {

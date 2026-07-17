@@ -66,6 +66,7 @@ import {
   projectGameSnapshotLocation,
   resolveOwnerSpatialProjection,
 } from "../services/spatial-context/projection.js";
+import { isHierarchicalMapsEnabledForChat } from "../services/spatial-context/activation.js";
 import { materializeAssistantSpatialState } from "../services/spatial-context/state-resolution.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
 import { createPromptsStorage } from "../services/storage/prompts.storage.js";
@@ -114,7 +115,12 @@ import {
   type AssemblerInput,
 } from "../services/prompt/index.js";
 import { wrapContent } from "../services/prompt/format-engine.js";
-import { yieldToEventLoop, type ChatMessage, type LLMUsage } from "../services/llm/base-provider.js";
+import {
+  withLlmRequestTimeout,
+  yieldToEventLoop,
+  type ChatMessage,
+  type LLMUsage,
+} from "../services/llm/base-provider.js";
 import { executeToolCalls } from "../services/tools/tool-executor.js";
 import { createAgentPipeline, type ResolvedAgent, type AgentInjection } from "../services/agents/agent-pipeline.js";
 import { DATA_DIR } from "../utils/data-dir.js";
@@ -351,7 +357,7 @@ import {
   resolveChatSummaryPrompt,
   withoutRetiredChatSummaryAgentIds,
 } from "../services/generation/roleplay-summary-runtime.js";
-import { getMaxToolRounds } from "../config/runtime-config.js";
+import { getChatGenerationTimeoutMs, getMaxToolRounds } from "../config/runtime-config.js";
 import {
   REVIEWABLE_WRITER_AGENT_TYPES,
   buildRuntimeAgentSectionEligibleTypes,
@@ -657,6 +663,7 @@ export async function generateRoutes(app: FastifyInstance) {
    */
   app.post("/", async (req, reply) => {
     const input = generateRequestSchema.parse(req.body);
+    const chatGenerationTimeoutMs = getChatGenerationTimeoutMs();
     const requestDebug = input.debugMode === true;
     const debugLog = (message: string, ...args: any[]) => {
       logDebugOverride(requestDebug, message, ...args);
@@ -755,9 +762,11 @@ export async function generateRoutes(app: FastifyInstance) {
     const discordWebhookUrl = typeof earlyMeta.discordWebhookUrl === "string" ? earlyMeta.discordWebhookUrl : "";
     let pendingUserDiscordMsg = "";
     let currentTurnUserMessageId: string | null = null;
-    let committedSpatialTransition:
-      | { commandId: string; currentLocationId: string | null; definitionRevision: number }
-      | null = null;
+    let committedSpatialTransition: {
+      commandId: string;
+      currentLocationId: string | null;
+      definitionRevision: number;
+    } | null = null;
 
     // Save user message — skip for impersonate (no real user message to save)
     if (!input.impersonate && (input.userMessage || input.attachments?.length || input.pendingSpatialTransition)) {
@@ -1152,6 +1161,7 @@ export async function generateRoutes(app: FastifyInstance) {
         excludeMessageId: input.regenerateMessageId ?? null,
         fallbackMessageIds: resolveRegenerationGameStateFallbackMessageIds(scopedMessages, input.regenerateMessageId),
       };
+      const hierarchicalMapsEnabledForChat = isHierarchicalMapsEnabledForChat(chatMeta);
       const ownerSpatialProjectionPromise = resolveOwnerSpatialProjection(
         input.chatId,
         input.regenerateMessageId
@@ -1159,6 +1169,7 @@ export async function generateRoutes(app: FastifyInstance) {
           : input.continueMessageId
             ? { throughMessageId: input.continueMessageId }
             : {},
+        chatMeta,
       );
       const rawSelectedGameStateSnapshotPromise = gameStateStore.getForGeneration(
         input.chatId,
@@ -2310,7 +2321,8 @@ export async function generateRoutes(app: FastifyInstance) {
             characterIds: promptCharacterIds,
             personaId,
             activeLorebookIds: chatActiveLorebookIds,
-            forcedEntryIds: ownerSpatialProjection?.ownerMode === "roleplay" ? ownerSpatialProjection.lorebookEntryIds : [],
+            forcedEntryIds:
+              ownerSpatialProjection?.ownerMode === "roleplay" ? ownerSpatialProjection.lorebookEntryIds : [],
             excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
             excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
             tokenBudget: resolveLorebookTokenBudget(chatMeta),
@@ -2669,7 +2681,8 @@ export async function generateRoutes(app: FastifyInstance) {
                 characterIds,
                 personaId,
                 activeLorebookIds: chatActiveLorebookIds,
-                forcedEntryIds: ownerSpatialProjection?.ownerMode === "game" ? ownerSpatialProjection.lorebookEntryIds : [],
+                forcedEntryIds:
+                  ownerSpatialProjection?.ownerMode === "game" ? ownerSpatialProjection.lorebookEntryIds : [],
                 excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
                 excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
                 tokenBudget: resolveLorebookTokenBudget(chatMeta),
@@ -4527,21 +4540,23 @@ export async function generateRoutes(app: FastifyInstance) {
             const selectorModel = conn.model;
             const selectorMaxTokens = applyProviderMaxTokensOverride(selectorProvider, 512);
 
-            const result = await selectorProvider.chatComplete(selectionPrompt, {
-              model: selectorModel,
-              ...(suppressModelParameters
-                ? {}
-                : {
-                    temperature: 0.2,
-                    maxTokens: selectorMaxTokens,
-                    maxContext: effectiveMaxContext,
-                    topP: 1,
-                    serviceTier,
-                  }),
-              suppressModelParameters,
-              stream: false,
-              signal: abortController.signal,
-            });
+            const result = await withLlmRequestTimeout(chatGenerationTimeoutMs, () =>
+              selectorProvider.chatComplete(selectionPrompt, {
+                model: selectorModel,
+                ...(suppressModelParameters
+                  ? {}
+                  : {
+                      temperature: 0.2,
+                      maxTokens: selectorMaxTokens,
+                      maxContext: effectiveMaxContext,
+                      topP: 1,
+                      serviceTier,
+                    }),
+                suppressModelParameters,
+                stream: false,
+                signal: abortController.signal,
+              }),
+            );
             const selectedIds = parseSmartGroupSelectionIds(result.content ?? "");
             if (selectedIds.length > 0) {
               logger.debug(
@@ -4964,7 +4979,7 @@ export async function generateRoutes(app: FastifyInstance) {
                   loopMessages,
                   round === 0 ? "Prompt sent to model" : `Prompt sent to model (tool round ${round + 1})`,
                 );
-                result = await provider.chatComplete(loopMessages, {
+                result = await withLlmRequestTimeout(chatGenerationTimeoutMs, () => provider.chatComplete!(loopMessages, {
                   model: conn.model,
                   temperature,
                   maxTokens: effectiveMaxTokensForSend,
@@ -4997,7 +5012,7 @@ export async function generateRoutes(app: FastifyInstance) {
                     ? undefined
                     : (items) => encryptedReasoningCache.set(input.chatId, items),
                   onChatCompletionsReasoning: rememberChatCompletionsReasoning,
-                });
+                }));
               } catch (err: any) {
                 // If the error was caused by an abort, cancel silently and skip post-processing.
                 if (abortController.signal.aborted || (err && err.name === "AbortError")) {
@@ -5182,7 +5197,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 loopMessages = fitPromptForSend(loopMessages);
                 rememberMainPromptPreviewForAgents(loopMessages);
                 logPromptSentToModel(loopMessages, "Prompt sent to model (final tool follow-up)");
-                const finalResult = await provider.chatComplete(loopMessages, {
+                const finalResult = await withLlmRequestTimeout(chatGenerationTimeoutMs, () => provider.chatComplete!(loopMessages, {
                   model: conn.model,
                   temperature,
                   maxTokens: effectiveMaxTokensForSend,
@@ -5214,7 +5229,7 @@ export async function generateRoutes(app: FastifyInstance) {
                     ? undefined
                     : (items) => encryptedReasoningCache.set(input.chatId, items),
                   onChatCompletionsReasoning: rememberChatCompletionsReasoning,
-                });
+                }));
                 if (finalResult.content && fullResponse.length === prevLen) {
                   await writeContentChunked(finalResult.content);
                 }
@@ -5276,7 +5291,7 @@ export async function generateRoutes(app: FastifyInstance) {
               onChatCompletionsReasoning: rememberChatCompletionsReasoning,
             });
             try {
-              let result = await gen.next();
+              let result = await withLlmRequestTimeout(chatGenerationTimeoutMs, () => gen.next());
               while (!result.done) {
                 if (abortController.signal.aborted) {
                   return null;
@@ -5286,11 +5301,11 @@ export async function generateRoutes(app: FastifyInstance) {
                 // so the client sees progressive streaming.
                 const val = result.value;
                 if (holdForTextRewrite) {
-                  result = await gen.next();
+                  result = await withLlmRequestTimeout(chatGenerationTimeoutMs, () => gen.next());
                   continue;
                 }
                 await sendTokenTextChunked(val);
-                result = await gen.next();
+                result = await withLlmRequestTimeout(chatGenerationTimeoutMs, () => gen.next());
               }
               // Generator return value contains usage
               if (result.value) {
@@ -5699,15 +5714,19 @@ export async function generateRoutes(app: FastifyInstance) {
                 : savedMsg;
               if (
                 anchoredMsg?.id &&
+                hierarchicalMapsEnabledForChat &&
                 (requestChatMode === "roleplay" || requestChatMode === "game")
               ) {
-                await materializeAssistantSpatialState({
-                  chatId: input.chatId,
-                  messageId: anchoredMsg.id,
-                  swipeIndex: anchoredMsg.activeSwipeIndex ?? 0,
-                  regenerate: false,
-                  continuation: false,
-                });
+                await materializeAssistantSpatialState(
+                  {
+                    chatId: input.chatId,
+                    messageId: anchoredMsg.id,
+                    swipeIndex: anchoredMsg.activeSwipeIndex ?? 0,
+                    regenerate: false,
+                    continuation: false,
+                  },
+                  chatMeta,
+                );
               }
               if (markGenerationCommitted && anchoredMsg?.id) {
                 generationComplete = true;
@@ -5761,15 +5780,19 @@ export async function generateRoutes(app: FastifyInstance) {
             savedMsg?.id &&
             savedSwipeIndex !== null &&
             !input.impersonate &&
+            hierarchicalMapsEnabledForChat &&
             (requestChatMode === "roleplay" || requestChatMode === "game")
           ) {
-            await materializeAssistantSpatialState({
-              chatId: input.chatId,
-              messageId: savedMsg.id,
-              swipeIndex: savedSwipeIndex,
-              regenerate: Boolean(input.regenerateMessageId),
-              continuation: Boolean(input.continueMessageId),
-            });
+            await materializeAssistantSpatialState(
+              {
+                chatId: input.chatId,
+                messageId: savedMsg.id,
+                swipeIndex: savedSwipeIndex,
+                regenerate: Boolean(input.regenerateMessageId),
+                continuation: Boolean(input.continueMessageId),
+              },
+              chatMeta,
+            );
           }
           if (markGenerationCommitted && savedMsg?.id) {
             generationComplete = true;

@@ -1,8 +1,9 @@
 # Hierarchical Maps Implementation Plan
 
 Status: canonical sequencing index; recovery is active, Maps 1.0.6 is the stable
-user-facing release, the first Phase 3 parity and creation-preview checkpoints are
-recorded, and future travel work is blocked
+user-facing release, automated Phase 3 parity and the current browser-recovery
+checkpoint are complete, human platform sign-off remains, and future travel work
+is blocked
 
 Last updated: 2026-07-16
 
@@ -60,17 +61,22 @@ and status, not the detailed requirements.
 | Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                                                                                                                                                         |
 | Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                                                                                                                                                          |
 | Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                                                                                                                                                                   |
-| Exact lifecycle proof                | In progress                 | Update, owner turns, prompt projection, history mutation, branch/delete/import/export/checkpoint, offline restart, remove, reinstall, backup, and restore were previously checkpointed; the current exact-artifact rerun deterministically fails the Phase 3 continuation anchor assertion and must be resolved |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `00cbd0420`; Engine support must land before publication                                                                                                                                                               |
+| Exact lifecycle proof                | Automated complete          | The rebuilt exact artifact passes update, owner turns, prompt projection, retry/continuation/regeneration/swipe history, branch/delete/import/export/checkpoint preservation, offline restart, remove, reinstall, backup, and restore                                                                                     |
+| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `044f839f55f2855271dbbb9340f443f61f67f167`; Engine support must land before publication                                                                                                                                    |
 | Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                                                                                          |
-| Client loading and failure recovery  | Candidate                   | Observable loading/error/retry states, accessible fallbacks, clean Maps remounts, and 44px mobile recovery/workspace actions pass automated browser checks                                                                                                                                                      |
-| Full V3 history and prompt parity    | In progress                 | Live Roleplay/Game Peek Prompt location lore and most representative history paths were checkpointed; the current continuation anchor failure, normalized all-prompt comparison, and lore-eligibility matrices remain open                                                                                      |
+| Client loading and failure recovery  | Automated complete          | Observable loading/error/retry states, conflict draft preservation and reload, clean Maps remounts, package-query reconciliation after committed movement, and 44px workspace/recovery actions pass exact-artifact browser checks                                                                                         |
+| Full V3 history and prompt parity    | Automated complete          | One normalized fixture passes Roleplay/Game generation, GM, dry-run, live/cached Peek Prompt, retry, continuation, lore eligibility/budget, historical swipe, branch, deletion, import/export, and checkpoint matrices                                                                                                  |
 | Creation UX                          | In progress                 | The candidate now provides a recursively browsable AI draft preview plus in-place per-chat activation beside the map controls; search, depth/count/start status, details, provenance, and clearer decisions are implemented while the broader first-map funnel remains open                                     |
 | Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                                                                                       |
 
-The current Agents candidate checkpoint is `e1e4cec` on
-`feature/hierarchical-maps-package-source-16`. Its paired generic Engine checkpoint
-is `00cbd0420` on `feature/capability-runtime-logging` in the `thetopham` fork.
+The current Agents candidate checkpoint is
+`de663eac4952bdfd1f717663e59bffdea3ff61c0` on
+`feature/hierarchical-maps-package-source-16`. Its exact artifact is
+`hierarchical-maps-1.1.0.zip`, SHA-256
+`a1445eac1d9c73ab1430a5da3599deadb00ffce60190ff7b9d9dc54144d472cc`,
+264,037 bytes. Its paired generic Engine checkpoint is
+`044f839f55f2855271dbbb9340f443f61f67f167` on
+`feature/capability-runtime-logging` in the `thetopham` fork.
 
 No completed issue should be reopened for this continuation. Continue using local
 commits and the existing feature/docs branches as checkpoints. Do not open another
@@ -130,14 +136,17 @@ Already implemented in the candidate:
   snapshot replacement; and
 - a zero-private-import assertion enforced during build and catalog validation.
 
-The implementation portion of this boundary is complete at Engine `00cbd0420`
-and Agents `e1e4cec`. The focused client regression covers a failed first module
+The implementation portion of this boundary is complete at Engine `044f839f`
+and Agents `de663ea`. The focused client regression covers a failed first module
 request, retry, simulated package runtime failure, remount, and 44px recovery
-actions. An exact-artifact browser matrix installs through **Download Agents** on
-clean and Maps `1.0.6` profiles, verifies restart/readiness, exercises dark, light,
-and SillyTavern themes at desktop and mobile viewports, drives keyboard and touch
-paths, and confirms uninstall/reinstall preservation. This is automated evidence,
-not human platform sign-off. Before publication:
+actions. The rebuilt ZIP also passes the complete exact-artifact Chromium suite:
+23 tests pass and 7 viewport-independent cases are intentionally skipped on
+mobile. The suite covers desktop/mobile layouts, keyboard operation, 44px touch
+geometry, dark/light/SillyTavern themes, long labels, a 12-level map, loading and
+retry, stale-write conflict preservation/reload, movement reconciliation, creation,
+Game setup, and prompt/history parity. Exact lifecycle proof separately confirms
+offline restart, uninstall/reinstall, backup, and restore. This is automated
+evidence, not human platform sign-off. Before publication:
 
 1. Keep Engine support ahead of the dependent Agents catalog publication.
 2. Complete the remaining unchecked human desktop/mobile, theme, keyboard/touch,
@@ -148,24 +157,28 @@ not human platform sign-off. Before publication:
 Exit: Maps builds from package-owned source without a private Engine import, raw
 database access, or copied table object, and uninstall/reinstall preserves its data.
 
-### 2. Complete recovery parity
+### 2. Close recovery parity sign-off
 
 Priority: P0 after the package boundary.
 
-The first automated Phase 3 slice is checkpointed. Live Roleplay and Game Peek
-Prompt now include forced current-location lore and one authoritative spatial
-projection. Exact-artifact regression also covers assistant snapshot creation,
-continuation, regeneration and swipe history, swipe deletion, earlier-message
-branching, source-message deletion, JSONL export/import, and immutable Game plus
-Spatial Context checkpoint restore.
+Automated Phase 3 parity is complete. Roleplay and Game now prove one authoritative
+spatial projection and bounded current-location lore through normal generation,
+Game GM, dry run, live Peek Prompt, cached Peek Prompt, retry, continuation,
+regeneration, historical swipes, branching, deletion, JSONL import/export, and
+checkpoint restore. Disabled, excluded, missing, duplicate, forced, and over-budget
+lore cases are included.
 
-- Complete retry and the remaining cross-owner-mode combinations for continuation,
-  regeneration, swipe, branch, deletion, import/export, and checkpoints.
-- Compare normal generation, Game GM, dry run, live Peek Prompt, and cached Peek
-  Prompt projections from one normalized fixture.
-- Prove disabled, excluded, missing, duplicate, forced, and truncated lore cases.
-- Complete keyboard, touch, theme, long-label, deep-map, conflict, stale-write, and
-  error-state review.
+The current browser checkpoint also proves keyboard operation, touch-sized controls,
+dark/light/SillyTavern rendering, long labels, deep maps, loading/retry, stale-write
+conflict recovery, and committed-movement query reconciliation on the rebuilt exact
+artifact. Remaining recovery work is human sign-off rather than another automated
+parity implementation slice:
+
+- complete the unchecked desktop/mobile browser and platform review;
+- manually exercise real keyboard and touch interactions on supported platforms;
+- inspect dark, light, and SillyTavern presentation, including conflict and runtime
+  error states; and
+- complete clean-install and upgraded-profile human verification.
 
 Exit: Phase 3 and the applicable Phase 4 recovery gates in the recovery plan pass.
 
@@ -175,7 +188,7 @@ Priority: P1 after recovery-critical parity, with independent Agents-owned edito
 slices allowed once they cannot destabilize the package boundary.
 
 The first independently safe package-owned slices are checkpointed at Engine
-`00cbd0420` and Agents `e1e4cec`. Before a generated map enters the working editor,
+`044f839f` and Agents `de663ea`. Before a generated map enters the working editor,
 Draft preview now
 shows its recursively browsable hierarchy, location count and depth, proposed
 start, searchable names and content, public descriptions, private model memories,

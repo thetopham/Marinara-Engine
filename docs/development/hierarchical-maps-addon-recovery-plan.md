@@ -1,6 +1,8 @@
 # Hierarchical Maps Add-on Recovery and Continuation Plan
 
-Status: Active implementation; Maps 1.0.6 is published, the Phase 2 implementation and automated browser closure matrix plus the first Phase 3 parity slice are checkpointed in a package-owned 1.1.0 recovery candidate, human release sign-off and the remaining V3 proof matrix stay open, and new travel features remain blocked
+Status: Recovery complete through Phase 4; Maps 1.1.5 is published for Marinara
+Engine 2.3.2, Phase 5 route planning is the current continuation frontier, and
+Phases 6–7 remain future work
 
 Audience: Marinara Engine and Marinara Agents maintainers
 
@@ -32,7 +34,41 @@ This plan replaces neither the V3 product definition nor the exploratory future
 roadmap. It converts their accepted requirements into cross-repository delivery
 work after the optional-package extraction.
 
-## Implementation status — July 15, 2026
+## Completion update — July 17, 2026
+
+The extraction and recovery lane described by this plan has shipped:
+
+- Maps `1.1.5` is the current Marinara Agents catalog release. Its manifest uses
+  manifest v2 and capability API `1.3`, declares Engine `>=2.3.2 <3.0.0`, and
+  records Engine commit `614e62a38fc2d9685f9b4981a9628be9fda0fc03` as its build
+  provenance.
+- [Engine PR #3693](https://github.com/Pasta-Devs/Marinara-Engine/pull/3693)
+  delivered the capability API `1.3` host services needed by the published
+  package.
+- [Agents PR #52](https://github.com/Pasta-Devs/Marinara-Agents/pull/52)
+  published the `1.1.0` recovery baseline, while
+  [PR #59](https://github.com/Pasta-Devs/Marinara-Agents/pull/59) and
+  [PR #64](https://github.com/Pasta-Devs/Marinara-Agents/pull/64) completed the
+  Roleplay minimap and mobile/runtime closure slices.
+- Recovery issues [Agents #51](https://github.com/Pasta-Devs/Marinara-Agents/issues/51),
+  [Agents #61](https://github.com/Pasta-Devs/Marinara-Agents/issues/61), and
+  [Engine #3691](https://github.com/Pasta-Devs/Marinara-Engine/issues/3691) are
+  closed.
+
+Operational phase status is therefore:
+
+| Phase | Status           | Current interpretation                                                                                                                |
+| ----- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0–2   | Complete         | Incident containment, package ownership, compatibility, and exact-artifact lifecycle are shipped                                      |
+| 3     | Complete         | The V3 owner foundation, prompt/history parity, Game reconciliation, and preservation gates are part of the shipped recovery baseline |
+| 4     | Complete         | The shared Roleplay/Game runtime map, compact mobile presentation, and direct one-hop movement are shipped                            |
+| 5     | Current planning | [Agents issue #77](https://github.com/Pasta-Devs/Marinara-Agents/issues/77) tracks multi-step Set destination / Plan route navigation |
+| 6–7   | Future           | Richer travel modes and comparative evaluation remain separate later work                                                             |
+
+The detailed July 15 checkpoints below are retained as historical proof of how the
+recovery was closed. They are not the current release status.
+
+## Historical implementation status — July 15, 2026
 
 - Incident containment and generic readiness diagnostics landed in
   [Marinara Engine PR #3644](https://github.com/Pasta-Devs/Marinara-Engine/pull/3644).
@@ -130,11 +166,11 @@ browser proof still belong to Phase 3.
 The automated lifecycle and browser checkpoints do not replace the remaining
 unchecked human browser and platform checks.
 
-## Historical incident and current containment
+## Historical incident and containment record
 
-The main Agents catalog now publishes Maps `1.0.6`, so the broken `1.0.0`
-behavior described below is no longer the user-facing catalog version. The
-underlying boundary lesson still governs the remaining recovery work.
+At the time of this checkpoint, the main Agents catalog published Maps `1.0.6`,
+so the broken `1.0.0` behavior described below was no longer the user-facing
+catalog version. The underlying boundary lesson still governs later package work.
 
 Hierarchical Maps `1.0.0` activates but fails when it reads spatial snapshots. The
 published bundle was built from a captured Engine source tree that still defines
@@ -448,21 +484,11 @@ merge on top of the compatibility shim.
 
 ### Phase 2: capability API v1 and package-owned source release 1.1.0
 
-Status: Manifest v2 and API-version compatibility landed through Engine issue
-#3651 and PR #3652. The `1.1.0` candidate now uses that manifest contract, records
-its Engine build provenance, and enforces a zero-private-import boundary.
-Capability API `1.2` logging/debug, transactional owner-turn
-and definition-metadata writes, lore-entry existence reads, compatibility snapshot
-operations, route resources, JSON parsing, and model calls are checkpointed at
-Engine `00cbd0420` and Agents `e1e4cec`. Package-owned source, the server and client
-boundaries, the source-only build, generic client loading/error/retry presentation,
-and touch-sized recovery/workspace actions are established. An exact-artifact
-browser matrix passes clean and upgraded-profile Download Agents lifecycle checks,
-restart/readiness, desktop/mobile viewports, all three built-in theme combinations,
-keyboard/touch emulation, runtime retry, and reinstall preservation. The
-implementation and automated closure proof are complete; unchecked human platform
-sign-off plus Engine-first release ordering remain before formal Phase 2 closure.
-Issue #16 remains closed and must not be reopened.
+Status: Complete. Manifest v2, capability API compatibility, package-owned source,
+the zero-private-import boundary, generic client recovery presentation, and the
+exact-artifact lifecycle shipped through the Maps 1.1.x line. Maps 1.1.5 now uses
+capability API `1.3` against Engine 2.3.2. Issue #16 remains closed and must not be
+reopened.
 
 Goal: remove the frozen private-source dependency.
 
@@ -501,19 +527,12 @@ Exit gate:
 
 Goal: prove that extraction preserved all delivered V3 behavior.
 
-Status: In progress at Engine `00cbd0420` and Agents `e1e4cec`. The exact candidate
-has checkpointed live Roleplay/Game Peek Prompt location lore, regeneration,
-swipe, branch, deletion, JSONL import/export, and immutable Game/Spatial checkpoint
-behavior. This is not Phase 3 closure: the current continuation anchor failure,
-retry combinations, both-owner-mode coverage, the normalized normal/Game
-GM/dry-run/live Peek/cached Peek comparison, lore eligibility edge cases, and
-remaining browser/platform proof are still open.
-
-The current broad exact-artifact lifecycle rerun reaches the Phase 3 continuation
-proof but deterministically resolves `lifecycle_harbor` where the fixture expects
-`lifecycle_world`. The focused spatial baseline remains green and the activation
-UX does not touch state resolution, but this continuation anchor failure must be
-resolved before claiming the complete lifecycle matrix is green.
+Status: Complete for the shipped recovery baseline. Roleplay/Game prompt
+projection, current-location lore, continuation, retry, regeneration, swipe,
+branch, deletion, JSONL import/export, checkpoints, Game reconciliation, and the
+applicable browser/platform matrix passed before publication. The earlier
+continuation-anchor failure recorded by this document was resolved during the
+recovery lane and is no longer an open release gate.
 
 An independently safe package-owned creation slice is also checkpointed at that
 Agents head. Generated Draft preview now exposes the complete browsable hierarchy,
@@ -643,11 +662,11 @@ Exit gate:
 
 Goal: make ordinary play simpler than authoring.
 
-Status: The Maps `1.0.6` candidate restores the shared Roleplay/Game runtime surface,
-Game `World` / `Local` precedence, destination staging, and stale-turn review on
-desktop and mobile. Treat this as a recovered baseline, not Phase 4 completion;
-ordinary-player clarity, accessibility, themes, long/deep map states, and all exit
-gate checks still require review.
+Status: Complete for the shipped baseline. Maps 1.1.5 provides the shared
+Roleplay/Game runtime surface, Game `World` / `Local` precedence, compact mobile
+presentation, destination staging, stale-turn review, and direct movement to the
+next connected location. Further editor and runtime refinements are tracked as
+post-recovery feature issues rather than Phase 4 blockers.
 
 Package UI work:
 
@@ -678,6 +697,12 @@ Exit gate:
 - the editor cannot be covered by global floating UI at mobile widths.
 
 ### Phase 5: route preview and Travel now
+
+Status: Current planning frontier. The runtime can browse the hierarchy but direct
+movement is limited to the next connected location. Start with the automatic
+multi-step **Set destination / Plan route** slice in
+[Agents issue #77](https://github.com/Pasta-Devs/Marinara-Agents/issues/77);
+`Travel now` remains a later acceptance decision within this phase.
 
 Goal: support distant movement without one model turn per graph edge.
 
@@ -715,6 +740,8 @@ Exit gate:
 
 ### Phase 6: narrated, stepwise, waypoint, and goal travel
 
+Status: Future work after the Phase 5 route contract is implemented and proven.
+
 Deliver each mode in a separate reviewable slice:
 
 - `Narrate journey`: one bounded route projection, one model turn, then destination
@@ -731,6 +758,8 @@ Exit gate:
 - prompt preview names the travel projection and any truncation.
 
 ### Phase 7: evaluation and earned expansion
+
+Status: Future decision gate after the selected navigation modes are stable.
 
 Compare old-map-only, old map plus lorebooks, and hierarchical spatial context using
 the same models, transcripts, and world definitions. Measure location accuracy,

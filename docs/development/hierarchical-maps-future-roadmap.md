@@ -1,6 +1,8 @@
 # Hierarchical Maps: Post-V3 Future Roadmap
 
-Status: Exploratory future TODO; Maps 1.0.6 is published and the Phase 2 implementation plus automated browser closure matrix, first Phase 3 parity slice, and first independently safe creation-preview slice are checkpointed in a package-owned 1.1.0 recovery candidate, still blocked on human release sign-off and the remaining V3 stabilization matrix
+Status: Active post-recovery roadmap; Maps 1.1.5 and Marinara Engine 2.3.2 close
+the recovery baseline through Phase 4, while Phase 5 route planning and the linked
+feature issues define the current continuation work
 
 Related work:
 
@@ -23,7 +25,41 @@ Related work:
   delivered the Maps `1.0.6` UI, Game-map authority, and generated-turn recovery
   to Agents `staging`.
 
-## Implementation checkpoint — July 15, 2026
+## Status update — July 17, 2026
+
+The recovery prerequisite for this roadmap is complete. Maps `1.1.5` is published
+for Marinara Engine `2.3.2`, uses capability API `1.3`, and includes the recovered
+package boundary, owner foundation, shared Roleplay/Game map, compact mobile
+runtime, and direct one-hop movement. The earlier Phase 2–4 recovery blockers are
+closed; they should not be reopened to hold unrelated continuation work.
+
+Current work is split into reviewable Marinara Agents feature issues:
+
+- [#69](https://github.com/Pasta-Devs/Marinara-Agents/issues/69) corrects reversed
+  import/export icons;
+- [#70](https://github.com/Pasta-Devs/Marinara-Agents/issues/70) gives **Expand
+  with AI** a nested hierarchy picker;
+- [#71](https://github.com/Pasta-Devs/Marinara-Agents/issues/71) adds direct drag
+  arrangement in an edit-map mode;
+- [#72](https://github.com/Pasta-Devs/Marinara-Agents/issues/72) supports custom
+  location type labels and reusable hierarchy templates;
+- [#73](https://github.com/Pasta-Devs/Marinara-Agents/issues/73) makes slow map
+  generation and timeout behavior explicit and robust;
+- [#74](https://github.com/Pasta-Devs/Marinara-Agents/issues/74) defines an
+  intentional replacement flow when committed history still references a map;
+- [#75](https://github.com/Pasta-Devs/Marinara-Agents/issues/75) adds reviewed,
+  progressive lore/chat-to-map upkeep;
+- [#76](https://github.com/Pasta-Devs/Marinara-Agents/issues/76) exposes and allows
+  customization of the Maps generation prompt;
+- [#77](https://github.com/Pasta-Devs/Marinara-Agents/issues/77) is the Phase 5
+  automatic multi-step Set destination / Plan route foundation;
+- [#78](https://github.com/Pasta-Devs/Marinara-Agents/issues/78),
+  [#79](https://github.com/Pasta-Devs/Marinara-Agents/issues/79), and
+  [#80](https://github.com/Pasta-Devs/Marinara-Agents/issues/80) preserve the
+  location scene-reference, Storyboard manifest, and Connected Conversation
+  packages as separate later slices.
+
+## Historical implementation checkpoint — July 15, 2026
 
 PR #35 restored a meaningful portion of Workstreams 1 and 2 without starting the
 future travel modes:
@@ -139,16 +175,16 @@ instead.
 The following is the planning assumption, not a substitute for reviewing the
 merged diff or revalidating the extracted package:
 
-| Area                                         | Working status                                                                     | Follow-up treatment                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| V3 Packages A through F                      | Foundation delivered by PR #3565                                                   | Stabilize and revalidate after extraction                                    |
-| V3 Package F.1: location lore bindings       | Foundation delivered by PR #3565                                                   | Verify eligibility, prompt parity, history, and token bounds                 |
-| V3 Package F.2: lorebook-grounded drafting   | Foundation delivered by PR #3565                                                   | Retain only if it proves useful; avoid more generation modes                 |
-| V3 Packages F.3 and F.3.1: visual references | Not assumed delivered                                                              | Re-evaluate as separate product work rather than automatically continuing V3 |
-| V3 Package G: Connected Conversation         | Not assumed delivered                                                              | Re-evaluate after the owner experience proves value                          |
-| Optional-agent extraction                    | 1.0.1 shipped; 1.0.6 is in the main catalog; source migration remains in progress  | Complete package-owned source and cross-repository proof before feature work |
-| Destination routing                          | Local design/helper work exists, but is not a finished feature                     | Redesign around selectable travel pace before continuing                     |
-| First-map creation                           | Functional, but activation, draft review, rejection, and first save are fragmented | Build one guided creation path before adding more authoring modes            |
+| Area                                         | Working status                                                               | Follow-up treatment                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| V3 Packages A through F                      | Recovered foundation shipped in Maps 1.1.5                                   | Keep the proof matrix as the regression contract                                |
+| V3 Package F.1: location lore bindings       | Shipped recovery baseline                                                    | Preserve eligibility, prompt parity, history, and token bounds                  |
+| V3 Package F.2: lorebook-grounded drafting   | Shipped recovery baseline                                                    | Improve only through focused, reviewed creation/upkeep issues                   |
+| V3 Packages F.3 and F.3.1: visual references | Not delivered; preserved in Agents issues #78 and #79                        | Implement as separate product work after value, privacy, and persistence review |
+| V3 Package G: Connected Conversation         | Existing chat linking does not by itself prove the safe Package G projection | Evaluate through Agents issue #80                                               |
+| Optional-agent extraction                    | Complete; Maps 1.1.5 uses package-owned source and capability API 1.3        | Keep Engine host support generic and Agents feature behavior package-owned      |
+| Destination routing                          | Direct one-hop movement shipped; multi-step destination planning is not      | Implement the Phase 5 foundation in Agents issue #77                            |
+| First-map creation                           | Recovered creation flow shipped; specific clarity and editing gaps remain    | Deliver issues #69–#76 as focused reviewable changes                            |
 
 This roadmap deliberately does not inherit every unfinished V3 package. A later
 package must still justify its user value, size, and maintenance cost.
@@ -225,13 +261,16 @@ Do not add route behavior in both repositories while this boundary is unsettled.
 
 ## Workstream 1: stabilize the delivered foundation
 
-This is the first implementation work after the package boundary is known. It
-adds no new product capability.
+Status: Complete for the Maps 1.1.5 recovery baseline. Keep this section as the
+regression contract for later changes rather than reopening it as a feature lane.
 
-The first automated slice now covers live current-location lore in Roleplay and
-Game Peek Prompt plus representative continuation, regeneration, swipe, branch,
-deletion, import/export, and checkpoint restoration. The checks below remain the
-full workstream gate; this checkpoint does not mark the workstream complete.
+This was the first implementation work after the package boundary became known. It
+added no new product capability.
+
+The recovery matrix covers live current-location lore in Roleplay and Game Peek
+Prompt plus representative continuation, regeneration, swipe, branch, deletion,
+import/export, and checkpoint restoration. The checks below remain the regression
+gate for follow-up releases.
 
 ### Correctness
 
@@ -274,11 +313,10 @@ The current system exposes substantial authoring power, but neither first-map
 creation nor ordinary play should require the user to understand package state,
 working-copy semantics, graph storage, or prompt architecture.
 
-Status: In progress. The recursive, searchable pre-apply Draft preview and clearer
-decision actions are implemented in the `1.1.0` candidate at `9e1883f`. Direct
-activation handoff, the global Maps home, first-map progress, applied-draft
-regeneration, starting-location confirmation, first-save completion, and simplified
-expansion remain open.
+Status: Active follow-up. The recursive, searchable pre-apply Draft preview and
+direct activation handoff are shipped. Issues #69–#76 now track the remaining
+clarity, editing, hierarchy-template, timeout, replacement, upkeep, and prompt
+visibility work as separate changes.
 
 ### Creation and activation
 
@@ -418,6 +456,11 @@ inspect a destination, and start the intended kind of travel without opening
 creator controls or learning the storage model.
 
 ## Workstream 3: destination planning with player-controlled pace
+
+Status: Current Phase 5 planning work. Agents issue
+[#77](https://github.com/Pasta-Devs/Marinara-Agents/issues/77) owns the first
+automatic multi-step Set destination / Plan route slice. The richer travel modes
+below remain follow-ups after the route contract is proven.
 
 Requiring one chat turn for every location hop would make long routes tedious,
 especially in Game mode. The route should still be validated, but graph edges do
@@ -607,6 +650,11 @@ long map-authoring flow, damaging an existing campaign, leaking private state, o
 silently losing referenced lore.
 
 ## Workstream 6: reviewed lore-to-map upkeep
+
+Status: Planned in Agents issue
+[#75](https://github.com/Pasta-Devs/Marinara-Agents/issues/75). Preserve explicit
+review, stable IDs, and history safety; do not turn Lorebook Keeper into an
+unreviewed movement or topology authority.
 
 Game Mode's Session Keeper already creates and updates a game-scoped lorebook after
 a session concludes. Maps can use selected lorebooks when manually drafting or
@@ -813,10 +861,13 @@ The following ideas remain recorded but are not next-step scope:
 - Irregular geographic borders.
 - Image-to-map or 2D-to-3D inference.
 - 3D world rendering.
-- Location visual-reference and Storyboard integrations from V3 Packages F.3 and
-  F.3.1, pending a new value and size review.
-- Connected Conversation projection from V3 Package G, pending a privacy and
-  value review.
+- Location visual-reference integration from V3 Package F.3, now preserved as
+  [Agents issue #78](https://github.com/Pasta-Devs/Marinara-Agents/issues/78).
+- Storyboard reference manifests from V3 Package F.3.1, now preserved as
+  [Agents issue #79](https://github.com/Pasta-Devs/Marinara-Agents/issues/79).
+- Connected Conversation projection from V3 Package G, now preserved as
+  [Agents issue #80](https://github.com/Pasta-Devs/Marinara-Agents/issues/80)
+  pending its privacy and value gate.
 - Automatic multi-turn travel.
 - AI-selected "scenic" routing without authored route metadata.
 - A general quest engine; quest destinations may integrate later through a small,
@@ -828,27 +879,27 @@ The following ideas remain recorded but are not next-step scope:
 
 ## Suggested delivery order
 
-The order below is a planning sequence, not a single implementation project. The
-Engine manifest prerequisite landed in PR #3652, while item 1 remains active on the
-existing Maps feature branch; issue #16 stays closed. Merged PR #35 advances part
-of items 2 and 5 but does not complete either exit gate:
+The order below separates completed recovery work from the next product slices.
+Items 1–3 are shipped in Maps 1.1.5 / Engine 2.3.2; the numbered continuation
+starts with focused creation/editing issues and Phase 5 route planning:
 
-1. Finish the package-owned source migration and exact-artifact compatibility
-   proof in Marinara Agents, with only generic paired host support in Engine.
-2. Stabilize and revalidate the extracted V3 foundation.
-3. Simplify global feature-agent presentation, package-to-chat activation,
+1. ~~Finish the package-owned source migration and exact-artifact compatibility
+   proof in Marinara Agents, with only generic paired host support in Engine.~~
+2. ~~Stabilize and revalidate the extracted V3 foundation.~~
+3. ~~Build the shared Roleplay/Game runtime world-map surface and close its mobile
+   recovery blockers.~~
+4. Simplify global feature-agent presentation, package-to-chat activation,
    first-map creation, recursive draft review, rejection/regeneration,
    starting-location confirmation, and first save.
-4. Add the lightweight shareable Game Template using the stable Game Setup and
+5. Add the lightweight shareable Game Template using the stable Game Setup and
    hierarchical-map import/export formats, with included-map review and explicit
    duplicate-generation handling.
-5. Build the shared Roleplay/Game runtime world-map surface.
 6. Add reviewed lore-to-map upkeep: first-map drafting from Session Keeper lore,
    exact-match linking, and atomic review batches for structural suggestions.
-7. Implement destination preview and `Travel now` with an explicit history
-   anchor.
-8. Add `Narrate journey`, `Explore each stop`, waypoints, and `Set as goal` as
-   independently reviewable slices.
+7. Implement automatic multi-step **Set destination / Plan route** through Agents
+   issue #77 while preserving the shipped direct one-hop action.
+8. Re-evaluate `Travel now`, then add `Narrate journey`, `Explore each stop`,
+   waypoints, and `Set as goal` as independently reviewable slices.
 9. Run the old-map/lorebook/hierarchical-map comparison and decide whether the
    feature has earned more investment.
 10. Consider constrained model-suggested movement with `Suggest` and

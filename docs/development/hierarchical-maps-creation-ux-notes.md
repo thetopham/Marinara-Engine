@@ -1,8 +1,8 @@
 # Hierarchical Maps Creation UX Notes
 
-Status: observed baseline for Hierarchical Maps 1.0.6; recursive Draft preview and
-in-place per-chat activation are implemented in the unreleased 1.1.0 candidate at
-Engine `00cbd0420` and Agents `e1e4cec`
+Status: historical July 15 walkthrough and current follow-up index; the recovered
+creation baseline is shipped in Maps 1.1.5, while focused UX improvements are
+tracked in Marinara Agents issues #69–#76
 
 Date observed: 2026-07-15
 
@@ -22,12 +22,38 @@ Creating a first Hierarchical Map works, but the current journey asks the user t
 
 The underlying safety model is sound: generated results remain a working copy, explicit Save is required, current location is authoritative, and committed history protects location IDs. The interface does not explain those boundaries at the moments when the user must act on them.
 
-This note records the current experience so future work can reduce creation friction without weakening those protections.
+This note records the observed July 15 experience so future work can reduce
+creation friction without weakening those protections. It is historical evidence,
+not an assertion that every step below still matches Maps 1.1.5 exactly.
 
-## Implementation checkpoint — July 16, 2026
+## Current tracking update — July 17, 2026
 
-The first independently safe Marinara-Agents slice is implemented against the
-package-owned client boundary:
+The recursive Draft preview and in-place per-chat activation described by the
+implementation checkpoint below are published. Remaining feedback is split into
+focused upstream issues:
+
+- [#69](https://github.com/Pasta-Devs/Marinara-Agents/issues/69): correct reversed
+  import/export icons;
+- [#70](https://github.com/Pasta-Devs/Marinara-Agents/issues/70): show nested map
+  structure in **Expand with AI** controls;
+- [#71](https://github.com/Pasta-Devs/Marinara-Agents/issues/71): add a drag-based
+  edit-map arrangement mode instead of relying only on numeric X/Y inputs;
+- [#72](https://github.com/Pasta-Devs/Marinara-Agents/issues/72): allow user-defined
+  location labels and hierarchy templates beyond the default World → Region → City
+  → District → Building → Room vocabulary;
+- [#73](https://github.com/Pasta-Devs/Marinara-Agents/issues/73): explain long map
+  generation and harden the provider/Engine timeout path;
+- [#74](https://github.com/Pasta-Devs/Marinara-Agents/issues/74): support intentional
+  map replacement without silently breaking historical IDs;
+- [#75](https://github.com/Pasta-Devs/Marinara-Agents/issues/75): add reviewed,
+  progressive map upkeep from chat and campaign lore; and
+- [#76](https://github.com/Pasta-Devs/Marinara-Agents/issues/76): expose the Maps
+  prompt to users and permit supported customization.
+
+## Shipped implementation checkpoint — July 16, 2026
+
+The first independently safe Marinara-Agents slice was implemented against the
+package-owned client boundary and is now part of the shipped 1.1.x baseline:
 
 - Draft preview shows the complete generated hierarchy before apply;
 - roots open through the first useful level, with per-node expand/collapse plus
@@ -57,12 +83,10 @@ The paired activation slice also removes the bottom-to-top Chat Settings detour:
 - exact-artifact desktop and mobile browser proof covers inactive discovery,
   activation persistence, the resulting create action, and a 44px touch target.
 
-This checkpoint changes no persistence or history contract. Continuing still
+This checkpoint changed no persistence or history contract. Continuing still
 loads an unsaved working copy, and Save remains the persistence boundary. The
-global Maps home, an optional same-row handoff from the lower Agents list,
-first-map progress strip, applied-draft regeneration, inline starting-location
-confirmation, one-step enable and save, and simplified expansion controls remain
-open.
+open issues above now own later clarity and editing improvements rather than
+reopening the recovery checkpoint.
 
 ## Observed first-map journey
 

@@ -1,11 +1,10 @@
 # Hierarchical Maps Implementation Plan
 
-Status: canonical sequencing index; recovery is active, Maps 1.0.6 is the stable
-user-facing release, automated Phase 3 parity and the current browser-recovery
-checkpoint are complete, human platform sign-off remains, and future travel work
-is blocked
+Status: canonical sequencing index; recovery through Phase 4 is shipped in Maps
+1.1.5 with Marinara Engine 2.3.2, and Phase 5 route planning is the current
+continuation frontier
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 This document answers two questions: **what is authoritative now?** and **what is
 implemented next?** Detailed product requirements, UX evidence, and proof criteria
@@ -20,18 +19,18 @@ remain in the linked documents rather than being copied here.
 
 - **Use or troubleshoot the feature:** read the
   [user guide](../agents/hierarchical-maps.md).
-- **Implement or review the current candidate:** start with the
+- **Implement or review the current package:** start with the
   [current implementation snapshot](#current-implementation-snapshot), then use
-  the [recovery plan](./hierarchical-maps-addon-recovery-plan.md) for requirements
-  and proof gates.
+  the [recovery plan](./hierarchical-maps-addon-recovery-plan.md) for the completed
+  recovery requirements and the remaining continuation gates.
 - **Understand the product and data model:** read the
   [V3 PRD](./hierarchical-locations-prd-v3.md).
 - **Improve first-map creation:** use the
   [creation UX notes](./hierarchical-maps-creation-ux-notes.md) as observed
   evidence, then check this file for sequencing.
-- **Plan post-recovery work:** use the
-  [future roadmap](./hierarchical-maps-future-roadmap.md) only after its recovery
-  gates pass.
+- **Plan current and future work:** use the
+  [future roadmap](./hierarchical-maps-future-roadmap.md) and the linked upstream
+  issues after confirming the package boundary that owns the change.
 
 ## Document map
 
@@ -39,48 +38,42 @@ remain in the linked documents rather than being copied here.
 | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------- |
 | **This implementation plan**                                                             | Canonical index, current status, ownership, and delivery order | Deciding what is authoritative now and what is implemented next |
 | [`hierarchical-maps.md`](../agents/hierarchical-maps.md)                                 | Current stable user-facing behavior and workarounds            | Setup, authoring, movement, and troubleshooting                 |
-| [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) | Active package-recovery requirements and proof gates           | Work that must finish before new travel features                |
+| [`hierarchical-maps-addon-recovery-plan.md`](./hierarchical-maps-addon-recovery-plan.md) | Completed recovery requirements and continuation gates         | Understanding the shipped recovery and the Phase 5 boundary     |
 | [`hierarchical-locations-prd-v3.md`](./hierarchical-locations-prd-v3.md)                 | Historical product, data-model, and architecture baseline      | Understanding the original V3 decisions without rewriting them  |
 | [`hierarchical-maps-creation-ux-notes.md`](./hierarchical-maps-creation-ux-notes.md)     | Observed first-map UX evidence and acceptance criteria         | Designing and validating creation-flow improvements             |
-| [`hierarchical-maps-future-roadmap.md`](./hierarchical-maps-future-roadmap.md)           | Exploratory post-recovery product direction                    | Creation UX, runtime-map simplification, and future travel      |
+| [`hierarchical-maps-future-roadmap.md`](./hierarchical-maps-future-roadmap.md)           | Active post-recovery product direction                         | Open creation, upkeep, scene-reference, and travel work         |
 
 Supporting architecture: [`optional-agent-packages.md`](./optional-agent-packages.md)
 defines the generic Engine package lifecycle and capability boundary. It supports
 the Maps plans but is not a separate Hierarchical Maps product plan.
 
 When the documents appear to conflict, the stable shipped behavior and data-safety
-rules win first, the recovery plan governs unfinished recovery work, and the future
-roadmap begins only after the applicable recovery gate passes. This file owns order
-and status, not the detailed requirements.
+rules win first. The recovery plan records the completed extraction and parity
+requirements; the future roadmap and linked upstream issues govern work after that
+baseline. This file owns order and status, not the detailed requirements.
 
 ## Current implementation snapshot
 
-| Area                                 | Status                      | Evidence or remaining gap                                                                                                                                                                                                                                                                                       |
-| ------------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stable user release                  | Shipped                     | Maps 1.0.6 is in the main Agents catalog; the broken 1.0.0 experience is no longer the offered release                                                                                                                                                                                                          |
-| Workspace and runtime recovery       | Shipped to Agents `staging` | PR #35 merged at `533560a`; desktop/mobile authoring, Roleplay/Game runtime maps, and owner-turn authority are restored                                                                                                                                                                                         |
-| Package-owned Maps implementation    | Candidate                   | Maps-owned source lives under `packages/hierarchical-maps/src/engine` on `feature/hierarchical-maps-package-source-16`                                                                                                                                                                                          |
-| Existing Game reconciliation         | Candidate                   | 1.1.0 previews exact matches, reports ambiguity, requires review, applies atomically, and makes retry a no-op                                                                                                                                                                                                   |
-| Exact lifecycle proof                | Automated complete          | The rebuilt exact artifact passes update, owner turns, prompt projection, retry/continuation/regeneration/swipe history, branch/delete/import/export/checkpoint preservation, offline restart, remove, reinstall, backup, and restore                                                                                     |
-| Capability compatibility declaration | Candidate                   | 1.1.0 uses manifest v2 and capability API 1.2 against the exact paired Engine checkpoint `044f839f55f2855271dbbb9340f443f61f67f167`; Engine support must land before publication                                                                                                                                    |
-| Private Engine isolation             | Candidate                   | The guarded inventory reached zero from 52. Maps now builds from package-owned source only, while generic host UI state crosses explicit contribution props and events                                                                                                                                          |
-| Client loading and failure recovery  | Automated complete          | Observable loading/error/retry states, conflict draft preservation and reload, clean Maps remounts, package-query reconciliation after committed movement, and 44px workspace/recovery actions pass exact-artifact browser checks                                                                                         |
-| Full V3 history and prompt parity    | Automated complete          | One normalized fixture passes Roleplay/Game generation, GM, dry-run, live/cached Peek Prompt, retry, continuation, lore eligibility/budget, historical swipe, branch, deletion, import/export, and checkpoint matrices                                                                                                  |
-| Creation UX                          | In progress                 | The candidate now provides a recursively browsable AI draft preview plus in-place per-chat activation beside the map controls; search, depth/count/start status, details, provenance, and clearer decisions are implemented while the broader first-map funnel remains open                                     |
-| Travel modes                         | Blocked                     | Do not begin Travel now, narrated, stepwise, waypoint, or goal travel yet                                                                                                                                                                                                                                       |
+| Area                                  | Status                 | Evidence or remaining gap                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable user release                   | Shipped                | Maps 1.1.5 is the main Agents catalog release and declares Marinara Engine `>=2.3.2 <3.0.0`                                                                                                                                                                                                                                        |
+| Workspace and runtime recovery        | Shipped                | Agents PRs [#35](https://github.com/Pasta-Devs/Marinara-Agents/pull/35), [#52](https://github.com/Pasta-Devs/Marinara-Agents/pull/52), [#59](https://github.com/Pasta-Devs/Marinara-Agents/pull/59), and [#64](https://github.com/Pasta-Devs/Marinara-Agents/pull/64) delivered the recovered authoring and Roleplay/Game surfaces |
+| Package-owned Maps implementation     | Shipped                | Maps builds from package-owned source with the zero-private-import boundary and immutable catalog artifact lifecycle                                                                                                                                                                                                               |
+| Existing Game reconciliation          | Shipped                | The reviewed, atomic, retry-safe reconciliation flow is part of the recovered package baseline                                                                                                                                                                                                                                     |
+| Capability compatibility declaration  | Shipped                | Maps 1.1.5 uses manifest v2 and capability API 1.3 against the Engine 2.3.2 host contract delivered by [Engine PR #3693](https://github.com/Pasta-Devs/Marinara-Engine/pull/3693)                                                                                                                                                  |
+| Lifecycle, history, and prompt parity | Recovery gate complete | Exact-artifact coverage includes update, owner turns, prompt projection, history operations, import/export, checkpoint preservation, offline restart, remove, reinstall, backup, and restore                                                                                                                                       |
+| Phase 4 runtime map                   | Shipped                | Shared Roleplay/Game browsing, current-location presentation, mobile runtime recovery, and direct one-hop movement are available                                                                                                                                                                                                   |
+| Creation and editing UX               | Open follow-up         | Agents issues [#69](https://github.com/Pasta-Devs/Marinara-Agents/issues/69) through [#76](https://github.com/Pasta-Devs/Marinara-Agents/issues/76) track icon clarity, nested expansion, drag layout, custom types, timeout handling, replacement, progressive upkeep, and prompt visibility                                      |
+| Multi-step navigation                 | Phase 5 planning       | [Agents issue #77](https://github.com/Pasta-Devs/Marinara-Agents/issues/77) tracks automatic route computation and a reviewable Set destination / Plan route flow                                                                                                                                                                  |
+| Later visual and conversation work    | Future packages        | Agents issues [#78](https://github.com/Pasta-Devs/Marinara-Agents/issues/78) through [#80](https://github.com/Pasta-Devs/Marinara-Agents/issues/80) preserve location scene references, Storyboard manifests, and Connected Conversation projection as separate slices                                                             |
 
-The current Agents candidate checkpoint is
-`de663eac4952bdfd1f717663e59bffdea3ff61c0` on
-`feature/hierarchical-maps-package-source-16`. Its exact artifact is
-`hierarchical-maps-1.1.0.zip`, SHA-256
-`a1445eac1d9c73ab1430a5da3599deadb00ffce60190ff7b9d9dc54144d472cc`,
-264,037 bytes. Its paired generic Engine checkpoint is
-`044f839f55f2855271dbbb9340f443f61f67f167` on
-`feature/capability-runtime-logging` in the `thetopham` fork.
-
-No completed issue should be reopened for this continuation. Continue using local
-commits and the existing feature/docs branches as checkpoints. Do not open another
-issue or pull request until the relevant slice is complete and ready for review.
+The current release manifest is Maps `1.1.5`, capability API `1.3`, built against
+Marinara Engine `2.3.2` commit `614e62a38fc2d9685f9b4981a9628be9fda0fc03`.
+Recovery tracking issues [Agents #51](https://github.com/Pasta-Devs/Marinara-Agents/issues/51),
+[Agents #61](https://github.com/Pasta-Devs/Marinara-Agents/issues/61), and
+[Engine #3691](https://github.com/Pasta-Devs/Marinara-Engine/issues/3691) are
+closed. New work should use the open feature issues rather than reopening a
+completed recovery issue.
 
 ## Ownership boundary
 
@@ -99,11 +92,11 @@ contract. Avoid copying more Engine source into the package to bypass this order
 
 ## Delivery sequence
 
-### 1. Finish the 1.1.0 package boundary
+### 1. Package boundary — complete
 
-Priority: P0, active.
+Priority: completed in the shipped Maps 1.1.x line.
 
-Already implemented in the candidate:
+Delivered through the recovery candidate and retained in the shipped package:
 
 - package-owned Maps implementation overlay;
 - existing-campaign Game-map reconciliation;
@@ -114,7 +107,8 @@ Already implemented in the candidate:
 - capability API 1.2 package logging, debug-state, transaction-scoped chat/message
   and definition-metadata writes, lore-entry existence reads, and compatibility
   snapshot operations, normalized chat/character/lore resource reads, JSON-ish
-  parsing, and secret-free language-model resolution and calls;
+  parsing, and secret-free language-model resolution and calls, subsequently
+  advanced to capability API 1.3 for Maps 1.1.5;
 - zero private Engine imports in Maps server code, with Maps no longer importing
   private logger, runtime configuration, provider, lore helper, storage,
   database/schema, or JSON parser paths;
@@ -136,30 +130,31 @@ Already implemented in the candidate:
   snapshot replacement; and
 - a zero-private-import assertion enforced during build and catalog validation.
 
-The implementation portion of this boundary is complete at Engine `044f839f`
-and Agents `de663ea`. The focused client regression covers a failed first module
-request, retry, simulated package runtime failure, remount, and 44px recovery
-actions. The rebuilt ZIP also passes the complete exact-artifact Chromium suite:
+The boundary was proven at Engine `044f839f` and Agents `de663ea`, then published
+and advanced through Maps 1.1.5. The focused client regression covers a failed
+first module request, retry, simulated package runtime failure, remount, and 44px
+recovery actions. The rebuilt ZIP also passes the complete exact-artifact Chromium
+suite:
 23 tests pass and 7 viewport-independent cases are intentionally skipped on
 mobile. The suite covers desktop/mobile layouts, keyboard operation, 44px touch
 geometry, dark/light/SillyTavern themes, long labels, a 12-level map, loading and
 retry, stale-write conflict preservation/reload, movement reconciliation, creation,
 Game setup, and prompt/history parity. Exact lifecycle proof separately confirms
-offline restart, uninstall/reinstall, backup, and restore. This is automated
-evidence, not human platform sign-off. Before publication:
+offline restart, uninstall/reinstall, backup, and restore. The publication lane
+then preserved these rules:
 
 1. Keep Engine support ahead of the dependent Agents catalog publication.
-2. Complete the remaining unchecked human desktop/mobile, theme, keyboard/touch,
-   and platform package-readiness checks before publishing.
+2. Complete desktop/mobile, theme, keyboard/touch, and platform package-readiness
+   checks before publishing.
 3. Keep the manifest, payloads, ZIP, catalog entry, and exact Engine provenance
    synchronized for every candidate rebuild.
 
 Exit: Maps builds from package-owned source without a private Engine import, raw
 database access, or copied table object, and uninstall/reinstall preserves its data.
 
-### 2. Close recovery parity sign-off
+### 2. Recovery parity — complete
 
-Priority: P0 after the package boundary.
+Priority: completed for the shipped recovery baseline.
 
 Automated Phase 3 parity is complete. Roleplay and Game now prove one authoritative
 spatial projection and bounded current-location lore through normal generation,
@@ -168,28 +163,21 @@ regeneration, historical swipes, branching, deletion, JSONL import/export, and
 checkpoint restore. Disabled, excluded, missing, duplicate, forced, and over-budget
 lore cases are included.
 
-The current browser checkpoint also proves keyboard operation, touch-sized controls,
-dark/light/SillyTavern rendering, long labels, deep maps, loading/retry, stale-write
-conflict recovery, and committed-movement query reconciliation on the rebuilt exact
-artifact. Remaining recovery work is human sign-off rather than another automated
-parity implementation slice:
-
-- complete the unchecked desktop/mobile browser and platform review;
-- manually exercise real keyboard and touch interactions on supported platforms;
-- inspect dark, light, and SillyTavern presentation, including conflict and runtime
-  error states; and
-- complete clean-install and upgraded-profile human verification.
+The browser and release closure work also proved keyboard operation, touch-sized
+controls, dark/light/SillyTavern rendering, long labels, deep maps, loading/retry,
+stale-write conflict recovery, committed-movement query reconciliation, and the
+clean-install and upgraded-profile lifecycle. Later regressions belong in focused
+issues; they do not reopen the completed extraction gate.
 
 Exit: Phase 3 and the applicable Phase 4 recovery gates in the recovery plan pass.
 
-### 3. Simplify first-map creation
+### 3. Simplify first-map creation and editing
 
-Priority: P1 after recovery-critical parity, with independent Agents-owned editor
-slices allowed once they cannot destabilize the package boundary.
+Priority: active Agents-owned follow-up work in issues #69–#76.
 
-The first independently safe package-owned slices are checkpointed at Engine
-`044f839f` and Agents `de663ea`. Before a generated map enters the working editor,
-Draft preview now
+The first independently safe package-owned slices were proven at Engine `044f839f`
+and Agents `de663ea` and are included in the shipped recovery line. Before a
+generated map enters the working editor, Draft preview now
 shows its recursively browsable hierarchy, location count and depth, proposed
 start, searchable names and content, public descriptions, private model memories,
 and lore provenance. Root locations open through the first useful level, while
@@ -218,14 +206,15 @@ and first-save behavior remain in Marinara Agents.
 Exit: a new user can install, activate, create, inspect, reject or regenerate, set a
 start, enable, and save without visiting irrelevant blank settings.
 
-### 4. Re-evaluate travel
+### 4. Phase 5 route planning
 
-Priority: blocked.
+Priority: current planning frontier in Agents issue #77.
 
-Only after the earlier exits pass, reconsider route preview and explicit **Travel
-now**. Narrated, stepwise, waypoint, goal travel, model-requested movement, starter
-maps, and generic reactive scenarios remain separate later decisions. None are part
-of the current 1.1.0 implementation.
+The recovered runtime currently moves only to a directly connected location.
+Implement reviewable automatic route computation and **Set destination / Plan
+route** before reconsidering explicit **Travel now**. Narrated, stepwise, waypoint,
+goal travel, model-requested movement, starter maps, and generic reactive scenarios
+remain separate later decisions. None are part of Maps 1.1.5.
 
 ## Proof and release discipline
 

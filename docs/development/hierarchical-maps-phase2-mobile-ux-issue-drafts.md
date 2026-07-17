@@ -1,8 +1,22 @@
 # Hierarchical Maps Phase 2 Mobile UX Issue Drafts
 
-Status: Ready to file; GitHub issue creation was blocked because the connected GitHub App lacks issue-write permission and the local `gh` token is invalid.
+Status: Historical filing and closure record. These drafts became
+[Marinara Engine issue #3691](https://github.com/Pasta-Devs/Marinara-Engine/issues/3691)
+and [Marinara Agents issue #51](https://github.com/Pasta-Devs/Marinara-Agents/issues/51);
+both recovery blockers are closed.
 
-Human sign-off result: **FAIL — real mobile device**
+Human sign-off result at the time of the July 16 test: **FAIL — real mobile
+device**
+
+Closure update — July 17, 2026: the Engine-owned mobile Game composition and the
+package-owned map/minimap recovery slices shipped through the Engine 2.3.2 / Maps
+1.1.x release line. Agents
+[PR #59](https://github.com/Pasta-Devs/Marinara-Agents/pull/59) delivered the
+Roleplay minimap and
+[PR #64](https://github.com/Pasta-Devs/Marinara-Agents/pull/64) completed the Maps
+1.1.4 mobile/runtime closure. Preserve the original drafts and test record below
+as evidence; do not interpret their unchecked template boxes or FAIL result as the
+current release status.
 
 Candidate under test:
 
@@ -164,4 +178,7 @@ Ownership is currently unassigned; no implementation has started.
 - Stored map definitions: 10 before and after; canonical fingerprint unchanged
 - Spatial snapshots: 110 before and after; canonical fingerprint unchanged
 
-Overall Phase 2 human sign-off remains **FAIL** because the real-device mobile Game/CYOA composition and landscape editor defects are release blockers even though package readiness, recovery, and data preservation passed.
+At the time of this test, overall Phase 2 human sign-off remained **FAIL** because
+the real-device mobile Game/CYOA composition and landscape editor defects were
+release blockers even though package readiness, recovery, and data preservation
+passed. The closure update at the top records their later resolution.

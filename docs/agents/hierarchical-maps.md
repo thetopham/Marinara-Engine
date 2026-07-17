@@ -3,6 +3,9 @@
 > **Developer documentation:** Start with the
 > [Hierarchical Maps documentation map and current status](../development/hierarchical-maps-implementation-plan.md).
 
+> **Current compatibility:** This guide matches Hierarchical Maps **1.1.5** on
+> Marinara Engine **2.3.2**. The package supports Roleplay and Game chats.
+
 Hierarchical Maps adds a persistent story map to Roleplay and Game chats. Instead of keeping one free-text location, it can represent a world as nested places:
 
 ```text
@@ -14,21 +17,44 @@ The Shattered Coast
     └── Old Sewers
 ```
 
-Marinara keeps an authoritative current location in this hierarchy. The current path, location details, nearby destinations, and any lore linked to the exact current location can be included in the next reply's context. The AI cannot move the story merely by narrating that the party went somewhere; you choose a destination and commit the move with your next turn.
+Marinara keeps an authoritative current location in this hierarchy. The current path, exact location details, nearby destinations, and eligible lore linked to the exact current location can be included in the next reply's context. The AI cannot move the story merely by narrating that the party went somewhere; you choose a destination and commit the move with your next turn.
 
 Hierarchical Maps works in **Roleplay** and **Game**. Each chat has its own map and current location.
+
+## What a hierarchical map can represent
+
+Each location can have:
+
+- one parent and any number of children or siblings;
+- a Region, Settlement, Place, Building, Floor, or Room type;
+- a public description and private AI-only location notes;
+- lorebook entries attached to that exact location;
+- direct one-way or two-way links to other locations; and
+- children displayed as a list, positioned map, or ordered layers.
+
+Direct links are not limited to siblings. They can connect any valid places in the hierarchy: a ferry between towns, a stairwell between floors, a portal between worlds, or a secret passage between distant rooms.
+
+Practical examples include:
+
+- `World → Continent → Region → City → District → Building → Room`
+- `City → Neighborhoods → Streets → Shops and landmarks`
+- `House → Floors → Rooms → Closets or hidden chambers`
+- `Dungeon tower → Floors 1–25 → Rooms, stairs, and boss arenas`
+- `Star system → Planets → Settlements → Buildings`
+
+A 25-floor tower should normally model the floors as 25 siblings under one tower, not as a 25-deep parent chain. Maps currently allow up to 500 locations and 20 levels of hierarchy.
 
 ## Quick start
 
 1. Open the **Agents** panel, click **Download Agents**, and install **Hierarchical Maps**. If the catalog then offers **Update**, install that too.
 2. Restart Marinara when the catalog asks.
-3. Open the Roleplay or Game chat and go to **Chat Settings → Agents → Tracker Agents**.
-4. Enable **Hierarchical Maps** for this chat.
-5. Scroll back to the **Hierarchical map** setting and click **Edit hierarchical map**. If the editor asks, click **Create map**.
-6. Choose **Draft with AI**, describe what you want, and click **Generate draft**.
-7. The Draft preview summarizes only the first/top-level location. Click **Use this draft** to load the complete hierarchy into the unsaved editor, then expand and select its locations to inspect them.
+3. Open the Roleplay or Game chat where the map should live.
+4. Open **Agents → Hierarchical Maps**, turn on **Use in this chat**, and click **Create map**. You can also activate it through **Chat Settings → Agents → Tracker Agents** and open **Hierarchical map** there.
+5. Choose **Draft with AI**, describe what you want, and click **Generate draft**.
+6. Search and expand the complete generated hierarchy in **Draft preview**. Select places to review their descriptions, private model memory, and lore provenance. Regenerate or edit the prompt if needed.
+7. Click **Continue to editor**, review the unsaved working map, and make any manual changes.
 8. Set or confirm the starting location, switch the map to **Enabled**, and click **Save**.
-9. In the chat, choose a reachable destination from **Story location** or the Game world-map view. Send your next message to complete the move.
+9. In the chat, open the **Story map**, select a reachable place, and click **Set destination**. Send your next message to complete the move.
 
 Applying an AI draft or importing a file changes only the editor's working copy. The map does not affect replies until you enable and save it.
 
@@ -38,7 +64,7 @@ Open the **Agents** panel from the Sparkles tab in the right sidebar. Click **Do
 
 Installing makes the feature available, but it does not turn it on in every chat.
 
-The installed feature also appears as **Hierarchical Maps** in the main **Agents** panel. Its current detail page uses the generic agent editor and can show empty Prompt Template, named-option, connection, tool, and other fields. You do not need to fill in those fields. Hierarchical Maps does not use a normal agent prompt or separate agent-model call; configure and build the map from the target chat instead.
+The installed feature also appears as **Hierarchical Maps** in the main **Agents** panel. With a Roleplay or Game chat open, this page shows the installed package version, readiness, whether Maps is active in the current chat, the saved map status, and an **Open map** or **Create map** button. Map contents, current location, lore bindings, history, and drafts stay with that chat rather than becoming global agent settings.
 
 ### Roleplay
 
@@ -88,13 +114,13 @@ Choose a size:
 
 Click **Generate draft** or **Generate expansion**. Generation does not save anything yet.
 
-The current **Draft preview** is a summary, not a browsable preview of the complete hierarchy. It normally shows only the first or top-level generated location, its direct-place count, and validation or lore-source details. You cannot open its sublevels from this screen.
+The current **Draft preview** is a searchable, browsable preview of the complete generated hierarchy. It reports the number of locations and hierarchy levels, proposes a starting location, and lets you expand or collapse every branch. Select a generated place to inspect its full path, public description, private model memory, and—when lore grounding is used—whether it came directly from lore, was inferred from lore, or was added by the AI.
 
 ### Apply and review the result
 
-Click **Use this draft** for a new map or **Add to working map** for an expansion. This loads the complete result into the unsaved map editor; it does not enable or save it. The hierarchy may initially look collapsed, so expand its disclosure arrows and select locations in the Hierarchy pane to inspect their children, descriptions, private memory, links, layers, and map positions.
+Click **Continue to editor** for a new map or **Add to working map** for an expansion. This loads the result into the unsaved map editor; it does not enable or save it. Expand its disclosure arrows and select locations in the Hierarchy pane to inspect their children, descriptions, private memory, links, layers, and map positions.
 
-If you do not like a new, unsaved draft, use **Back to chat** and confirm **Discard changes**. Reopen **Edit hierarchical map** and run **Draft with AI** again. The AI builder cannot generate over the dirty working draft, so discarding and reopening is the current way to start over without saving it.
+If you do not like the generated result, use **Edit prompt**, **Regenerate**, or **Discard draft** directly from the preview. After continuing into the editor, the AI builder cannot generate over unrelated unsaved edits; save or discard the working changes before opening it again.
 
 If a map exists but the story has no committed map history yet, the AI builder can also **Replace draft**. After the campaign has used the map, replacement is protected: expand the existing hierarchy instead so saved turns keep referring to the same location IDs.
 
@@ -121,9 +147,22 @@ Each location has these main fields:
 
 For **Map** presentation, each child can have **Map X** and **Map Y** positions from 0 to 100. For **Layers**, give every child a distinct layer order.
 
+## Understand what reaches the AI
+
+When a saved map is enabled, each generation receives one authoritative spatial-context block containing:
+
+- the current breadcrumb path, including parent names;
+- the exact current location's public description;
+- the exact current location's private model memory, when present; and
+- the valid destinations reachable in one move.
+
+Parent names provide orientation, but parent descriptions, parent private memory, and parent-linked lore are not inherited. If the current location is `Tower → Floor 7 → Alchemy Lab`, the lab's description and private memory are active; the tower and floor contribute their names to the path.
+
+**Private model memory** is a saved AI-only note, not an automatically learned or self-updating memory. Use it for secrets, atmosphere, persistent hazards, local rules, or facts the model should know only while that exact place is current. For facts that must reach the model, use **Public description** or **Private model memory** rather than relying on **Awareness summary** alone.
+
 ### Add travel routes
 
-A location is automatically reachable from its parent or its active children. Use **Direct links** for other routes, such as a ferry between two towns or a secret passage between rooms.
+A location is automatically reachable from its parent or its active children. Use **Direct links** for every other route, such as a ferry between towns, stairs between selected floors, or a secret passage between rooms in different buildings.
 
 1. Select the source location.
 2. Under **Direct links**, choose another location and click **Link**.
@@ -155,6 +194,8 @@ To attach runtime lore:
 
 Linked entries do not pass automatically from parent to child. Lore attached to Brinewatch does not activate while the current location is the Tideglass Inn unless you attach that entry to the inn too.
 
+An eligible linked entry is selected as **current-location lore**, so it does not need a keyword match. This is more precise than normal keyword activation, but it is not an unconditional bypass of lorebook rules: disabled or chat-excluded books and entries remain unavailable, and entry conditions, timing, probability, and token budgets still apply.
+
 Disabled lorebooks, disabled entries, and lorebooks excluded from the chat are unavailable to the map. The editor keeps unavailable or missing references visible so you can repair or detach them, but they are not sent to the model.
 
 ## Move during a story
@@ -168,6 +209,17 @@ Valid destinations are:
 - destinations connected by an available direct link.
 
 Only one hierarchical move can be committed with a turn.
+
+### Current one-move limit
+
+**Set destination is already available in Maps 1.1.5**, but it accepts only a place reachable in one move. Browsing the world map can show locations farther away without making them immediately selectable.
+
+For example, if Floor 1 and Floor 25 are siblings under a tower, the current flow is:
+
+1. leave Floor 1 for the tower and send a turn;
+2. enter Floor 25 and send another turn.
+
+You can add a direct available link to make a specific jump reachable in one move. Automatic multi-hop **Set target** or **Plan route** behavior—which would remember a distant goal and walk the parent/child/link graph one valid step at a time—is not implemented yet.
 
 ### Roleplay travel
 
@@ -235,13 +287,13 @@ Create at least one active location and set an active starting location. Resolve
 
 Make sure the chat has a working language-model connection. Save or discard existing editor changes before opening the AI builder. For an expansion, choose an active location under **Expand beneath**. For lore-grounded generation, select at least one enabled, non-excluded lorebook.
 
-### The Draft preview shows only one location
+### Review an AI draft before using it
 
-The current preview shows only a top-level summary and cannot expand the generated sublevels. Click **Use this draft** to load the full result into the unsaved editor, expand the hierarchy, and inspect it before enabling or saving. If you reject it, leave the editor, choose **Discard changes**, reopen the editor, and generate again.
+Use the preview's search, **Expand all**, and **Collapse all** controls to inspect the complete generated hierarchy. Select a location to review its description and private model memory. Use **Edit prompt**, **Regenerate**, or **Discard draft** before continuing to the editor.
 
 ### A destination cannot be selected
 
-The place must be the current location's parent, an active child, or the target of an available direct link. **Explore** and editor **Enter** only browse the map. They do not bypass travel rules.
+The place must be the current location's parent, an active child, or the target of an available direct link. **Explore**, **Browse up**, and editor **Enter** only browse the map. They do not bypass travel rules or calculate a multi-hop route.
 
 ### A queued destination says Needs review
 

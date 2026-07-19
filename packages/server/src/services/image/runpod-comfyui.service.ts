@@ -23,7 +23,13 @@ import {
   type ComfyUiDefaults,
   type ImageGenerationDefaultsProfile,
 } from "@marinara-engine/shared";
+import { logger } from "../../lib/logger.js";
 import { safeFetch } from "../../utils/security.js";
+import {
+  COMFYUI_MAX_REFERENCE_IMAGES,
+  findMissingComfyReferenceSlots,
+  numberedComfyReferencePlaceholder,
+} from "./comfyui-reference-placeholders.js";
 
 const DEFAULT_RUNPOD_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_COMFYUI_GEN_TIMEOUT_SECONDS = 2_400;
@@ -40,7 +46,6 @@ const RUNPOD_MAX_POLLS = Math.max(
   Math.ceil((COMFYUI_GEN_TIMEOUT_SECONDS * 1000) / DEFAULT_RUNPOD_POLL_INTERVAL_MS),
 );
 const RUNPOD_MAX_RESPONSE_BYTES = 30 * 1024 * 1024;
-const RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES = 4;
 interface RunPodRunResponse {
   id: string;
 }
@@ -117,10 +122,20 @@ export async function generateRunPodComfyUI(
   for (let i = 0; i < referenceImages.length; i++) {
     const referenceImage = referenceImages[i]!;
     const referenceImageBase64 = normalizeRunPodReferenceImageBase64(referenceImage);
-    const numbered = `%reference_image_${String(i + 1).padStart(2, "0")}%`;
+    const numbered = numberedComfyReferencePlaceholder("reference_image", i);
     wfStr = wfStr.replaceAll(numbered, escapeJsonStr(referenceImageBase64));
     if (i === 0) {
       wfStr = wfStr.replace(/%reference_image%/g, escapeJsonStr(referenceImageBase64));
+    }
+  }
+  if (defaults.uploadPlaceholderOnMissingReference) {
+    for (const index of findMissingComfyReferenceSlots(wfStr, "reference_image", referenceImages.length)) {
+      const placeholder = numberedComfyReferencePlaceholder("reference_image", index);
+      logger.debug("Backfilled RunPod ComfyUI reference slot %s with the placeholder image", placeholder);
+      wfStr = wfStr.replaceAll(
+        placeholder,
+        escapeJsonStr(COMFYUI_PLACEHOLDER_REFERENCE_BASE64),
+      );
     }
   }
 
@@ -184,7 +199,7 @@ function collectRunPodReferenceImages(request: ImageGenRequest, defaults: ComfyU
   const references = [request.referenceImage, ...(request.referenceImages ?? [])]
     .filter((reference): reference is string => typeof reference === "string" && reference.trim().length > 0)
     .filter((reference, index, all) => all.indexOf(reference) === index)
-    .slice(0, RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES);
+    .slice(0, COMFYUI_MAX_REFERENCE_IMAGES);
   if (references.length > 0) return references;
   return defaults.uploadPlaceholderOnMissingReference ? [COMFYUI_PLACEHOLDER_REFERENCE_BASE64] : [];
 }

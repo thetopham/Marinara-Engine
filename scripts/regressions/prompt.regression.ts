@@ -213,11 +213,57 @@ import {
   executeAgentBatch,
   renderAgentPromptTemplate,
 } from "../../packages/server/src/services/agents/agent-executor.js";
+import { shouldSkipAgentByAssistantInterval } from "../../packages/server/src/services/generation/agent-cadence.js";
 import type { ResolvedAgent } from "../../packages/server/src/services/agents/agent-pipeline.js";
 import { loadGameVideoPrompt } from "../../packages/server/src/services/video/game-video-prompt.js";
 import { loadGameStoryboardImagePrompt } from "../../packages/server/src/services/image/game-storyboard-image-prompt.js";
 import { formatAgentFailuresToast, toAgentFailure } from "../../packages/client/src/lib/agent-failures.js";
 import { formatGenerationParameterError } from "../../packages/client/src/lib/generation-parameter-errors.js";
+import { normalizeCustomMusicSource } from "../../packages/client/src/components/chat/AgentAddSetupFields.js";
+
+const assistantCadenceMessages = [
+  { id: "illustrator-anchor", role: "assistant" },
+  { id: "accepted-user-turn", role: "user" },
+  { id: "accepted-assistant-turn", role: "assistant" },
+];
+const illustratorCadenceStore = {
+  getLastSuccessfulRunByType: async () => ({ messageId: "illustrator-anchor" }),
+};
+assert.strictEqual(
+  normalizeCustomMusicSource({ customMusicSource: "game-assets", localMusicSource: "folder" }),
+  "game-assets",
+  "the current custom music source should override stale legacy settings",
+);
+assert.strictEqual(
+  normalizeCustomMusicSource({ localMusicSource: "folder" }),
+  "folder",
+  "legacy custom music source settings should remain supported as a fallback",
+);
+assert.equal(
+  await shouldSkipAgentByAssistantInterval({
+    agentsStore: illustratorCadenceStore,
+    chatId: "roleplay-cadence",
+    agentType: "illustrator",
+    settings: { runInterval: 2 },
+    fallbackInterval: 5,
+    messages: assistantCadenceMessages,
+  }),
+  false,
+  "a fresh assistant message should satisfy the next Illustrator interval",
+);
+assert.equal(
+  await shouldSkipAgentByAssistantInterval({
+    agentsStore: illustratorCadenceStore,
+    chatId: "roleplay-cadence",
+    agentType: "illustrator",
+    settings: { runInterval: 2 },
+    fallbackInterval: 5,
+    messages: assistantCadenceMessages,
+    countUpcomingAssistantMessage: false,
+  }),
+  true,
+  "a swipe or continuation should not count as a new accepted assistant message",
+);
 import {
   compactVideoPromptText,
   getSceneVideoPromptLimits,

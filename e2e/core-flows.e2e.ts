@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 
 const TRANSPARENT_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const WHATS_NEW_SEEN_VERSION_KEY = "marinara:whats-new:seen-version";
@@ -770,6 +771,155 @@ test("historical Game Peek Prompt returns the exact selected turn request", asyn
     ]);
   } finally {
     await request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("game widget edits preserve their live numeric values", async ({ request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Game widget persistence is covered on desktop.");
+
+  const chatResponse = await request.post("/api/chats", {
+    data: { name: "Game Widget Value Smoke", mode: "game", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  try {
+    const widgets = [
+      {
+        id: "party-health",
+        type: "gauge",
+        label: "Party health",
+        position: "hud_left",
+        config: { startingValue: 20, value: 55, max: 100 },
+      },
+    ];
+    const updateResponse = await request.put(`/api/game/${chat.id}/widgets`, { data: { widgets } });
+    expect(updateResponse.ok()).toBeTruthy();
+
+    const storedResponse = await request.get(`/api/chats/${chat.id}`);
+    expect(storedResponse.ok()).toBeTruthy();
+    const storedChat = (await storedResponse.json()) as { metadata: string | Record<string, unknown> };
+    const metadata =
+      typeof storedChat.metadata === "string"
+        ? (JSON.parse(storedChat.metadata) as Record<string, unknown>)
+        : storedChat.metadata;
+    const storedWidgets = metadata.gameWidgetState as typeof widgets;
+    expect(storedWidgets[0]?.config).toMatchObject({ startingValue: 20, value: 55, max: 100 });
+  } finally {
+    await request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("NPC avatar uploads accept Cyrillic character names", async ({ request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "NPC avatar upload compatibility is covered on desktop.");
+
+  const chatResponse = await request.post("/api/chats", {
+    data: { name: "Unicode NPC Avatar Smoke", mode: "roleplay", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  try {
+    const uploadResponse = await request.post(`/api/avatars/npc/${chat.id}`, {
+      data: {
+        name: "Корвин",
+        avatar: `data:image/gif;base64,${TRANSPARENT_GIF_BASE64}`,
+      },
+    });
+    expect(uploadResponse.ok()).toBeTruthy();
+    const upload = (await uploadResponse.json()) as { avatarPath: string };
+    expect(decodeURIComponent(upload.avatarPath)).toContain("/корвин.gif?");
+
+    const imageResponse = await request.get(upload.avatarPath);
+    expect(imageResponse.ok()).toBeTruthy();
+    expect(imageResponse.headers()["content-type"]).toBe("image/gif");
+  } finally {
+    await request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("PocketTTS uses its OpenAI-compatible speech endpoint", async ({ request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "PocketTTS routing is covered on desktop.");
+
+  let receivedPath = "";
+  let receivedContentType = "";
+  let receivedBody = "";
+  const pocketTts = createServer((incoming, response) => {
+    const chunks: Buffer[] = [];
+    incoming.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    incoming.on("end", () => {
+      receivedPath = incoming.url ?? "";
+      receivedContentType = String(incoming.headers["content-type"] ?? "");
+      receivedBody = Buffer.concat(chunks).toString("utf8");
+      response.writeHead(200, { "Content-Type": "audio/mpeg" });
+      response.end(Buffer.from([0x49, 0x44, 0x33]));
+    });
+  });
+  await new Promise<void>((resolve) => pocketTts.listen(0, "127.0.0.1", resolve));
+  let originalConfig: unknown;
+
+  try {
+    const address = pocketTts.address();
+    if (!address || typeof address === "string") throw new Error("PocketTTS mock did not bind to a TCP port");
+
+    const originalConfigResponse = await request.get("/api/tts/config");
+    expect(originalConfigResponse.ok()).toBeTruthy();
+    originalConfig = await originalConfigResponse.json();
+
+    const configResponse = await request.put("/api/tts/config", {
+      data: {
+        enabled: true,
+        source: "pockettts",
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        model: "pocket-tts",
+        voice: "alba",
+        audioFormat: "mp3",
+      },
+    });
+    expect(configResponse.ok()).toBeTruthy();
+
+    const speechResponse = await request.post("/api/tts/speak", {
+      data: { text: "Hello from Marinara." },
+    });
+    expect(speechResponse.ok()).toBeTruthy();
+    expect(receivedPath).toBe("/v1/audio/speech");
+    expect(receivedContentType).toContain("application/json");
+    expect(JSON.parse(receivedBody)).toMatchObject({
+      model: "pocket-tts",
+      input: "Hello from Marinara.",
+      voice: "alba",
+      response_format: "mp3",
+      speed: 1,
+    });
+
+    const fallbackConfigResponse = await request.put("/api/tts/config", {
+      data: {
+        enabled: true,
+        source: "pockettts",
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        model: "pocket-tts",
+        voice: "",
+        audioFormat: "mp3",
+      },
+    });
+    expect(fallbackConfigResponse.ok()).toBeTruthy();
+
+    const fallbackSpeechResponse = await request.post("/api/tts/speak", {
+      data: { text: "Use the default PocketTTS voice." },
+    });
+    expect(fallbackSpeechResponse.ok()).toBeTruthy();
+    expect(JSON.parse(receivedBody)).toMatchObject({
+      input: "Use the default PocketTTS voice.",
+      voice: "alba",
+    });
+  } finally {
+    try {
+      if (originalConfig !== undefined) await request.put("/api/tts/config", { data: originalConfig });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        pocketTts.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   }
 });
 
@@ -4352,7 +4502,7 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   await expect(drawer).toHaveCount(0);
   const composer = page.getByRole("heading", { name: "New post" });
   await expect(composer).toBeVisible();
-  await page.getByRole("button", { name: "Close post composer" }).click();
+  await page.getByRole("button", { name: "Close New post" }).click();
 
   await noodle.getByRole("button", { name: "Open Noodle account menu" }).click();
   await accountMenu.getByRole("button", { name: "Settings", exact: true }).click();
@@ -4436,6 +4586,125 @@ test("chat mode tabs and new-chat actions stay reachable", async ({ page }) => {
   }
 
   expect(errors).toEqual([]);
+});
+
+test("Roleplay reduced paint effects preserve semantic and custom styling", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes("mobile"), "Reduced Roleplay paint styling is covered on desktop.");
+
+  const characterResponse = await page.request.post("/api/characters", {
+    data: {
+      data: {
+        name: "Reduced Paint Tint",
+        extensions: { boxColor: "#123456" },
+      },
+    },
+  });
+  expect(characterResponse.ok()).toBeTruthy();
+  const character = (await characterResponse.json()) as { id: string };
+  const chatResponse = await page.request.post("/api/chats", {
+    data: { name: "Reduced Roleplay Paint Smoke", mode: "roleplay", characterIds: [character.id] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  try {
+    const userMessageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+      data: {
+        role: "user",
+        content: "The default bubble should become transparent.",
+      },
+    });
+    expect(userMessageResponse.ok()).toBeTruthy();
+    const messageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+      data: {
+        role: "assistant",
+        characterId: character.id,
+        content: "A semantic ring must survive the lighter paint profile.",
+        extra: { isConversationStart: true },
+      },
+    });
+    expect(messageResponse.ok()).toBeTruthy();
+
+    await page.addInitScript((chatId) => localStorage.setItem("marinara-active-chat-id", chatId), chat.id);
+    await page.goto("/");
+
+    const surface = page.locator('[data-chat-mode="roleplay"]');
+    const bubble = page.locator('[data-message-role="assistant"] .mari-rp-bubble').first();
+    const defaultBubble = page.locator('[data-message-role="user"] .mari-rp-bubble').first();
+    await expect(surface).not.toHaveClass(/mari-rp-reduced-paint/);
+    await expect(bubble).toBeVisible();
+    await expect(page.locator(".rpg-vignette")).not.toHaveCSS("display", "none");
+
+    await page.locator('[data-tour="panel-settings"]').click();
+    await page.getByRole("tab", { name: "Appearance" }).click();
+    const reducedPaintToggle = page.getByLabel("Reduced paint effects");
+    await reducedPaintToggle.scrollIntoViewIfNeeded();
+    await page.getByText("Reduced paint effects", { exact: true }).click();
+    await expect(reducedPaintToggle).toBeChecked();
+
+    await expect(surface).toHaveClass(/mari-rp-reduced-paint/);
+    const reducedStyles = await bubble.evaluate((element) => {
+      const bubbleStyle = getComputedStyle(element);
+      const overlayStyle = getComputedStyle(document.querySelector(".rpg-overlay")!);
+      const vignetteStyle = getComputedStyle(document.querySelector(".rpg-vignette")!);
+      return {
+        backgroundImage: bubbleStyle.backgroundImage,
+        boxShadow: bubbleStyle.boxShadow,
+        dropShadow: bubbleStyle.getPropertyValue("--tw-shadow").trim(),
+        overlayBackgroundImage: overlayStyle.backgroundImage,
+        overlayBackgroundColor: overlayStyle.backgroundColor,
+        vignetteDisplay: vignetteStyle.display,
+      };
+    });
+    expect(reducedStyles.backgroundImage).toContain("linear-gradient");
+    expect(reducedStyles.dropShadow).toBe("0 0 #0000");
+    expect(reducedStyles.boxShadow).not.toBe("none");
+    expect(reducedStyles.overlayBackgroundImage).toBe("none");
+    expect(reducedStyles.overlayBackgroundColor).toBe("rgba(8, 8, 18, 0.5)");
+    expect(reducedStyles.vignetteDisplay).toBe("none");
+
+    await page.evaluate(() => {
+      const style = document.createElement("style");
+      style.id = "reduced-paint-card-css-smoke";
+      style.textContent = ".mari-card-css .mari-message-bubble { background: rgb(1, 2, 3); }";
+      document.head.append(style);
+    });
+    await expect(bubble).toHaveCSS("background-color", "rgb(1, 2, 3)");
+    await expect(bubble).toHaveCSS("background-image", "none");
+    await page.evaluate(() => document.getElementById("reduced-paint-card-css-smoke")?.remove());
+
+    const opacitySlider = page.getByLabel("Roleplay Messages Background Opacity");
+    await opacitySlider.focus();
+    for (let step = 0; step < 18; step += 1) await opacitySlider.press("ArrowLeft");
+    await expect(opacitySlider).toHaveValue("0");
+    await expect(defaultBubble).toHaveAttribute("data-roleplay-bubble-transparent", "true");
+    await expect(defaultBubble).toHaveCSS("background-image", "none");
+    await expect(defaultBubble).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(bubble).not.toHaveAttribute("data-roleplay-bubble-transparent", "true");
+    expect(await bubble.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain("rgb(18, 52, 86)");
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+            state?: { roleplayReducedPaintEffects?: unknown; chatFontOpacity?: unknown };
+          };
+          return [persisted.state?.roleplayReducedPaintEffects, persisted.state?.chatFontOpacity];
+        }),
+      )
+      .toEqual([true, 0]);
+
+    await page.reload();
+    await expect(surface).toHaveClass(/mari-rp-reduced-paint/);
+    await expect(defaultBubble).toHaveAttribute("data-roleplay-bubble-transparent", "true");
+    await expect(bubble).not.toHaveAttribute("data-roleplay-bubble-transparent", "true");
+    await expect(bubble).not.toHaveCSS("box-shadow", "none");
+  } finally {
+    await Promise.all([
+      page.request.delete(`/api/chats/${chat.id}`).catch(() => undefined),
+      page.request.delete(`/api/characters/${character.id}`).catch(() => undefined),
+    ]);
+  }
 });
 
 test("memory recall modal accepts clicks from chat settings", async ({ page }, testInfo) => {

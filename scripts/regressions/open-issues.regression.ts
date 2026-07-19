@@ -738,6 +738,10 @@ const connectionsPanelSource = readFileSync(
   new URL("../../packages/client/src/components/panels/ConnectionsPanel.tsx", import.meta.url),
   "utf8",
 );
+const presetsPanelSource = readFileSync(
+  new URL("../../packages/client/src/components/panels/PresetsPanel.tsx", import.meta.url),
+  "utf8",
+);
 const transcriptWindowControlsSource = readFileSync(
   new URL("../../packages/client/src/components/chat/TranscriptWindowControls.tsx", import.meta.url),
   "utf8",
@@ -770,6 +774,15 @@ assert.doesNotMatch(gameAssetStoreSource, /api\.|fetchManifest|rescanAssets|\/ga
 assert.match(sidecarStoreSource, /consumeSidecarDownloadStream/u);
 assert.doesNotMatch(sidecarStoreSource, /readSseData|Best-effort delete|Best-effort unload/u);
 assert.match(connectionsPanelSource, /Failed to delete the Local Whisper model/u);
+assert.match(presetsPanelSource, /MARINARA_UNIVERSAL_PRESET_ARTWORK/u);
+assert.match(
+  presetsPanelSource,
+  /preset\.name === MARINARA_UNIVERSAL_PRESET_NAME && preset\.author === MARINARA_UNIVERSAL_PRESET_AUTHOR/u,
+);
+assert.equal(
+  existsSync(join(REPOSITORY_ROOT, "packages/client/public/illustrations/marinara-universal-preset.webp")),
+  true,
+);
 assert.match(
   transcriptWindowControlsSource,
   /const TRANSCRIPT_WINDOW_BUTTON_CLASS = "mari-chrome-control mari-chrome-control--small px-3 text-xs";/u,
@@ -1811,6 +1824,16 @@ const comfyPlaceholderPng = Buffer.from(COMFYUI_PLACEHOLDER_REFERENCE_BASE64, "b
 assert.equal(comfyPlaceholderPng.toString("ascii", 1, 4), "PNG");
 assert.equal(comfyPlaceholderPng.readUInt32BE(16), 16);
 assert.equal(comfyPlaceholderPng.readUInt32BE(20), 16);
+
+const chatRoutesSource = readFileSync(
+  join(REPOSITORY_ROOT, "packages/server/src/routes/chats.routes.ts"),
+  "utf8",
+);
+assert.match(
+  chatRoutesSource,
+  /if \(existing\.mode === "conversation" && hasStartedChat\) \{/u,
+  "Only Conversation chats should create character membership timeline notices",
+);
 
 const windowsLauncherSource = readFileSync(join(REPOSITORY_ROOT, "start.bat"), "utf8");
 for (const workspace of ["shared", "server", "client"]) {

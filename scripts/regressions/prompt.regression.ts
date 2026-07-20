@@ -411,6 +411,7 @@ import {
 } from "../../packages/server/src/services/generation/lorebook-generation-runtime.js";
 import {
   buildGameIllustratorAppearanceContextBlock,
+  buildDynamicGameImagePromptMessages,
   buildIllustrationNarrationSummaryMessages,
   buildStoryboardIllustratorMessages,
   extractCharacterAppearanceText,
@@ -3221,6 +3222,49 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       });
       assert.equal(narrationPrompt.prompt.toLowerCase().split(narrationDescription.toLowerCase()).length - 1, 1);
       assert.doesNotMatch(narrationPrompt.prompt, /Canonical NPC profile:/);
+    },
+  },
+  {
+    name: "custom dynamic portrait instructions remain authoritative",
+    async run() {
+      const override = "Return only a clean comma-separated visual tag list. Never copy prose labels.";
+      const promptOverridesStorage = {
+        async get(key: string) {
+          return key === "game.imagePromptDirector"
+            ? { key, template: override, enabled: true, updatedAt: "2026-07-20T00:00:00.000Z" }
+            : null;
+        },
+        async list() {
+          return [];
+        },
+        async upsert(input) {
+          return {
+            key: input.key,
+            template: input.template,
+            enabled: input.enabled,
+            updatedAt: "2026-07-20T00:00:00.000Z",
+          };
+        },
+        async remove() {},
+      } satisfies PromptOverridesStorage;
+      const messages = await buildDynamicGameImagePromptMessages({
+        promptOverridesStorage,
+        request: {
+          kind: "portrait",
+          title: "Sentinel",
+          sourcePrompt: "One alien sentinel in a bioluminescent hive interior.",
+          assetContext: ["NPC name: Sentinel", "Appearance traits: towering alien, long tail, glowing eyes"],
+          maxCharacters: 1400,
+        },
+        meta: {},
+        setupConfig: null,
+        latestState: null,
+      });
+
+      assert.equal(messages[0]?.content, override);
+      assert.match(messages[1]?.content ?? "", /Appearance traits: towering alien/);
+      assert.doesNotMatch(messages[1]?.content ?? "", /copy the Required canonical NPC visual profile/i);
+      assert.doesNotMatch(messages[1]?.content ?? "", /Return only JSON/i);
     },
   },
   {

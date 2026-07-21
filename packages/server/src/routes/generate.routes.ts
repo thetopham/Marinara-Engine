@@ -3239,7 +3239,6 @@ export async function generateRoutes(app: FastifyInstance) {
                 }
               : null,
           memory: {},
-          activatedLorebookEntries: null,
           writableLorebookIds: null,
           chatSummary: activeChatSummary,
           streaming: input.streaming,

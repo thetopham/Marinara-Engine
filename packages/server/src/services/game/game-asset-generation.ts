@@ -280,8 +280,8 @@ function writeChatBackgroundMeta(meta: ChatBackgroundMeta): void {
   atomicWriteText(CHAT_BACKGROUND_META_PATH, JSON.stringify(meta, null, 2));
 }
 
-function chatBackgroundTags(req: ChatBackgroundGenRequest, slug: string): string[] {
-  const tags = new Set<string>(["generated", req.sourceMode === "game" ? "game" : "roleplay", slug.replace(/-/g, " ")]);
+export function chatBackgroundTags(req: ChatBackgroundGenRequest, slug: string): string[] {
+  const tags = new Set<string>(["generated", req.sourceMode ?? "roleplay", slug.replace(/-/g, " ")]);
   for (const value of [req.locationSlug, req.reason, ...(req.tags ?? [])]) {
     if (!value) continue;
     const clean = value.trim().replace(/\s+/g, " ");

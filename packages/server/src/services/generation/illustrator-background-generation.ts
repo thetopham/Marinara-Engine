@@ -132,9 +132,12 @@ export function buildIllustratorBackgroundPlanUserPrompt(args: {
   gameState: GameState | null;
   recentMessages: Array<{ role: string; content: string; gameState?: GameState | null }>;
 }): string {
-  const previousTrackedLocations = Array.from(
-    new Set(args.recentMessages.map((message) => readTrimmedString(message.gameState?.location)).filter(Boolean)),
-  ).slice(-3);
+  const trackedLocations = args.recentMessages
+    .map((message) => readTrimmedString(message.gameState?.location))
+    .filter(Boolean);
+  const previousTrackedLocations = trackedLocations
+    .filter((location, index) => trackedLocations.lastIndexOf(location) === index)
+    .slice(-3);
   const recentContext = args.recentMessages
     .slice(-6)
     .map((message) => `${message.role}: ${message.content.replace(/\s+/gu, " ").trim().slice(0, 1_500)}`)

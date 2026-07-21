@@ -2613,6 +2613,23 @@ strong {
   font-size: inherit;
   color: inherit;
 }
+
+@media (max-width: 767px) {
+  .mari-message-content .mari-md-inline-code {
+    word-break: break-all;
+  }
+
+  .mari-message-content .mari-md-codeblock {
+    overflow-x: hidden;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .mari-message-content .mari-md-codeblock code {
+    white-space: inherit;
+  }
+}
+
 .mari-message-content .mari-md-codeblock-lang {
   position: absolute;
   top: 0;

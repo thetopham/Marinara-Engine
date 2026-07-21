@@ -106,6 +106,7 @@ import { persistGeneratedImageToEntityGalleries } from "../../packages/server/sr
 import { resolveIllustratorImageSize } from "../../packages/server/src/services/image/image-generation-settings.js";
 import { fetchBotBrowserJson } from "../../packages/server/src/services/bot-browser/fetch-json.js";
 import { isAllowedResponseContentType, validateOutboundUrl } from "../../packages/server/src/utils/security.js";
+import { seedDefaultBackgrounds } from "../../packages/server/src/db/seed-backgrounds.js";
 import {
   DEFAULT_CHAT_GENERATION_TIMEOUT_MS,
   getChatGenerationTimeoutMs,
@@ -1220,6 +1221,14 @@ const localMusicPlayerSource = readFileSync(
   new URL("../../packages/client/src/components/chat/LocalMusicPlayer.tsx", import.meta.url),
   "utf8",
 );
+const localNotificationsSource = readFileSync(
+  new URL("../../packages/client/src/lib/local-notifications.ts", import.meta.url),
+  "utf8",
+);
+const notificationSettingsSource = readFileSync(
+  new URL("../../packages/client/src/components/panels/settings/SettingControls.tsx", import.meta.url),
+  "utf8",
+);
 const globalStyles = readFileSync(new URL("../../packages/client/src/styles/globals.css", import.meta.url), "utf8");
 const galleryRoutesSource = readFileSync(
   new URL("../../packages/server/src/routes/gallery.routes.ts", import.meta.url),
@@ -1319,6 +1328,17 @@ assert.match(markdownCodeBlockStyles, /box-sizing:\s*border-box;/u);
 assert.match(markdownCodeBlockStyles, /width:\s*100%;/u);
 assert.match(markdownCodeBlockStyles, /max-width:\s*100%;/u);
 assert.match(markdownCodeBlockStyles, /overflow-x:\s*auto;/u);
+assert.match(
+  globalStyles,
+  /@media \(max-width: 767px\) \{[\s\S]*?\.mari-message-content \.mari-md-codeblock \{[\s\S]*?overflow-x:\s*hidden;[\s\S]*?white-space:\s*pre-wrap;/u,
+);
+assert.match(localNotificationsSource, /window\.isSecureContext === false/u);
+assert.match(localNotificationsSource, /NotificationPermission \| "insecure" \| "unsupported"/u);
+const browserNotificationHelpSource =
+  notificationSettingsSource.match(/const browserNotificationHelp =[\s\S]*?;\n/u)?.[0] ?? "";
+assert.match(browserNotificationHelpSource, /Browser notifications require HTTPS or localhost/u);
+assert.match(browserNotificationHelpSource, /Browser notifications are not available in this environment/u);
+assert.match(browserNotificationHelpSource, /Reset this site's notification permission/u);
 
 assert.equal(stripLeadingMessageTimestamps("[11.07 15:53] Character: Hello!"), "Character: Hello!");
 assert.equal(stripLeadingMessageTimestamps("[11.07.2026 15:53] Character: Hello!"), "Character: Hello!");
@@ -2625,5 +2645,25 @@ assert.deepEqual(
   ).map((extension) => extension.id),
   ["first", "second"],
 );
+
+const backgroundSeedRoot = mkdtempSync(join(tmpdir(), "marinara-default-background-"));
+const backgroundSeedDir = join(backgroundSeedRoot, "backgrounds");
+try {
+  mkdirSync(backgroundSeedDir, { recursive: true });
+  const customBackgroundPath = join(backgroundSeedDir, "custom.jpg");
+  const customBackground = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  writeFileSync(customBackgroundPath, customBackground);
+  await seedDefaultBackgrounds(backgroundSeedDir);
+  assert.deepEqual(readFileSync(customBackgroundPath), customBackground);
+  assert.equal(existsSync(join(backgroundSeedDir, "Black.jpg")), true);
+  assert.ok(readFileSync(join(backgroundSeedDir, "Black.jpg")).length > 0);
+  const backgroundMeta = JSON.parse(readFileSync(join(backgroundSeedDir, "meta.json"), "utf8")) as Record<
+    string,
+    { tags?: unknown }
+  >;
+  assert.deepEqual(backgroundMeta["Black.jpg"]?.tags, ["black", "plain", "dark"]);
+} finally {
+  rmSync(backgroundSeedRoot, { recursive: true, force: true });
+}
 
 console.info("Open-issue regressions passed.");

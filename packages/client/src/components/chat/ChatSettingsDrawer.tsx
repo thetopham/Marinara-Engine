@@ -1727,6 +1727,7 @@ export function ChatSettingsDrawer({
       : illustratorDefaults.useAvatarReferences === true;
   const illustratorPromptConnectionId =
     typeof metadata.illustratorPromptConnectionId === "string" ? metadata.illustratorPromptConnectionId : "";
+  const illustratorAutoBackgroundsEnabled = metadata.illustratorAutoBackgroundsEnabled === true;
   const selectedIllustratorPromptConnectionMissing =
     illustratorPromptConnectionId.length > 0 &&
     !illustratorPromptConnectionsList.some((connection) => connection.id === illustratorPromptConnectionId);
@@ -2165,6 +2166,34 @@ export function ChatSettingsDrawer({
   const resetIllustratorAvatarReferences = useCallback(() => {
     updateMeta.mutate({ id: chat.id, illustratorUseAvatarReferences: null });
   }, [chat.id, updateMeta]);
+  const toggleIllustratorAutoBackgrounds = useCallback(() => {
+    updateMeta.mutate({
+      id: chat.id,
+      illustratorAutoBackgroundsEnabled: !illustratorAutoBackgroundsEnabled,
+    });
+  }, [chat.id, illustratorAutoBackgroundsEnabled, updateMeta]);
+  const renderIllustratorImageStyleSelect = () => (
+    <label className="flex flex-col gap-1">
+      <span className="text-[0.625rem] font-medium text-[var(--foreground)]">Image Style</span>
+      <select
+        value={(metadata.imageStyleProfileId as string) ?? ""}
+        onChange={(event) =>
+          updateMeta.mutate({ id: chat.id, imageStyleProfileId: event.target.value || null })
+        }
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] outline-none transition-colors focus:border-[var(--primary)]/50"
+      >
+        <option value="">Use default style from Style Profiles in Advanced settings</option>
+        {imageStyleProfiles.profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name}
+          </option>
+        ))}
+      </select>
+      <span className="text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
+        Shared by Illustrator scenes and generated backgrounds so both keep the same visual language.
+      </span>
+    </label>
+  );
   const proseGuardianBannedWords =
     typeof metadata.proseGuardianBannedWords === "string"
       ? metadata.proseGuardianBannedWords
@@ -7388,6 +7417,17 @@ export function ChatSettingsDrawer({
                             }
                           />
                           {renderIllustratorPromptConnectionSelect()}
+                          <AgentSettingsToggle
+                            label="Generate Scene Backgrounds"
+                            description="When the story enters a new location, let Illustrator create a reusable background, add it to Appearance, and make it active."
+                            enabled={illustratorAutoBackgroundsEnabled}
+                            onToggle={toggleIllustratorAutoBackgrounds}
+                          />
+                          {renderIllustratorImageStyleSelect()}
+                          <p className="text-[0.59375rem] leading-snug text-[var(--muted-foreground)]">
+                            Uses the Background resolution from Settings → Generations. Tracker locations are preferred;
+                            recent scene context is used when no location tracker is available.
+                          </p>
                           <AgentSettingsToggle
                             label="Attach Card Appearance"
                             description="Append matched character appearance lines to image prompts, using only visible/generated names."

@@ -109,6 +109,10 @@ export function ConversationSoundSetting() {
   const [nativePermission, setNativePermission] = useState<NativeNotificationPermission>(() =>
     getNativeNotificationPermission(),
   );
+  const browserNotificationHelp =
+    browserPermission === "insecure"
+      ? "Browser notifications require HTTPS or localhost."
+      : "Uses your browser's notification permission.";
 
   useEffect(() => {
     let cancelled = false;
@@ -150,9 +154,13 @@ export function ConversationSoundSetting() {
       }
       setPreference(false);
       toast.error(
-        permission === "unsupported"
-          ? "Browser notifications are not available in this environment."
-          : "Browser notification permission was not granted.",
+        permission === "insecure"
+          ? "Browser notifications require HTTPS or localhost. Open Marinara through a secure address and try again."
+          : permission === "unsupported"
+            ? "Browser notifications are not available in this environment."
+            : permission === "denied"
+              ? "Browser notifications are blocked. Reset this site's notification permission, then try again."
+              : "Browser notification permission was not granted.",
       );
     });
   };
@@ -243,7 +251,7 @@ export function ConversationSoundSetting() {
             "Browser notifications enabled for autonomous messages.",
           )
         }
-        help="Uses your browser's notification permission."
+        help={browserNotificationHelp}
       />
       <ToggleSetting
         anchorId="settings-control-mobile-background-notifications"
@@ -279,7 +287,7 @@ export function ConversationSoundSetting() {
             "Browser notifications enabled for generation completions.",
           )
         }
-        help="Uses your browser's notification permission."
+        help={browserNotificationHelp}
       />
       <ToggleSetting
         anchorId="settings-control-mobile-generation-notifications"

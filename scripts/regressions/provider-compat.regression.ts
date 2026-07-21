@@ -153,6 +153,25 @@ try {
   assert.equal(customParametersRequestBody.min_p, 0.12);
   assert.equal(customParametersRequestBody.reasoning_effort, "high");
   assert.equal(customParametersRequestBody.verbosity, "low");
+
+  customParametersRequestBody = null;
+  await provider.chatComplete([{ role: "user", content: "test explicit custom samplers" }], {
+    model: "gpt-5.6-local",
+    stream: false,
+    minP: 0.25,
+    reasoningEffort: "high",
+    customParameters: {
+      min_p: 0.01,
+      top_n_sigma: 1.5,
+      chat_template_kwargs: { enable_thinking: true },
+    },
+  });
+  assert.ok(customParametersRequestBody);
+  assert.equal(customParametersRequestBody.min_p, 0.01);
+  assert.equal(customParametersRequestBody.top_n_sigma, 1.5);
+  assert.deepEqual(customParametersRequestBody.chat_template_kwargs, { enable_thinking: true });
+  assert.equal("temperature" in customParametersRequestBody, false);
+  assert.equal("top_p" in customParametersRequestBody, false);
 } finally {
   await new Promise<void>((resolve, reject) =>
     customParametersServer.close((error) => (error ? reject(error) : resolve())),

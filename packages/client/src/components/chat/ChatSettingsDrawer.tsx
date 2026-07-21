@@ -5704,7 +5704,7 @@ export function ChatSettingsDrawer({
               style={{ order: CHAT_SETTINGS_ORDER.agents }}
               label="Agents"
               icon={<Sparkles size="0.875rem" />}
-              help="Configure Conversation commands and the settings supplied by installed feature packages."
+              help="Configure Conversation commands, custom agents, and settings supplied by installed feature packages."
             >
               <div className="space-y-3">
                 {hasConversationCommands && (
@@ -5961,6 +5961,8 @@ export function ChatSettingsDrawer({
                     )}
                   </div>
                 )}
+                {renderCustomAgentPicker()}
+                {renderActiveCustomAgentSettingsCard()}
               </div>
             </Section>
           )}

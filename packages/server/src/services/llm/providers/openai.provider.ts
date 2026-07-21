@@ -679,12 +679,18 @@ export class OpenAIProvider extends BaseLLMProvider {
 
   private stripUnsupportedSamplerParameters(body: Record<string, unknown>, options: ChatOptions): void {
     if (!this.isNoTemperatureModel(options.model, options.reasoningEffort)) return;
-    delete body.temperature;
-    delete body.top_p;
-    delete body.top_k;
-    delete body.min_p;
-    delete body.frequency_penalty;
-    delete body.presence_penalty;
+    const explicitCustomParameters = this.isGenericCustomProvider() ? options.customParameters : undefined;
+    const removeUnlessExplicit = (key: string) => {
+      if (!explicitCustomParameters || !Object.prototype.hasOwnProperty.call(explicitCustomParameters, key)) {
+        delete body[key];
+      }
+    };
+    removeUnlessExplicit("temperature");
+    removeUnlessExplicit("top_p");
+    removeUnlessExplicit("top_k");
+    removeUnlessExplicit("min_p");
+    removeUnlessExplicit("frequency_penalty");
+    removeUnlessExplicit("presence_penalty");
   }
 
   private hasActiveReasoningEffort(reasoningEffort?: string | null): boolean {

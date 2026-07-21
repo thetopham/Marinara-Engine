@@ -106,6 +106,7 @@ import { persistGeneratedImageToEntityGalleries } from "../../packages/server/sr
 import { resolveIllustratorImageSize } from "../../packages/server/src/services/image/image-generation-settings.js";
 import { fetchBotBrowserJson } from "../../packages/server/src/services/bot-browser/fetch-json.js";
 import { isAllowedResponseContentType, validateOutboundUrl } from "../../packages/server/src/utils/security.js";
+import { seedDefaultBackgrounds } from "../../packages/server/src/db/seed-backgrounds.js";
 import {
   DEFAULT_CHAT_GENERATION_TIMEOUT_MS,
   getChatGenerationTimeoutMs,
@@ -1220,6 +1221,14 @@ const localMusicPlayerSource = readFileSync(
   new URL("../../packages/client/src/components/chat/LocalMusicPlayer.tsx", import.meta.url),
   "utf8",
 );
+const localNotificationsSource = readFileSync(
+  new URL("../../packages/client/src/lib/local-notifications.ts", import.meta.url),
+  "utf8",
+);
+const notificationSettingsSource = readFileSync(
+  new URL("../../packages/client/src/components/panels/settings/SettingControls.tsx", import.meta.url),
+  "utf8",
+);
 const globalStyles = readFileSync(new URL("../../packages/client/src/styles/globals.css", import.meta.url), "utf8");
 const galleryRoutesSource = readFileSync(
   new URL("../../packages/server/src/routes/gallery.routes.ts", import.meta.url),
@@ -1319,6 +1328,14 @@ assert.match(markdownCodeBlockStyles, /box-sizing:\s*border-box;/u);
 assert.match(markdownCodeBlockStyles, /width:\s*100%;/u);
 assert.match(markdownCodeBlockStyles, /max-width:\s*100%;/u);
 assert.match(markdownCodeBlockStyles, /overflow-x:\s*auto;/u);
+assert.match(
+  globalStyles,
+  /@media \(max-width: 767px\) \{[\s\S]*?\.mari-message-content \.mari-md-codeblock \{[\s\S]*?overflow-x:\s*hidden;[\s\S]*?white-space:\s*pre-wrap;/u,
+);
+assert.match(localNotificationsSource, /window\.isSecureContext === false/u);
+assert.match(localNotificationsSource, /NotificationPermission \| "insecure" \| "unsupported"/u);
+assert.match(notificationSettingsSource, /Browser notifications require HTTPS or localhost/u);
+assert.match(notificationSettingsSource, /Reset this site's notification permission/u);
 
 assert.equal(stripLeadingMessageTimestamps("[11.07 15:53] Character: Hello!"), "Character: Hello!");
 assert.equal(stripLeadingMessageTimestamps("[11.07.2026 15:53] Character: Hello!"), "Character: Hello!");
@@ -2625,5 +2642,18 @@ assert.deepEqual(
   ).map((extension) => extension.id),
   ["first", "second"],
 );
+
+const backgroundSeedRoot = mkdtempSync(join(tmpdir(), "marinara-default-background-"));
+const backgroundSeedDir = join(backgroundSeedRoot, "backgrounds");
+try {
+  mkdirSync(backgroundSeedDir, { recursive: true });
+  writeFileSync(join(backgroundSeedDir, "custom.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  await seedDefaultBackgrounds(backgroundSeedDir);
+  assert.equal(existsSync(join(backgroundSeedDir, "custom.jpg")), true);
+  assert.equal(existsSync(join(backgroundSeedDir, "Black.jpg")), true);
+  assert.ok(readFileSync(join(backgroundSeedDir, "Black.jpg")).length > 0);
+} finally {
+  rmSync(backgroundSeedRoot, { recursive: true, force: true });
+}
 
 console.info("Open-issue regressions passed.");

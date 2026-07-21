@@ -766,6 +766,7 @@ const cases: RegressionCase[] = [
     name: "Professor Mari and the public reference cover every official downloadable agent",
     run() {
       const publicReference = readFileSync(new URL("../../docs/agents/built-in-agents.md", import.meta.url), "utf8");
+      const publicReferenceLines = new Set(publicReference.split(/\r?\n/u));
       const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
       const seededMariSource = readFileSync(
         new URL("../../packages/server/src/db/seed-mari.ts", import.meta.url),
@@ -793,7 +794,7 @@ const cases: RegressionCase[] = [
           PROFESSOR_MARI_AGENT_CATALOG_KNOWLEDGE.includes(`- ${entry.name} (package \`${entry.id}\`;`),
           `Professor Mari knowledge is missing ${entry.name}`,
         );
-        assert.ok(publicReference.includes(`### ${entry.name}\n`), `Public agent reference is missing ${entry.name}`);
+        assert.ok(publicReferenceLines.has(`### ${entry.name}`), `Public agent reference is missing ${entry.name}`);
         assert.ok(readme.includes(entry.name), `README agent catalog is missing ${entry.name}`);
       }
 

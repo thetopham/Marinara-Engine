@@ -310,11 +310,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         agentName: agentType,
         error: null,
         reasonLabel: null,
+        retryTarget: null,
       })),
     }),
   setFailedAgentFailures: (failures, chatId = null) =>
     set({
-      failedAgentTypes: failures.map((failure) => failure.agentType),
+      failedAgentTypes: Array.from(new Set(failures.map((failure) => failure.agentType))),
       failedAgentChatId: chatId,
       failedAgentFailures: failures,
     }),

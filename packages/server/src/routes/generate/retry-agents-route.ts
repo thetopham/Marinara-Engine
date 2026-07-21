@@ -158,6 +158,11 @@ import {
   illustratorRequestedBackground,
   illustratorTrackerLocationChanged,
 } from "../../services/generation/illustrator-background-generation.js";
+import {
+  parseIllustratorRetryTargets,
+  shouldRetryIllustratorTarget,
+  type IllustratorRetryTarget,
+} from "../../services/generation/illustrator-retry-targets.js";
 import { normalizeContextInjections } from "./agent-normalizers.js";
 import { executeToolCalls, type MetadataPatchInput } from "../../services/tools/tool-executor.js";
 
@@ -2474,6 +2479,7 @@ async function applyRetryResultEffects(args: {
   queueImageGenerationRequests: boolean;
   reviewImagePromptsBeforeSend: boolean;
   illustratorPromptReviewOverride: IllustratorPromptReviewOverride | null;
+  illustratorRetryTargets: IllustratorRetryTarget[] | undefined;
   debugMode: boolean;
   secretPlotRerollMode?: "full" | "turn_only";
 }) {
@@ -2495,6 +2501,7 @@ async function applyRetryResultEffects(args: {
     queueImageGenerationRequests,
     reviewImagePromptsBeforeSend,
     illustratorPromptReviewOverride,
+    illustratorRetryTargets,
     debugMode,
     secretPlotRerollMode,
   } = args;
@@ -2996,7 +3003,13 @@ async function applyRetryResultEffects(args: {
     }
 
     // ── ILLUSTRATOR: generate image from agent prompt ──
-    if (result.success && result.type === "image_prompt" && result.data && typeof result.data === "object") {
+    if (
+      shouldRetryIllustratorTarget(illustratorRetryTargets, "illustration") &&
+      result.success &&
+      result.type === "image_prompt" &&
+      result.data &&
+      typeof result.data === "object"
+    ) {
       const illustratorFailureName =
         resolvedAgents.find((a) => a.resolved.id === result.agentId || a.resolved.type === "illustrator")?.cfg.name ??
         "Illustrator";
@@ -3296,6 +3309,7 @@ async function applyRetryResultEffects(args: {
               data: {
                 agentType: "illustrator",
                 agentName: illustratorFailureName,
+                retryTarget: "illustration",
                 error:
                   "No image generation connection is set on the Illustrator agent or under Settings -> Connections -> Defaults -> Images. Choose one there, or assign one directly in Settings -> Agents -> Illustrator.",
               },
@@ -3309,6 +3323,7 @@ async function applyRetryResultEffects(args: {
           data: {
             agentType: "illustrator",
             agentName: illustratorFailureName,
+            retryTarget: "illustration",
             error: illErr instanceof Error ? illErr.message : "Image generation failed",
           },
         });
@@ -3375,6 +3390,7 @@ async function applyRetryResultEffects(args: {
     illustratorResult &&
     illustratorEntry &&
     !illustratorPromptReviewOverride &&
+    shouldRetryIllustratorTarget(illustratorRetryTargets, "background") &&
     illustratorBackgroundGenerationEnabled((chat as { mode?: unknown }).mode, chatMeta)
   ) {
     const backgroundAtDecision =
@@ -3474,6 +3490,7 @@ async function applyRetryResultEffects(args: {
         data: {
           agentType: "illustrator",
           agentName: illustratorEntry.cfg?.name ?? illustratorEntry.resolved.name ?? "Illustrator",
+          retryTarget: "background",
           error: `Background generation failed: ${
             backgroundError instanceof Error ? backgroundError.message : String(backgroundError)
           }`,
@@ -3506,6 +3523,8 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       agentPromptTemplateIds?: unknown;
       /** Resume a reviewed Illustrator retry without running the Illustrator LLM a second time. */
       illustratorPromptReviewOverride?: unknown;
+      /** Limit an Illustrator retry to visual jobs that failed in the original run. */
+      illustratorRetryTargets?: unknown;
       lorebookKeeperBackfill?: boolean;
       /** When set, scope history and game state to this assistant message (as at original generation), not the latest turn. */
       forMessageId?: string;
@@ -3524,6 +3543,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       reviewImagePromptsBeforeSend = false,
       agentPromptTemplateIds,
       illustratorPromptReviewOverride: rawIllustratorPromptReviewOverride,
+      illustratorRetryTargets: rawIllustratorRetryTargets,
       lorebookKeeperBackfill = false,
       forMessageId,
       musicPlayerSource = "spotify",
@@ -3533,11 +3553,18 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
     const illustratorPromptReviewOverride = rawIllustratorPromptReviewOverride
       ? parseIllustratorPromptReviewOverride(rawIllustratorPromptReviewOverride)
       : null;
+    const illustratorRetryTargets = parseIllustratorRetryTargets(rawIllustratorRetryTargets);
     if (!chatId || !agentTypes?.length) {
       return reply.status(400).send({ error: "chatId and agentTypes are required" });
     }
     if (rawIllustratorPromptReviewOverride && !illustratorPromptReviewOverride) {
       return reply.status(400).send({ error: "Invalid Illustrator prompt review override" });
+    }
+    if (illustratorRetryTargets === null) {
+      return reply.status(400).send({ error: "Invalid Illustrator retry targets" });
+    }
+    if (illustratorRetryTargets && !agentTypes.includes("illustrator")) {
+      return reply.status(400).send({ error: "Illustrator retry targets require an Illustrator retry" });
     }
 
     startSseReply(reply, { "X-Accel-Buffering": "no" });
@@ -3949,6 +3976,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
         queueImageGenerationRequests,
         reviewImagePromptsBeforeSend,
         illustratorPromptReviewOverride,
+        illustratorRetryTargets,
         debugMode,
         secretPlotRerollMode,
       });

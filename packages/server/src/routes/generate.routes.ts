@@ -84,7 +84,12 @@ import { createAppSettingsStorage } from "../services/storage/app-settings.stora
 import { buildLorebookSemanticEmbeddingsById, warmLorebookEntryEmbeddings } from "../services/lorebook/embeddings.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
-import { filterRelevantLorebooks, processLorebooks } from "../services/lorebook/index.js";
+import {
+  filterRelevantLorebooks,
+  processLorebooks,
+  scopeLorebookScanResultToCharacter,
+  type LorebookScanResult,
+} from "../services/lorebook/index.js";
 import {
   filterGameInternalAgentIds,
   resolveLorebookScopeExclusions,
@@ -489,6 +494,37 @@ import {
   buildSummaryWriteApprovalProposal,
   isAgentWriteApprovalEnvelope,
 } from "./generate/agent-write-approval.js";
+
+function scopeLorebookPromptMessagesForCharacter(
+  messages: GenerationPromptMessage[],
+  source: LorebookScanResult,
+  scoped: LorebookScanResult,
+): GenerationPromptMessage[] {
+  const worldInfoReplacements = [
+    [source.worldInfoBefore, scoped.worldInfoBefore],
+    [source.worldInfoAfter, scoped.worldInfoAfter],
+  ] as const;
+  const scopedDepthContents = new Set(scoped.depthEntries.map((entry) => entry.content));
+  const removedDepthContents = source.depthEntries
+    .map((entry) => entry.content)
+    .filter((content) => !scopedDepthContents.has(content));
+
+  return messages
+    .map((message) => {
+      if (message.contextKind === "history") return message;
+      let content = message.content;
+      for (const [currentValue, scopedValue] of worldInfoReplacements) {
+        if (currentValue && currentValue !== scopedValue) {
+          content = content.split(currentValue).join(scopedValue);
+        }
+      }
+      for (const removedContent of removedDepthContents) {
+        content = content.split(removedContent).join("");
+      }
+      return content === message.content ? message : { ...message, content };
+    })
+    .filter((message) => message.content.trim().length > 0);
+}
 
 const PROFESSOR_MARI_INTERNAL_CHAT_MARKER = "professor-mari";
 const INDIVIDUAL_CONVERSATION_LOREBOOK_TOKEN = "__MARINARA_INDIVIDUAL_CONVERSATION_LOREBOOK__";
@@ -1591,6 +1627,8 @@ export async function generateRoutes(app: FastifyInstance) {
           : [];
         const lorebookScopeExclusions = resolveLorebookScopeExclusions(chatMode, chatMeta);
         let lorebookScanSnapshot: LorebookScanSnapshot = emptyLorebookScanSnapshot();
+        let lorebookPromptScanResult: LorebookScanResult | null = null;
+        const scopedLorebookScansByCharacterId = new Map<string, Promise<LorebookScanResult>>();
         let presetHandledLorebooks = false;
         let characterAdvancedPromptsInjected = false;
         const presetHasLorebookMarker = (sections: Array<{ isMarker: string; markerConfig: string | null }>) =>
@@ -1991,6 +2029,7 @@ export async function generateRoutes(app: FastifyInstance) {
           };
 
           const assembled = await assemblePrompt(assemblerInput);
+          lorebookPromptScanResult = assembled.lorebookScanResult ?? null;
           if (assembled.lorebookActivatedEntries || assembled.lorebookBudgetSkippedEntries) {
             lorebookScanSnapshot = {
               activatedEntries: assembled.lorebookActivatedEntries ?? [],
@@ -2426,6 +2465,7 @@ export async function generateRoutes(app: FastifyInstance) {
               }
             } else {
               const lorebookResult = await scanConversationLorebooks(promptCharacterIds);
+              lorebookPromptScanResult = lorebookResult;
               const loreContent = [lorebookResult.worldInfoBefore, lorebookResult.worldInfoAfter]
                 .filter(Boolean)
                 .join("\n");
@@ -2476,6 +2516,7 @@ export async function generateRoutes(app: FastifyInstance) {
             generationTriggers: lorebookGenerationTriggers,
             resolveContent: resolvePromptMacrosForLorebook,
           });
+          lorebookPromptScanResult = lorebookResult;
           lorebookScanSnapshot = toLorebookScanSnapshot(lorebookResult);
           rememberKnowledgeRouterActivatedLorebookIds(
             knowledgeRouterActivatedLorebookEntryIds,
@@ -2845,6 +2886,7 @@ export async function generateRoutes(app: FastifyInstance) {
                 resolveContent: resolvePromptMacrosForLorebook,
               },
             );
+            lorebookPromptScanResult = lorebookResult;
             lorebookScanSnapshot = toLorebookScanSnapshot(lorebookResult);
             rememberKnowledgeRouterActivatedLorebookIds(
               knowledgeRouterActivatedLorebookEntryIds,
@@ -3246,7 +3288,6 @@ export async function generateRoutes(app: FastifyInstance) {
                 }
               : null,
           memory: {},
-          activatedLorebookEntries: null,
           writableLorebookIds: null,
           chatSummary: activeChatSummary,
           streaming: input.streaming,
@@ -4956,6 +4997,30 @@ export async function generateRoutes(app: FastifyInstance) {
             gameAwareMessagesForGen,
             audienceCharacterIds,
           );
+          if (
+            usesIndividualGroupGeneration &&
+            deferCharacterMacros &&
+            promptCharacterIds.length > 1 &&
+            targetCharId &&
+            lorebookPromptScanResult
+          ) {
+            let scopedScanPromise = scopedLorebookScansByCharacterId.get(targetCharId);
+            if (!scopedScanPromise) {
+              scopedScanPromise = scopeLorebookScanResultToCharacter(
+                app.db,
+                lorebookPromptScanResult,
+                targetCharId,
+                lorebookGenerationTriggers,
+              );
+              scopedLorebookScansByCharacterId.set(targetCharId, scopedScanPromise);
+            }
+            const scopedLorebookScan = await scopedScanPromise;
+            gameAwareMessagesForGen = scopeLorebookPromptMessagesForCharacter(
+              gameAwareMessagesForGen,
+              lorebookPromptScanResult,
+              scopedLorebookScan,
+            );
+          }
           const targetContextBlock = targetCharId
             ? conversationContextBlocksByCharacterId.get(targetCharId)
             : undefined;

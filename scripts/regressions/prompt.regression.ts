@@ -439,6 +439,7 @@ import {
 import {
   buildNpcPortraitProviderPrompt,
   buildSceneIllustrationProviderPrompt,
+  chatBackgroundTags,
   safeGeneratedAssetSlug,
 } from "../../packages/server/src/services/game/game-asset-generation.js";
 import {
@@ -2636,11 +2637,32 @@ const cases: RegressionCase[] = [
             content: "The group leaves the archive.",
             gameState: { location: "Royal Archive" } as any,
           },
+          {
+            role: "assistant",
+            content: "They follow the moonlit road.",
+            gameState: { location: "Moonlit Road" } as any,
+          },
+          {
+            role: "assistant",
+            content: "They briefly return through the archive gate.",
+            gameState: { location: "Royal Archive" } as any,
+          },
         ],
       });
       assert.match(prompt, /Current tracker state:.*Enchanted Forest Clearing/u);
-      assert.match(prompt, /Recent committed tracker locations: Royal Archive/u);
+      assert.match(prompt, /Recent committed tracker locations: Moonlit Road -> Royal Archive/u);
       assert.match(prompt, /Currently active background: old-library\.png/u);
+
+      const visualNovelTags = chatBackgroundTags(
+        {
+          sourceMode: "visual_novel",
+          locationSlug: "moonlit-garden",
+          tags: ["garden"],
+        } as any,
+        "moonlit-garden",
+      );
+      assert.ok(visualNovelTags.includes("visual_novel"));
+      assert.ok(!visualNovelTags.includes("roleplay"));
 
       const drawerSource = readFileSync(
         new URL("../../packages/client/src/components/chat/ChatSettingsDrawer.tsx", import.meta.url),

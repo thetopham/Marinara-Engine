@@ -8260,6 +8260,7 @@ export async function generateRoutes(app: FastifyInstance) {
                       data: {
                         agentType: "illustrator",
                         agentName: illustratorBackgroundAgent.name ?? "Illustrator",
+                        retryTarget: "background",
                         error: `Background generation failed: ${
                           backgroundError instanceof Error ? backgroundError.message : String(backgroundError)
                         }`,
@@ -8513,6 +8514,7 @@ export async function generateRoutes(app: FastifyInstance) {
                           data: {
                             agentType: "illustrator",
                             agentName: illustratorAgent?.name ?? "Illustrator",
+                            retryTarget: "illustration",
                             error: `Image generation failed: ${illErr instanceof Error ? illErr.message : String(illErr)}`,
                           },
                         })}\n\n`,
@@ -8527,6 +8529,7 @@ export async function generateRoutes(app: FastifyInstance) {
                       data: {
                         agentType: "illustrator",
                         agentName: illustratorAgent?.name ?? "Illustrator",
+                        retryTarget: "illustration",
                         error:
                           "No image generation connection is set on the Illustrator agent or under Settings → Connections → Defaults → Images. Choose one there, or assign one directly in Settings → Agents → Illustrator.",
                       },

@@ -6,7 +6,14 @@ import type { AvatarCropValue } from "../lib/utils";
 import { useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { toast, type ExternalToast } from "sonner";
 import { api, ApiError } from "../lib/api-client";
-import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../lib/agent-failures";
+import {
+  formatAgentFailuresToast,
+  illustratorRetryTargetsForFailures,
+  mergeAgentFailures,
+  toAgentFailure,
+  type AgentFailure,
+  type IllustratorRetryTarget,
+} from "../lib/agent-failures";
 import { chatBackgroundMetadataToUrl } from "../lib/backgrounds";
 import { formatGenerationParameterError } from "../lib/generation-parameter-errors";
 import {
@@ -52,9 +59,18 @@ type RetryAgentsOptions = {
     prompt: string;
     negativePrompt?: string;
   };
+  illustratorRetryTargets?: IllustratorRetryTarget[];
 };
 
 type RetryAgentsFn = (chatId: string, agentTypes: string[], options?: RetryAgentsOptions) => Promise<boolean>;
+
+function withIllustratorFailureTargets(
+  options: RetryAgentsOptions | undefined,
+  failures: AgentFailure[],
+): RetryAgentsOptions | undefined {
+  const illustratorRetryTargets = illustratorRetryTargetsForFailures(failures);
+  return illustratorRetryTargets ? { ...options, illustratorRetryTargets } : options;
+}
 
 /** Show a persistent, copyable error toast and log to console */
 function showError(msg: string, options?: Pick<ExternalToast, "action">) {
@@ -2381,12 +2397,28 @@ export function useGenerate() {
             }
 
             case "agent_error": {
-              const errData = event.data as { agentType: string; agentName?: string | null; error: string };
-              if (errData.agentType === "illustrator") illustrationSettled = true;
+              const errData = event.data as {
+                agentType: string;
+                agentName?: string | null;
+                error: string;
+                retryTarget?: unknown;
+              };
+              if (errData.agentType === "illustrator" && errData.retryTarget !== "background") {
+                illustrationSettled = true;
+              }
               const failure = toAgentFailure(errData);
-              setFailedAgentFailures([failure], params.chatId);
+              const failureState = useAgentStore.getState();
+              const existingFailures =
+                failureState.failedAgentChatId && failureState.failedAgentChatId !== params.chatId
+                  ? []
+                  : failureState.failedAgentFailures;
+              setFailedAgentFailures(mergeAgentFailures(existingFailures, [failure]), params.chatId);
               showAgentFailuresError([failure], () => {
-                void retryAgentsRef.current?.(params.chatId, [failure.agentType]);
+                void retryAgentsRef.current?.(
+                  params.chatId,
+                  [failure.agentType],
+                  withIllustratorFailureTargets(undefined, [failure]),
+                );
               });
               break;
             }
@@ -3119,6 +3151,7 @@ export function useGenerate() {
             ...(options?.illustratorPromptReviewOverride
               ? { illustratorPromptReviewOverride: options.illustratorPromptReviewOverride }
               : {}),
+            ...(options?.illustratorRetryTargets ? { illustratorRetryTargets: options.illustratorRetryTargets } : {}),
             musicPlayerEnabled: useUIStore.getState().musicPlayerEnabled,
             musicPlayerSource: useUIStore.getState().musicPlayerSource,
             lorebookKeeperBackfill: options?.lorebookKeeperBackfill === true,
@@ -3290,7 +3323,11 @@ export function useGenerate() {
                 failedRetryFailures.push(failure);
                 setFailedAgentFailures(failedRetryFailures, chatId);
                 showAgentFailuresError([failure], () => {
-                  void retryAgentsRef.current?.(chatId, [failure.agentType], options);
+                  void retryAgentsRef.current?.(
+                    chatId,
+                    [failure.agentType],
+                    withIllustratorFailureTargets(options, [failure]),
+                  );
                 });
               }
               break;
@@ -3316,7 +3353,7 @@ export function useGenerate() {
                 void retryAgentsRef.current?.(
                   chatId,
                   failures.map((failure) => failure.agentType),
-                  options,
+                  withIllustratorFailureTargets(options, failures),
                 );
               });
               break;
@@ -3377,12 +3414,23 @@ export function useGenerate() {
               break;
             }
             case "agent_error": {
-              const errData = event.data as { agentType: string; agentName?: string | null; error: string };
+              const errData = event.data as {
+                agentType: string;
+                agentName?: string | null;
+                error: string;
+                retryTarget?: unknown;
+              };
               hasError = true;
               const failure = toAgentFailure(errData);
-              setFailedAgentFailures([failure], chatId);
+              const mergedFailures = mergeAgentFailures(failedRetryFailures, [failure]);
+              failedRetryFailures.splice(0, failedRetryFailures.length, ...mergedFailures);
+              setFailedAgentFailures(failedRetryFailures, chatId);
               showAgentFailuresError([failure], () => {
-                void retryAgentsRef.current?.(chatId, [failure.agentType], options);
+                void retryAgentsRef.current?.(
+                  chatId,
+                  [failure.agentType],
+                  withIllustratorFailureTargets(options, [failure]),
+                );
               });
               break;
             }

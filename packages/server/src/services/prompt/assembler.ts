@@ -535,7 +535,13 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
   // A chat_summary marker owns placement when present. Without one, enabled
   // summaries belong at the end of the system prompt block, before history.
   if (!hasChatSummaryMarker) {
-    finalMessages = appendFallbackChatSummaryToSystemPrompt(finalMessages, markerCtx.chatSummary, wrapFormat, macroCtx);
+    finalMessages = appendFallbackChatSummaryToSystemPrompt(
+      finalMessages,
+      markerCtx.chatSummary,
+      wrapFormat,
+      macroCtx,
+      deferAllMacroOptions,
+    );
   }
 
   // ── Phase 8: Single user message mode ──
@@ -612,14 +618,11 @@ async function resolveSection(
   let runtimeAgentText = "";
   let runtimeAgentStartToken: string | undefined;
   let runtimeAgentEndToken: string | undefined;
-  let wrapperName = section.name;
+  const wrapperName = section.name;
 
   // Handle marker sections
   if (section.isMarker === "true" && section.markerConfig) {
     const markerConfig = JSON.parse(section.markerConfig) as MarkerConfig;
-    if (markerConfig.type === "chat_summary") {
-      wrapperName = "Chat Summary";
-    }
     const runtimeAgentType =
       markerConfig.type === "agent_data" && markerConfig.agentType ? markerConfig.agentType : null;
     const runtimeAgentData = runtimeAgentType !== null ? ctx.runtimeAgentData[runtimeAgentType] : undefined;
@@ -638,7 +641,7 @@ async function resolveSection(
       runtimeAgentType !== null && Object.prototype.hasOwnProperty.call(ctx.runtimeAgentData, runtimeAgentType);
     const expanded = hasRuntimeAgentData
       ? { content: runtimeAgentText }
-      : await expandMarker(markerConfig, ctx.markerCtx);
+      : await expandMarker(markerConfig, ctx.markerCtx, ctx.macroOptions);
 
     // Chat history marker returns multiple messages
     if (markerConfig.type === "chat_history" && expanded.messages) {
@@ -792,8 +795,9 @@ function appendFallbackChatSummaryToSystemPrompt(
   chatSummary: string | null,
   wrapFormat: WrapFormat,
   macroCtx: MacroContext,
+  macroOptions?: ResolveMacroOptions,
 ): ChatMLMessage[] {
-  const summary = sanitizePromptLeaf(resolveMacros(chatSummary ?? "", macroCtx), wrapFormat).trim();
+  const summary = sanitizePromptLeaf(resolveMacros(chatSummary ?? "", macroCtx, macroOptions), wrapFormat).trim();
   if (!summary) return messages;
 
   const wrapped = wrapContent(summary, "Chat Summary", wrapFormat).trim();

@@ -2,28 +2,27 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FastifyInstance } from "fastify";
-import type { InstalledExtension } from "../../packages/shared/src/index.js";
 import type { DB } from "../../packages/server/src/db/connection.js";
 import { createFileNativeDB } from "../../packages/server/src/db/file-backed-store.js";
-import { installedExtensions } from "../../packages/server/src/db/schema/index.js";
-import { serverExtensionRuntime } from "../../packages/server/src/services/extensions/server-extension-runtime.js";
-import { createExtensionsStorage } from "../../packages/server/src/services/storage/extensions.storage.js";
+import { appSettings, installedExtensions } from "../../packages/server/src/db/schema/index.js";
+import { purgeRetiredExtensionData } from "../../packages/server/src/services/setup/retired-extension-cleanup.js";
 
 const clientThemeSource = readFileSync(
   new URL("../../packages/client/src/components/layout/CustomThemeInjector.tsx", import.meta.url),
   "utf8",
 );
-const serverRuntimeSource = readFileSync(
-  new URL("../../packages/server/src/services/extensions/server-extension-runtime.ts", import.meta.url),
+const clientAppSource = readFileSync(new URL("../../packages/client/src/App.tsx", import.meta.url), "utf8");
+const clientSettingsSource = readFileSync(
+  new URL("../../packages/client/src/components/panels/SettingsPanel.tsx", import.meta.url),
   "utf8",
 );
-const extensionRoutesSource = readFileSync(
-  new URL("../../packages/server/src/routes/extensions.routes.ts", import.meta.url),
+const clientStoreSource = readFileSync(
+  new URL("../../packages/client/src/stores/ui.store.ts", import.meta.url),
   "utf8",
 );
-const extensionStorageSource = readFileSync(
-  new URL("../../packages/server/src/services/storage/extensions.storage.ts", import.meta.url),
+const routeIndexSource = readFileSync(new URL("../../packages/server/src/routes/index.ts", import.meta.url), "utf8");
+const cleanupSource = readFileSync(
+  new URL("../../packages/server/src/services/setup/retired-extension-cleanup.ts", import.meta.url),
   "utf8",
 );
 const securityHeadersSource = readFileSync(
@@ -31,30 +30,17 @@ const securityHeadersSource = readFileSync(
   "utf8",
 );
 
-const legacyClientExtension: InstalledExtension = {
-  id: "legacy-client-extension",
-  name: "Legacy client extension",
-  description: "Regression fixture",
-  enabled: true,
-  installedAt: new Date(0).toISOString(),
-  createdAt: new Date(0).toISOString(),
-  updatedAt: new Date(0).toISOString(),
-};
-const blockedClientStatus = serverExtensionRuntime.withRuntimeStatus(legacyClientExtension);
-assert.equal(blockedClientStatus.enabled, false);
-assert.equal(blockedClientStatus.executionBlocked, true);
-
 assert.match(clientThemeSource, /useThemes/u);
 assert.doesNotMatch(
   clientThemeSource,
   /useExtensions|InstalledExtension|ExtensionCssInjector|EXTENSION_STYLE_PREFIX|createObjectURL|@vite-ignore/u,
 );
-assert.doesNotMatch(serverRuntimeSource, /node:vm|runInContext|new vm\.Script/u);
-assert.match(extensionRoutesSource, /EXTENSIONS_DISABLED/u);
-assert.match(extensionRoutesSource, /status\(410\)/u);
-assert.doesNotMatch(extensionRoutesSource, /["']\/:id\/storage["']/u);
-assert.match(extensionStorageSource, /enabled: "false"/u);
-assert.doesNotMatch(extensionStorageSource, /row\.(?:css|js|serverJs)/u);
+assert.doesNotMatch(clientAppSource, /useLegacyExtensionCleanup|use-extensions/u);
+assert.doesNotMatch(clientSettingsSource, /Legacy Extension Cleanup|useExtensions|useDeleteExtension/u);
+assert.match(clientStoreSource, /delete persisted\.installedExtensions/u);
+assert.match(clientStoreSource, /delete persisted\.hasMigratedExtensionsToServer/u);
+assert.doesNotMatch(routeIndexSource, /extensionsRoutes|\/api\/extensions/u);
+assert.doesNotMatch(cleanupSource, /node:vm|runInContext|new vm\.Script/u);
 assert.doesNotMatch(securityHeadersSource, /script-src[^"\n]*\bblob:/u);
 
 const storageDir = mkdtempSync(join(tmpdir(), "marinara-extension-security-"));
@@ -69,20 +55,31 @@ try {
     description: "Regression fixture",
     runtime: "client",
     css: "#must-never-apply { display: block; }",
-    js: null,
-    serverJs: null,
+    js: "globalThis.__mustNeverRun = true;",
+    serverJs: "throw new Error('must never execute');",
     enabled: "true",
     installedAt: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,
   });
-  await serverExtensionRuntime.start({} as FastifyInstance, db);
-  const persisted = await createExtensionsStorage(db).getById("persisted-enabled-css-extension");
-  assert.ok(persisted);
-  assert.equal(persisted?.enabled, false, "startup must durably disable every legacy extension");
-  assert.equal("css" in persisted, false, "cleanup records must not expose stored CSS payloads");
-  assert.equal("js" in persisted, false, "cleanup records must not expose stored browser payloads");
-  assert.equal("serverJs" in persisted, false, "cleanup records must not expose stored server payloads");
+  await db.insert(appSettings).values([
+    { key: "extension-storage:persisted-enabled-css-extension", value: "payload", updatedAt: timestamp },
+    { key: "extension-storage:orphaned-extension", value: "orphaned payload", updatedAt: timestamp },
+    { key: "unrelated-setting", value: "keep", updatedAt: timestamp },
+  ]);
+
+  const cleanup = await purgeRetiredExtensionData(db);
+  assert.deepEqual(cleanup, { extensionRecordsRemoved: 1, extensionSettingsRemoved: 2 });
+  assert.deepEqual(await db.select().from(installedExtensions), []);
+
+  const remainingSettings = await db.select().from(appSettings);
+  assert.deepEqual(
+    remainingSettings.map((row) => row.key),
+    ["unrelated-setting"],
+  );
+
+  const repeatedCleanup = await purgeRetiredExtensionData(db);
+  assert.deepEqual(repeatedCleanup, { extensionRecordsRemoved: 0, extensionSettingsRemoved: 0 });
 } finally {
   await fileDb._fileStore.close();
   rmSync(storageDir, { recursive: true, force: true });

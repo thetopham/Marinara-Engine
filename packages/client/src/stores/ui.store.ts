@@ -412,20 +412,6 @@ export interface CustomTheme {
   installedAt: string;
 }
 
-/**
- * Retired browser-local extension shape. Only used to remove legacy records
- * from localStorage during startup; extension payloads are never replayed.
- */
-export interface LegacyInstalledExtension {
-  id: string;
-  name: string;
-  description: string;
-  css?: string;
-  js?: string;
-  enabled: boolean;
-  installedAt: string;
-}
-
 interface UIState {
   sidebarOpen: boolean;
   sidebarWidth: number;
@@ -722,17 +708,13 @@ interface UIState {
   // ── Roleplay Effects ──
   weatherEffects: boolean;
 
-  // ── Legacy Custom Themes & Extensions ──
+  // ── Legacy Custom Themes ──
   /** Legacy active custom theme id (null = built-in default). Migration only. */
   activeCustomTheme: string | null;
   /** Legacy browser-local custom themes. Migration only. */
   customThemes: CustomTheme[];
   /** True once legacy browser-local themes have been migrated to the server. */
   hasMigratedCustomThemesToServer: boolean;
-  /** Retired browser-local extensions. Cleanup only — see useLegacyExtensionCleanup. */
-  installedExtensions: LegacyInstalledExtension[];
-  /** True once legacy browser-local extension records have been permanently cleared. */
-  hasMigratedExtensionsToServer: boolean;
 
   // ── Onboarding ──
   hasCompletedOnboarding: boolean;
@@ -979,9 +961,6 @@ interface UIState {
   /** Legacy migration helpers for browser-local custom themes. */
   setHasMigratedCustomThemesToServer: (v: boolean) => void;
   clearLegacyCustomThemes: () => void;
-  /** Legacy cleanup helpers for retired browser-local extensions. */
-  setHasMigratedExtensionsToServer: (v: boolean) => void;
-  clearLegacyExtensions: () => void;
   setHasCompletedOnboarding: (v: boolean) => void;
   setGameTutorialDisabled: (v: boolean) => void;
   dismissLinkApiBanner: () => void;
@@ -1353,8 +1332,6 @@ export const useUIStore = create<UIState>()(
       activeCustomTheme: null,
       customThemes: [],
       hasMigratedCustomThemesToServer: false,
-      installedExtensions: [],
-      hasMigratedExtensionsToServer: false,
       hasCompletedOnboarding: false,
       gameTutorialDisabled: false,
       linkApiBannerDismissed: false,
@@ -2201,8 +2178,6 @@ export const useUIStore = create<UIState>()(
       setImpersonateBlockAgents: (v) => set({ impersonateBlockAgents: v }),
       setHasMigratedCustomThemesToServer: (v) => set({ hasMigratedCustomThemesToServer: v }),
       clearLegacyCustomThemes: () => set({ customThemes: [], activeCustomTheme: null }),
-      setHasMigratedExtensionsToServer: (v) => set({ hasMigratedExtensionsToServer: v }),
-      clearLegacyExtensions: () => set({ installedExtensions: [] }),
       setHasCompletedOnboarding: (v) => set({ hasCompletedOnboarding: v }),
       setGameTutorialDisabled: (v) => set({ gameTutorialDisabled: v }),
       dismissLinkApiBanner: () => set({ linkApiBannerDismissed: true }),
@@ -2225,7 +2200,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: "marinara-engine-ui",
-      version: 80,
+      version: 81,
       // Debounce localStorage writes to avoid sync I/O on every state change
       storage: createJSONStorage(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -2412,12 +2387,6 @@ export const useUIStore = create<UIState>()(
           }
           if (persisted.intuitiveSwipeRerollLatest === undefined) {
             persisted.intuitiveSwipeRerollLatest = false;
-          }
-        }
-        // v17 -> v18: add retired add-on cleanup completion flag.
-        if (version <= 17) {
-          if (persisted.hasMigratedExtensionsToServer === undefined) {
-            persisted.hasMigratedExtensionsToServer = false;
           }
         }
         // v18 -> v19: add impersonate CYOA opt-in and split full-body sprite scale from portrait scale.
@@ -2794,6 +2763,10 @@ export const useUIStore = create<UIState>()(
             persisted.defaultDialogueColor = "";
           }
         }
+        if (version <= 80) {
+          delete persisted.installedExtensions;
+          delete persisted.hasMigratedExtensionsToServer;
+        }
         persisted.appAccentRgbMode = persisted.appAccentRgbMode === true;
         persisted.customCursorEnabled = persisted.customCursorEnabled !== false;
         persisted.professorMariSuggestionsEnabled = persisted.professorMariSuggestionsEnabled !== false;
@@ -2954,8 +2927,6 @@ export const useUIStore = create<UIState>()(
         hasMigratedCustomThemesToServer: state.hasMigratedCustomThemesToServer,
         activeCustomTheme: state.activeCustomTheme,
         customThemes: state.customThemes,
-        installedExtensions: state.installedExtensions,
-        hasMigratedExtensionsToServer: state.hasMigratedExtensionsToServer,
         hasCompletedOnboarding: state.hasCompletedOnboarding,
         linkApiBannerDismissed: state.linkApiBannerDismissed,
         echoChamberOpen: state.echoChamberOpen,

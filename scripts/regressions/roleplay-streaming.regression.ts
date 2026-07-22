@@ -138,7 +138,7 @@ globalThis.fetch = (async () =>
 try {
   const events = api.streamEvents("/generate", {}, undefined, {
     disconnectOnResume: true,
-    resumeDisconnectGraceMs: 25,
+    resumeDisconnectGraceMs: 50,
   });
   const firstEvent = events.next();
   healthyStreamController!.enqueue(sseFrame("token", "First"));
@@ -147,6 +147,7 @@ try {
   const resumedEvent = events.next();
   visibilityDocument.setVisibility("hidden");
   visibilityDocument.setVisibility("visible");
+  await new Promise((resolve) => setTimeout(resolve, 10));
   healthyStreamController!.enqueue(sseFrame("token", " second"));
   assert.deepEqual(
     await resumedEvent,

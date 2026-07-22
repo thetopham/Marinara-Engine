@@ -1152,7 +1152,10 @@ const cases: RegressionCase[] = [
     name: "Spotify playlist candidates suppress the extended recent-track window",
     async run() {
       const originalFetch = globalThis.fetch;
-      const recentTrackUris = Array.from({ length: 100 }, (_, index) => `spotify:track:recent${index}`);
+      const recentTrackUris = Array.from(
+        { length: SPOTIFY_RECENT_TRACK_HISTORY_LIMIT },
+        (_, index) => `spotify:track:recent${index}`,
+      );
       const freshTrackUris = Array.from({ length: 50 }, (_, index) => `spotify:track:fresh${index}`);
       const allTrackUris = [...recentTrackUris, ...freshTrackUris];
 
@@ -1180,7 +1183,6 @@ const cases: RegressionCase[] = [
       }) as typeof fetch;
 
       try {
-        assert.ok(SPOTIFY_RECENT_TRACK_HISTORY_LIMIT >= recentTrackUris.length);
         const results = await executeToolCalls(
           [
             {

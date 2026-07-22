@@ -1250,6 +1250,14 @@ export function createChatsStorage(db: DB) {
       return db.select().from(messageSwipes).where(eq(messageSwipes.messageId, messageId)).orderBy(messageSwipes.index);
     },
 
+    /** Read swipe rows for a message set with one linear file-store scan. */
+    async listSwipesByMessageIds(messageIds: string[]) {
+      if (messageIds.length === 0) return [];
+      const wanted = new Set(messageIds);
+      const rows = await db.select().from(messageSwipes);
+      return rows.filter((row) => wanted.has(row.messageId));
+    },
+
     async addSwipe(messageId: string, content: string, silent?: boolean) {
       return withPatchQueue(messageExtraPatchQueues, messageId, async () => {
         const existing = await this.getSwipes(messageId);

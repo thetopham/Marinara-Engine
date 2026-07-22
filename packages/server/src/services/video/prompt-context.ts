@@ -122,7 +122,7 @@ export function resolveGalleryVideoNarrationSummary(
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (!message || message.role === "user") continue;
+    if (!message || message.role !== "assistant") continue;
     const summary = summarizeVideoNarration(message.content, maxLength);
     if (summary) return summary;
   }

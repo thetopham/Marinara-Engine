@@ -2545,6 +2545,18 @@ const cases: RegressionCase[] = [
           extra: "{malformed",
         },
         {
+          id: "later-system-event",
+          role: "system",
+          content: "A system event records a participant joining the chat.",
+          extra: "{}",
+        },
+        {
+          id: "later-narrator-event",
+          role: "narrator",
+          content: "An unrelated narrator event should not become animation direction.",
+          extra: "{}",
+        },
+        {
           id: "latest-user-turn",
           role: "user",
           content: "Follow Sol.",

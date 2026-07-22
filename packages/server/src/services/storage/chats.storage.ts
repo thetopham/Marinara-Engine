@@ -1250,7 +1250,11 @@ export function createChatsStorage(db: DB) {
       return db.select().from(messageSwipes).where(eq(messageSwipes.messageId, messageId)).orderBy(messageSwipes.index);
     },
 
-    /** Read swipe rows for a message set with one linear file-store scan. */
+    /**
+     * Read swipe rows for a message set with one linear file-store scan.
+     * The file-native store scans the table for `inArray` too, where membership
+     * is O(ids) per row; chunking that query would also rescan the table.
+     */
     async listSwipesByMessageIds(messageIds: string[]) {
       if (messageIds.length === 0) return [];
       const wanted = new Set(messageIds);

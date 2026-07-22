@@ -121,6 +121,7 @@ export interface NoodleShellProps {
   personaAccount: NoodleAccount | null;
   sortedPersonaAccounts: NoodleAccount[];
   visiblePersonaAccounts: NoodleAccount[];
+  linkedPublicAccountIds?: ReadonlySet<string>;
   onLoadMorePersonaAccounts: () => void;
   onSwitchPersona: (account: NoodleAccount, mobile: boolean) => void;
   accountSwitcherOpen: boolean;
@@ -162,6 +163,7 @@ export function NoodleShell({
   personaAccount,
   sortedPersonaAccounts,
   visiblePersonaAccounts,
+  linkedPublicAccountIds,
   onLoadMorePersonaAccounts,
   onSwitchPersona,
   accountSwitcherOpen,
@@ -329,6 +331,11 @@ export function NoodleShell({
                                 <span className="block truncate text-xs text-[var(--muted-foreground)]">
                                   @{account.handle}
                                 </span>
+                                {linkedPublicAccountIds?.has(account.id) && (
+                                  <span className="mt-0.5 block text-[0.65rem] font-semibold text-[var(--noodle-blue)]" aria-label="NoodleR profile linked">
+                                    NoodleR linked
+                                  </span>
+                                )}
                               </span>
                               {selected && <span className="h-2 w-2 rounded-full bg-[var(--noodle-blue)]" />}
                             </button>
@@ -474,6 +481,11 @@ export function NoodleShell({
                                 <span className="block truncate text-[0.68rem] text-[var(--muted-foreground)]">
                                   @{account.handle}
                                 </span>
+                                {linkedPublicAccountIds?.has(account.id) && (
+                                  <span className="mt-0.5 block text-[0.62rem] font-semibold text-[var(--noodle-blue)]" aria-label="NoodleR profile linked">
+                                    NoodleR linked
+                                  </span>
+                                )}
                               </span>
                               {selected && <span className="h-2 w-2 rounded-full bg-[var(--noodle-blue)]" />}
                             </button>

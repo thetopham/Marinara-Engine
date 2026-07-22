@@ -534,6 +534,7 @@ async function buildRetryAgentContext(args: {
   db: Parameters<typeof buildPromptMacroContext>[0]["db"];
   chat: any;
   chatMeta: Record<string, unknown>;
+  currentBackground: string | null;
   recentMessages: any[];
   enabledConfigs: any[];
   resolvedAgentTypes: Set<string>;
@@ -557,6 +558,7 @@ async function buildRetryAgentContext(args: {
     db,
     chat,
     chatMeta,
+    currentBackground,
     recentMessages,
     enabledConfigs,
     resolvedAgentTypes,
@@ -935,7 +937,7 @@ async function buildRetryAgentContext(args: {
           })),
       );
       agentContext.memory._availableBackgrounds = availableBackgrounds;
-      agentContext.memory._currentBackground = chatMeta.background ?? null;
+      agentContext.memory._currentBackground = currentBackground;
     } catch (err) {
       logger.warn(err, "[retry-agents] Failed to load available backgrounds for retry");
     }
@@ -946,7 +948,7 @@ async function buildRetryAgentContext(args: {
     illustratorBackgroundGenerationEnabled((chat as { mode?: unknown }).mode, chatMeta)
   ) {
     agentContext.memory._illustratorBackgroundGenerationEnabled = true;
-    agentContext.memory._currentBackground = chatMeta.background ?? null;
+    agentContext.memory._currentBackground = currentBackground;
   }
 
   const spotifyRetryConfig = enabledConfigs.find((config) => config.type === "spotify");
@@ -3436,6 +3438,11 @@ async function applyRetryResultEffects(args: {
         chatName: chat.name,
         chatMode: (chat as { mode?: unknown }).mode === "visual_novel" ? "visual_novel" : "roleplay",
         chatMetadata: freshMeta,
+        currentBackground:
+          backgroundBeforeGeneration ??
+          (typeof agentContext.memory._currentBackground === "string"
+            ? agentContext.memory._currentBackground
+            : null),
         illustratorAgent: illustratorEntry.resolved,
         assistantResponse: agentContext.mainResponse ?? "",
         decisionReason: backgroundDecisionReason,
@@ -3515,6 +3522,8 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       agentTypes: string[];
       streaming?: boolean;
       debugMode?: boolean;
+      /** Background currently displayed on the active chat surface. */
+      currentBackground?: string | null;
       /** Serialize Roleplay Illustrator provider calls when enabled. */
       queueImageGenerationRequests?: boolean;
       /** Pause a manual Illustrator retry after prompt compilation so the client can review it. */
@@ -3539,6 +3548,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       agentTypes,
       streaming = true,
       debugMode = false,
+      currentBackground: requestedCurrentBackground,
       queueImageGenerationRequests = true,
       reviewImagePromptsBeforeSend = false,
       agentPromptTemplateIds,
@@ -3600,6 +3610,12 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       }
 
       const chatMeta = parseExtra(chat.metadata);
+      const currentBackgroundSource =
+        requestedCurrentBackground !== undefined ? requestedCurrentBackground : chatMeta.background;
+      const currentBackground =
+        typeof currentBackgroundSource === "string" && currentBackgroundSource.trim()
+          ? currentBackgroundSource.trim()
+          : null;
       const requireAgentWriteApproval = agentWriteApprovalRequired(chatMeta);
       const allMessages = await chats.listMessages(chatId);
       let startIdx = 0;
@@ -3706,6 +3722,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
         db: app.db,
         chat,
         chatMeta,
+        currentBackground,
         recentMessages,
         enabledConfigs,
         resolvedAgentTypes: new Set(resolvedAgents.map((a) => a.resolved.type)),
@@ -3727,6 +3744,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
               db: app.db,
               chat,
               chatMeta,
+              currentBackground,
               recentMessages: preGenerationRecentMessages,
               enabledConfigs,
               resolvedAgentTypes: new Set(resolvedAgents.map((a) => a.resolved.type)),

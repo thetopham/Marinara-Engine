@@ -41,7 +41,7 @@
     "regression:roleplay": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/roleplay-streaming.regression.ts && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/illustrator-visual-retry.regression.ts",
     "regression:sprites": "pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/sprite-background.regression.ts",
     "smoke:ui": "playwright test -c playwright.config.ts",
-    "test": "node ./scripts/check-windows-installer-layout.mjs && pnpm -r run test",
+    "test": "node ./scripts/check-windows-installer-layout.mjs && pnpm regression",
     "version:sync": "node ./scripts/sync-version.mjs",
     "version:check": "node ./scripts/check-version-drift.mjs",
     "credits:sync": "node ./scripts/sync-credits.mjs",

@@ -3328,10 +3328,13 @@ test("Roleplay setup points empty agent libraries to the Agents tab", async ({ p
     await nextButton.click();
     await expect(page.getByRole("heading", { name: "Pick a Preset", exact: true })).toBeVisible();
     await nextButton.click();
-    const skipChoices = page.getByRole("button", { name: "Skip", exact: true });
-    await expect(skipChoices).toBeVisible();
-    await skipChoices.click();
-    await expect(page.getByRole("heading", { name: "Persona & Characters", exact: true })).toBeVisible();
+    const participantsHeading = page.getByRole("heading", { name: "Persona & Characters", exact: true });
+    const choiceDialog = page.getByRole("dialog", { name: "Configure Preset Variables" });
+    await expect(choiceDialog.or(participantsHeading)).toBeVisible();
+    if (await choiceDialog.isVisible()) {
+      await choiceDialog.getByRole("button", { name: "Skip", exact: true }).click();
+    }
+    await expect(participantsHeading).toBeVisible();
     await nextButton.click();
     await expect(page.getByRole("heading", { name: "Attach Lorebooks", exact: true })).toBeVisible();
     await nextButton.click();
@@ -4345,6 +4348,12 @@ test("Noodle posts tag invited characters with @handle mentions", async ({ page 
 
     await page.reload();
     await page.locator('[data-tour="noodle-tab"]').click();
+    const desktopHome = noodle.getByRole("button", { name: "Home", exact: true });
+    if (await desktopHome.isVisible()) {
+      await desktopHome.click();
+    } else {
+      await noodle.getByRole("button", { name: "Noodle home" }).click();
+    }
     const replyMention = page
       .locator(`[data-noodle-interaction-id="${reply.id}"]`)
       .getByRole("button", { name: "View @professor_mari profile" });
@@ -5198,7 +5207,7 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   expect(retainedDuringCollapse).toBe(true);
   await expect(drawer).toHaveCount(0);
 
-  await noodle.getByRole("button", { name: "Open Noodle account menu" }).click();
+  await bottomNav.getByRole("button", { name: "Open Noodle account menu" }).click();
   await expect(accountMenu).toBeVisible();
   await accountMenu.getByRole("button", { name: "Post", exact: true }).click();
   await expect(drawer).toHaveCount(0);
@@ -5206,7 +5215,7 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   await expect(composer).toBeVisible();
   await page.getByRole("button", { name: "Close New post" }).click();
 
-  await noodle.getByRole("button", { name: "Open Noodle account menu" }).click();
+  await bottomNav.getByRole("button", { name: "Open Noodle account menu" }).click();
   await accountMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(noodle.getByRole("heading", { name: "Noodle settings" })).toBeVisible();
@@ -5225,18 +5234,22 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   await noodle.getByRole("button", { name: "Back to Noodle timeline" }).click();
   await expect(header).toBeVisible();
 
-  await noodle.getByRole("button", { name: "Open Noodle account menu" }).click();
+  await bottomNav.getByRole("button", { name: "Open Noodle account menu" }).click();
   await accountMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(drawer).toHaveCount(0);
 
-  const timelineScroller = noodle.locator("main");
-  await timelineScroller.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  const timelineScroller = noodle.locator('[data-component="NoodleView.TimelineScroller"]');
+  await timelineScroller.evaluate((element) => {
+    const content = element.firstElementChild as HTMLElement | null;
+    if (content) content.style.minHeight = `${element.clientHeight + 100}px`;
+    element.scrollTo({ top: element.scrollHeight });
+  });
   expect(await timelineScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await bottomNav.getByRole("button", { name: "Noodle home" }).click();
   await expect(header).toBeVisible();
   await expect.poll(() => timelineScroller.evaluate((element) => element.scrollTop)).toBe(0);
 
-  await noodle.getByRole("button", { name: "Open Noodle account menu" }).click();
+  await bottomNav.getByRole("button", { name: "Open Noodle account menu" }).click();
   await accountMenu.getByRole("button", { name: "Profile", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(noodle.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();

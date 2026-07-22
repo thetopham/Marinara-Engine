@@ -2,7 +2,7 @@
 // Routes: Generation (SSE Streaming with Tool Use + Agent Pipeline)
 // ──────────────────────────────────────────────
 import type { FastifyInstance } from "fastify";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
   generateRequestSchema,
@@ -16,7 +16,6 @@ import {
   DEFERRED_RELOCATION_CONDITIONAL_TOKEN_RE,
   parseDeferredConditionalPayload,
   selectConditionalPayloadBranch,
-  LIMITS,
   coerceGameStateTextValue,
   appendChatSummaryEntryToMetadata,
   applyQuestUpdatesToPlayerStats,
@@ -47,9 +46,6 @@ import type {
   AgentContext,
   AgentCallDebugEvent,
   AgentResult,
-  AgentPhase,
-  CharacterStat,
-  GameState,
   HapticDeviceCommand,
   PlayerStats,
   LorebookEntryTimingState,
@@ -96,7 +92,6 @@ import {
 } from "../services/lorebook/game-lorebook-scope.js";
 import { lorebookEntryPassesContextFilters, type GameStateForScanning } from "../services/lorebook/keyword-scanner.js";
 import { injectAtDepth } from "../services/lorebook/prompt-injector.js";
-import { createLLMProvider } from "../services/llm/provider-registry.js";
 import { resolveChatSummaryConnection } from "../services/chat-summary/connection-resolution.js";
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import {
@@ -169,25 +164,15 @@ import {
   stripConversationPromptTimestamps,
   stripConversationResponseEnvelope,
 } from "../services/conversation/transcript-sanitize.js";
-import {
-  formatZonedConversationDate,
-  formatZonedConversationTime,
-  normalizePromptTimeZone,
-  toZonedWallClockDate,
-} from "../services/conversation/timezone.js";
+import { normalizePromptTimeZone, toZonedWallClockDate } from "../services/conversation/timezone.js";
 import { countUserMessagesAfterSummaryAnchor } from "../services/conversation/auto-summary.service.js";
 import { executeKnowledgeRetrieval } from "../services/agents/knowledge-retrieval.js";
 import { executeKnowledgeRouter } from "../services/agents/knowledge-router.js";
 import { extractFileText, getSourceFilePath } from "./knowledge-sources.routes.js";
 import { gameStateSnapshots as gameStateSnapshotsTable } from "../db/schema/index.js";
-import { chats as chatsTable } from "../db/schema/index.js";
 import { eq } from "../db/file-query.js";
-import {
-  PROFESSOR_MARI_ID,
-  normalizeCustomEmojiSelection,
-  type GenerationParameterSendMap,
-} from "@marinara-engine/shared";
-import { chunkAndEmbedMessages, embedMemoryRecallTexts } from "../services/memory-recall.js";
+import { PROFESSOR_MARI_ID, type GenerationParameterSendMap } from "@marinara-engine/shared";
+import { chunkAndEmbedMessages } from "../services/memory-recall.js";
 import {
   isMemoryRecallVectorizerAvailable,
   resolveMemoryRecallEmbeddingSource,
@@ -271,7 +256,6 @@ import {
   CONVERSATION_NO_REPEAT_INSTRUCTION,
   conversationPromptHistoryContent,
   formatConversationGroupOutputFormat,
-  latestHistoryUserContent,
   resolvePresetModePrompt,
 } from "./generate/conversation-prompt-formatting.js";
 import {
@@ -308,11 +292,7 @@ import { registerRetryAgentsRoute } from "./generate/retry-agents-route.js";
 import { fingerprintChatSummary } from "../services/prompt/chat-summary-fingerprint.js";
 import { sendSseEvent, startSseKeepalive, startSseReply, trySendSseEvent } from "./generate/sse.js";
 import { runTurnGameBotTurns } from "../services/turn-games/turn-game-bot-runner.service.js";
-import {
-  getActiveTurnGame,
-  getTurnGameContextBuilder,
-  startTurnGame,
-} from "../services/turn-games/turn-game-runner.service.js";
+import { getTurnGameContextBuilder } from "../services/turn-games/turn-game-runner.service.js";
 import { buildRecentSocialMediaActivityBlock } from "../services/noodle/noodle-context.js";
 import { normalizeContextInjections } from "./generate/agent-normalizers.js";
 import {
@@ -386,7 +366,6 @@ import {
   clearUnusedRuntimeAgentSections,
   formatAgentInjections,
   makeRuntimeAgentSectionTokens,
-  pruneEmptyPromptWrappers,
   replaceRuntimeAgentSection,
   splitRuntimeHandledAgentInjections,
   toRuntimeAgentSectionType,
@@ -406,11 +385,7 @@ import {
   stripSpacesBeforeLineBreaks,
   trimIncompleteModelEnding,
 } from "../services/generation/generation-text-utils.js";
-import {
-  areConversationSchedulesEnabled,
-  formatSmartGroupCandidates,
-  parsePromptPresetChoices,
-} from "../services/generation/conversation-context-utils.js";
+import { formatSmartGroupCandidates, parsePromptPresetChoices } from "../services/generation/conversation-context-utils.js";
 import { recoverImplicitSelfieCommand } from "../services/generation/selfie-command-recovery.js";
 import {
   buildLorebookScanMessagesWithGenerationGuide,
@@ -421,7 +396,6 @@ import {
 } from "../services/generation/lorebook-generation-runtime.js";
 import {
   addLocationEntry,
-  addEventEntry,
   addInventoryEntry,
   upsertQuest,
   addNpcEntry,
@@ -450,7 +424,6 @@ import {
 } from "../services/generation/prompt-message-scope.js";
 import {
   applyProviderMaxTokensOverride,
-  normalizeAgentMaxTokens,
   readChatCompletionsReasoningMetadata,
   shouldReplayStoredChatCompletionsReasoning,
 } from "../services/generation/generation-parameters.js";
@@ -477,7 +450,7 @@ import { injectCommittedTrackerContext } from "../services/generation/committed-
 import { injectGameGmPromptRuntime } from "../services/generation/game-gm-prompt-runtime.js";
 import { mergeConversationCharacterMemories } from "../services/generation/conversation-memory-context.js";
 import { injectMemoryRecallContext } from "../services/generation/memory-recall-context.js";
-import { resolveAgentRunInterval, shouldSkipAgentByAssistantInterval } from "../services/generation/agent-cadence.js";
+import { shouldSkipAgentByAssistantInterval } from "../services/generation/agent-cadence.js";
 import {
   createAgentEventDispatcher,
   shouldDeferExpressionAgentEvent,
@@ -2627,7 +2600,6 @@ export async function generateRoutes(app: FastifyInstance) {
         });
         const {
           connectionParams,
-          chatParams,
           resolvedEffort,
           enableThinking,
           isClaudeNoSampling,

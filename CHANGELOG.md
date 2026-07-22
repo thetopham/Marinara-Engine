@@ -20,6 +20,9 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Stopped Roleplay generation immediately when **Stop** is pressed by sending the explicit server cancellation through the authenticated API client instead of allowing CSRF protection to discard it.
+- Made renamed Chat Summary preset markers use their authored wrapper name and resolved character-dependent summary macros against each individual group responder, allowing conditional summary knowledge to remain scoped to its intended character.
+- Kept Chat Summary entry editing responsive by isolating the live title and content draft from the rest of the summary popover until **Save** is pressed.
 - Kept automatic Roleplay Illustrator images on the same configured illustration canvas and requested orientation as manual Gallery generation, instead of leaving unattended images in a portrait/selfie-shaped layout (#3893).
 - Expanded Professor Mari's chat composer through approximately six lines before it scrolls internally (#3885).
 - Consolidated Cross-Chat Awareness under Connected Chats and restored normal spacing between Noodle references and Discord webhook controls (#3889).

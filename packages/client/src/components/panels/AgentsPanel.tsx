@@ -46,6 +46,7 @@ import { cn } from "../../lib/utils";
 import { sortBasicPanelItems } from "../../lib/panel-sort";
 import { downloadZipFile } from "../../lib/download-zip";
 import {
+  countSkippedAgentImportFunctions,
   createAgentFolderPackageFilename,
   createAgentFolderPackageFiles,
   normalizeAgentImportEntry,
@@ -526,15 +527,17 @@ export function AgentsPanel() {
         const entries = isZipFile(file)
           ? await (async () => {
               const files = await readTextFilesFromZip(file);
+              const agents = collectFolderPackageEntries(files, {
+                rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
+                collectionKeys: ["agents"],
+              });
+              const functions = collectFolderPackageEntries(files, {
+                rootFilenames: ["marinara-agents.json", "marinara-agent.json", "marinara-functions.json"],
+                collectionKeys: ["functions", "customTools", "tools"],
+              });
               return {
-                agents: collectFolderPackageEntries(files, {
-                  rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
-                  collectionKeys: ["agents"],
-                }),
-                functions: collectFolderPackageEntries(files, {
-                  rootFilenames: ["marinara-agents.json", "marinara-agent.json", "marinara-functions.json"],
-                  collectionKeys: ["functions", "customTools", "tools"],
-                }),
+                agents,
+                skippedFunctionCount: countSkippedAgentImportFunctions(agents, functions),
               };
             })()
           : await (async () => {
@@ -548,17 +551,10 @@ export function AgentsPanel() {
                     resolveTextFile: () => null,
                   }),
                 ),
-                functions: getFolderImportEntries(parsed, ["functions", "customTools", "tools"]).map(
-                  (raw): FolderPackageImportEntry => ({
-                    raw,
-                    path: file.name,
-                    basePath: "",
-                    resolveTextFile: () => null,
-                  }),
-                ),
+                skippedFunctionCount: getFolderImportEntries(parsed, ["functions", "customTools", "tools"]).length,
               };
             })();
-        await importAgentEntries(entries.agents, entries.functions.length);
+        await importAgentEntries(entries.agents, entries.skippedFunctionCount);
       } catch (error) {
         setAgentImportError(error instanceof Error ? error.message : "Failed to import agents");
       }
@@ -578,10 +574,11 @@ export function AgentsPanel() {
           rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
           collectionKeys: ["agents"],
         });
-        const skippedFunctionCount = collectFolderPackageEntries(files, {
+        const functionEntries = collectFolderPackageEntries(files, {
           rootFilenames: ["marinara-agents.json", "marinara-agent.json", "marinara-functions.json"],
           collectionKeys: ["functions", "customTools", "tools"],
-        }).length;
+        });
+        const skippedFunctionCount = countSkippedAgentImportFunctions(entries, functionEntries);
         await importAgentEntries(entries, skippedFunctionCount);
       } catch (error) {
         setAgentImportError(error instanceof Error ? error.message : "Failed to import agents");

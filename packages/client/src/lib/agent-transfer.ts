@@ -5,7 +5,12 @@ import {
   sanitizeFolderSegment,
 } from "@marinara-engine/shared";
 import type { ZipFileInput } from "./download-zip";
-import { reservePackageFolderSegment } from "./folder-package-transfer";
+import {
+  getPackagePathBasename,
+  normalizePackagePath,
+  reservePackageFolderSegment,
+  type FolderPackageImportEntry,
+} from "./folder-package-transfer";
 
 export type AgentTransferConfig = {
   type: string;
@@ -37,6 +42,23 @@ const TRANSFER_UNSAFE_AGENT_SETTING_KEYS = new Set([
 ]);
 
 const TRANSFER_UNSAFE_ENABLED_TOOLS = new Set(["save_lorebook_entry"]);
+const AGENT_PACKAGE_ROOT_FILENAMES = new Set(["marinara-agent.json", "marinara-agents.json"]);
+
+export function countSkippedAgentImportFunctions(
+  agentEntries: FolderPackageImportEntry[],
+  functionEntries: FolderPackageImportEntry[],
+) {
+  const claimedAgentPaths = new Set(
+    agentEntries.map((entry) => normalizePackagePath(entry.path).toLowerCase()),
+  );
+  return functionEntries.filter((entry) => {
+    const path = normalizePackagePath(entry.path).toLowerCase();
+    return (
+      !claimedAgentPaths.has(path) &&
+      !AGENT_PACKAGE_ROOT_FILENAMES.has(getPackagePathBasename(path).toLowerCase())
+    );
+  }).length;
+}
 
 export function sanitizeAgentSettingsForTransfer(settings: Record<string, unknown>) {
   const sanitized = { ...settings };

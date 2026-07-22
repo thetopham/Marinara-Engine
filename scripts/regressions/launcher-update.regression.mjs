@@ -46,9 +46,38 @@ const unavailableReminder = await checkForLauncherUpdate({
 });
 assert.equal(unavailableReminder, null);
 
-for (const launcherName of ["start.sh", "start-termux.sh", "start.bat"]) {
+function assertPosixReminderRouting(launcherName) {
   const launcherSource = readFileSync(join(repositoryRoot, launcherName), "utf8");
-  assert.match(launcherSource, /check-launcher-update\.mjs/u);
+  const updateBlockStart = launcherSource.indexOf("# ── Auto-update from Git ──");
+  assert.notEqual(updateBlockStart, -1, `${launcherName} must define its update decision block`);
+
+  const updateBlock = launcherSource.slice(updateBlockStart);
+  const skipBranch = updateBlock.indexOf('if [ "$SKIP_UPDATE" = "1" ]; then');
+  const disabledBranch = updateBlock.indexOf('elif [ "$AUTO_UPDATE_DISABLED" = "1" ]; then');
+  const reminderInvocation = updateBlock.indexOf("node scripts/check-launcher-update.mjs");
+  const enabledUpdateBranch = updateBlock.indexOf('elif [ -d ".git" ]; then');
+
+  assert.ok(skipBranch >= 0, `${launcherName} must handle --skip-update first`);
+  assert.ok(disabledBranch > skipBranch, `${launcherName} must keep the reminder after --skip-update`);
+  assert.ok(
+    reminderInvocation > disabledBranch,
+    `${launcherName} must invoke the reminder only after automatic updates are found disabled`,
+  );
+  assert.ok(
+    enabledUpdateBranch > reminderInvocation,
+    `${launcherName} must keep the reminder out of the automatic-update-enabled branch`,
+  );
+  assert.equal(
+    updateBlock.match(/node scripts\/check-launcher-update\.mjs/gu)?.length,
+    1,
+    `${launcherName} must have exactly one reminder invocation`,
+  );
 }
+
+assertPosixReminderRouting("start.sh");
+assertPosixReminderRouting("start-termux.sh");
+
+const windowsLauncherSource = readFileSync(join(repositoryRoot, "start.bat"), "utf8");
+assert.match(windowsLauncherSource, /check-launcher-update\.mjs/u);
 
 console.log("Launcher update reminder regressions passed.");

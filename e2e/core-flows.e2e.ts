@@ -83,7 +83,8 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   await expect(announcement).toBeVisible();
   await expect(announcement.getByText(`Version ${APP_VERSION}`, { exact: true })).toBeVisible();
   await expect(announcement.getByRole("heading", { name: "A safer engine with finer control." })).toBeVisible();
-  await expect(announcement.getByText(/retired Extensions and sealed their unsafe code path/)).toBeVisible();
+  await expect(announcement.getByText(/removed Extensions, sealed their unsafe code path/)).toBeVisible();
+  await expect(announcement.getByText(/every old record to be cleared automatically/)).toBeVisible();
   await expect(announcement.getByText(/new prompt macros/)).toBeVisible();
   await expect(announcement.getByText(/character-specific Hide From AI controls/)).toBeVisible();
   await expect(announcement.getByText(/Grouped or Individual response handling/)).toBeVisible();
@@ -940,93 +941,60 @@ test("desktop Tracker stays in the Roleplay gutter without shifting the chat col
   }
 });
 
-test("extension install and update APIs stay retired", async ({ page }) => {
-  for (const data of [
-    {
-      name: "Blocked Browser Code Smoke",
-      runtime: "client",
-      js: "globalThis.__marinaraBlockedExtensionMarker = true;",
-      enabled: false,
-    },
-    {
-      name: "Blocked Server Code Smoke",
-      runtime: "server",
-      serverJs: "throw new Error('must never execute');",
-      enabled: true,
-    },
-    {
-      name: "Blocked CSS Extension Smoke",
-      runtime: "client",
-      css: ".extension-security-css-smoke { color: red; }",
-      enabled: false,
-    },
-  ]) {
-    const response = await page.request.post("/api/extensions", { data });
-    expect(response.status()).toBe(410);
-    expect(await response.json()).toEqual(expect.objectContaining({ code: "EXTENSIONS_DISABLED" }));
-  }
-
-  const updateResponse = await page.request.patch("/api/extensions/legacy-extension", {
-    data: { enabled: true },
-  });
-  expect(updateResponse.status()).toBe(410);
-  expect(await updateResponse.json()).toEqual(expect.objectContaining({ code: "EXTENSIONS_DISABLED" }));
-});
-
-test("stored legacy extensions stay inert and can only be removed", async ({ page }, testInfo) => {
-  test.skip(!testInfo.project.name.includes("desktop"), "One browser proves the shared extension loader boundary.");
-
-  const browserCodeName = "Legacy browser code";
-  const cssName = "Legacy extension CSS";
-  let records = [
-    {
-      id: "legacy-browser-code",
-      name: browserCodeName,
-      description: "Regression fixture",
-      runtime: "client",
-      css: null,
-      js: "globalThis.__marinaraBlockedExtensionMarker = true;",
-      serverJs: null,
-      enabled: true,
-      executionBlocked: true,
-      installedAt: new Date(0).toISOString(),
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-    },
-    {
-      id: "legacy-css-extension",
-      name: cssName,
-      description: "Regression fixture",
-      runtime: "client",
-      css: "#marinara-blocked-extension-style-marker { display: block; }",
-      js: null,
-      serverJs: null,
-      enabled: true,
-      executionBlocked: true,
-      installedAt: new Date(0).toISOString(),
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-    },
+test("extension API routes no longer exist", async ({ page }) => {
+  const requests = [
+    page.request.get("/api/extensions"),
+    page.request.post("/api/extensions", { data: { name: "Removed extension" } }),
+    page.request.patch("/api/extensions/removed-extension", { data: { enabled: true } }),
+    page.request.delete("/api/extensions/removed-extension"),
   ];
 
-  await page.route(/\/api\/extensions(?:\/[^/?]+)?(?:\?.*)?$/, async (route) => {
-    const method = route.request().method();
-    if (method === "GET") {
-      await route.fulfill({ contentType: "application/json", body: JSON.stringify(records) });
-      return;
-    }
-    if (method === "DELETE") {
-      const id = new URL(route.request().url()).pathname.split("/").pop();
-      records = records.filter((extension) => extension.id !== id);
-      await route.fulfill({ status: 204, body: "" });
-      return;
-    }
-    await route.continue();
-  });
+  for (const response of await Promise.all(requests)) {
+    expect(response.status()).toBe(404);
+  }
+});
+
+test("retired extension records disappear from local state and Settings", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "One browser proves the shared UI-state migration.");
 
   await page.goto("/");
-  await expect(page.locator('[data-tour="panel-settings"]')).toBeVisible();
-  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+      state: Record<string, unknown>;
+      version?: number;
+    };
+    stored.version = 80;
+    stored.state.installedExtensions = [
+      {
+        id: "legacy-browser-code",
+        name: "Legacy browser code",
+        description: "Regression fixture",
+        js: "globalThis.__marinaraBlockedExtensionMarker = true;",
+        enabled: true,
+        installedAt: new Date(0).toISOString(),
+      },
+    ];
+    stored.state.hasMigratedExtensionsToServer = false;
+    localStorage.setItem("marinara-engine-ui", JSON.stringify(stored));
+  });
+  await page.reload();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const stored = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+          state: Record<string, unknown>;
+          version?: number;
+        };
+        return {
+          version: stored.version,
+          hasExtensionRecords: Object.hasOwn(stored.state, "installedExtensions"),
+          hasCleanupFlag: Object.hasOwn(stored.state, "hasMigratedExtensionsToServer"),
+        };
+      }),
+    )
+    .toEqual({ version: 81, hasExtensionRecords: false, hasCleanupFlag: false });
+
   expect(
     await page.evaluate(
       () =>
@@ -1034,23 +1002,14 @@ test("stored legacy extensions stay inert and can only be removed", async ({ pag
           .__marinaraBlockedExtensionMarker,
     ),
   ).toBeUndefined();
-  await expect(page.locator("#marinara-ext-legacy-browser-code")).toHaveCount(0);
-  await expect(page.locator("#marinara-ext-legacy-css-extension")).toHaveCount(0);
 
   await page.locator('[data-tour="panel-settings"]').click();
   await page.getByRole("tab", { name: "Addons" }).click();
-  await expect(page.getByText("Extensions have been removed.")).toBeVisible();
-  await expect(page.getByText(browserCodeName, { exact: true })).toBeVisible();
-  await expect(page.getByText(cssName, { exact: true })).toBeVisible();
+  await expect(page.getByText("Theme Library", { exact: true })).toBeVisible();
+  await expect(page.getByText("Legacy Extension Cleanup", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Extensions have been removed/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import CSS Extension/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Export extension/i })).toHaveCount(0);
-
-  await page.getByRole("button", { name: `Remove legacy extension record ${browserCodeName}` }).click();
-  const dialog = page.getByRole("dialog", { name: "Remove Legacy Extension Record" });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Remove Record" }).click();
-  await expect(page.getByText(browserCodeName, { exact: true })).toHaveCount(0);
-  await expect(page.getByText(cssName, { exact: true })).toBeVisible();
 });
 
 test("Roleplay Active Context shows rich lorebook activation provenance", async ({ page, request }, testInfo) => {

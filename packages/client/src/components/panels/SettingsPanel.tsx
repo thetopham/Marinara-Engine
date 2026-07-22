@@ -21,7 +21,6 @@ import {
   type VisualTheme,
 } from "../../stores/ui.store";
 import { cn, copyToClipboard } from "../../lib/utils";
-import { useDeleteExtension, useExtensions } from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ADMIN_SECRET_STORAGE_KEY, ApiError, api, getPrivilegedActionErrorMessage } from "../../lib/api-client";
 import { chatBackgroundUrlToMetadata } from "../../lib/backgrounds";
@@ -52,7 +51,6 @@ import {
   type ImagePromptMode,
   type ImageStyleProfile,
   type ImageStyleProfileSettings,
-  type InstalledExtension,
   type QuoteFormat,
   type Theme,
   type VideoGenerationUserSettings,
@@ -159,7 +157,7 @@ const TABS = [
     icon: WandSparkles,
     description: "Image/video defaults and prompt templates.",
   },
-  { id: "addons", label: "Addons", icon: Puzzle, description: "Custom themes and legacy extension cleanup." },
+  { id: "addons", label: "Addons", icon: Puzzle, description: "Custom themes and theme CSS." },
   { id: "import", label: "Imports", icon: Download, description: "Imports, asset folders, and data transfer." },
   {
     id: "advanced",
@@ -192,7 +190,6 @@ type SettingsSectionId =
   | "chat-backgrounds"
   | "prompt-overrides"
   | "theme-library"
-  | "extension-library"
   | "profile-marinara"
   | "sillytavern-import"
   | "admin-access"
@@ -387,13 +384,6 @@ const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
     label: "Prompt Overrides",
     description: "Reusable image and video prompt templates.",
     aliases: ["prompt", "template", "override", "video prompt", "image prompt"],
-  },
-  {
-    id: "extension-library",
-    tab: "addons",
-    label: "Legacy Extension Cleanup",
-    description: "Remove disabled extension records left by older versions.",
-    aliases: ["extensions", "addons", "legacy", "remove", "cleanup", "security"],
   },
   {
     id: "theme-library",
@@ -4843,15 +4833,7 @@ function GenerationsSettings() {
 }
 
 function AddonsSettings() {
-  return (
-    <div className="flex flex-col gap-3">
-      <SettingsIntro>
-        Custom themes remain available. The extension feature has been removed for security.
-      </SettingsIntro>
-      <LegacyExtensionsCleanup />
-      <ThemesSettings showIntro={false} />
-    </div>
-  );
+  return <ThemesSettings />;
 }
 
 function ThemesSettings({ showIntro = true }: { showIntro?: boolean } = {}) {
@@ -5432,94 +5414,6 @@ function triggerFilePicker(options: {
   el.click();
 }
 
-function LegacyExtensionsCleanup() {
-  const { data: extensions = [], isLoading } = useExtensions();
-  const deleteExtension = useDeleteExtension();
-
-  const handleDeleteExtension = async (extension: InstalledExtension) => {
-    const confirmed = await showConfirmDialog({
-      title: "Remove Legacy Extension Record",
-      message: `Remove "${extension.name}" and its saved extension data? Extensions are already disabled.`,
-      confirmLabel: "Remove Record",
-      tone: "destructive",
-    });
-    if (!confirmed) return;
-
-    try {
-      await deleteExtension.mutateAsync(extension.id);
-      toast.success(`Legacy extension record "${extension.name}" removed`);
-    } catch (err) {
-      toast.error(getPrivilegedActionErrorMessage(err, "Failed to remove legacy extension record."));
-    }
-  };
-
-  return (
-    <SettingsSection
-      title="Legacy Extension Cleanup"
-      description="Remove disabled extension records left by older Marinara versions."
-      icon={<Puzzle size="0.875rem" />}
-      {...getSettingsSectionAnchorProps("extension-library")}
-    >
-      <div className="flex flex-col gap-3">
-        <div
-          role="status"
-          className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5 text-[0.6875rem] leading-relaxed text-amber-100"
-        >
-          <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-          <span>
-            <strong>Extensions have been removed.</strong> Marinara does not load extension code or styles. Records
-            below are inert and retained only so you can delete them.
-          </span>
-        </div>
-
-        {isLoading ? (
-          <p className="mari-chrome-text-muted py-2 text-center text-[0.625rem]">Checking for legacy records…</p>
-        ) : extensions.length === 0 ? (
-          <p className="mari-chrome-text-muted py-2 text-center text-[0.625rem]">No legacy extension records remain.</p>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-              Disabled records
-            </span>
-            {extensions.map((extension) => (
-              <div
-                key={extension.id}
-                className="flex items-start justify-between gap-3 rounded-lg bg-[var(--secondary)]/50 p-2.5 ring-1 ring-[var(--border)]"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate text-xs font-medium text-[var(--foreground)]">{extension.name}</span>
-                    {extension.version && (
-                      <span className="text-[0.625rem] text-[var(--muted-foreground)]">v{extension.version}</span>
-                    )}
-                    <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-                      Disabled
-                    </span>
-                  </div>
-                  {extension.description && (
-                    <p className="mt-1 line-clamp-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                      {extension.description}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteExtension(extension)}
-                  disabled={deleteExtension.isPending}
-                  aria-label={`Remove legacy extension record ${extension.name}`}
-                  title="Remove legacy record"
-                  className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Trash2 size="0.75rem" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </SettingsSection>
-  );
-}
 type ProfileImportStats = {
   characters?: number;
   personas?: number;

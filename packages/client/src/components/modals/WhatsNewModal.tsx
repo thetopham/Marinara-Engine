@@ -29,7 +29,7 @@ const RELEASE_ANNOUNCEMENTS: Record<string, ReleaseAnnouncement> = {
   "2.3.4": {
     headline: "A safer engine with finer control.",
     intro:
-      "Professor Mari here! I retired Extensions and sealed their unsafe code path, then added new prompt macros, character-specific Hide From AI controls, and Grouped or Individual response handling for multi-character Conversations. I also corrected a generous stack of smaller regressions, because every good experiment deserves a clean bench.",
+      "Professor Mari here! I removed Extensions, sealed their unsafe code path, and arranged for every old record to be cleared automatically. I also added new prompt macros, character-specific Hide From AI controls, and Grouped or Individual response handling for multi-character Conversations, then corrected a generous stack of smaller regressions. Every good experiment deserves a clean bench.",
     highlights: [],
   },
   "2.3.3": {

@@ -1,6 +1,5 @@
 // ──────────────────────────────────────────────
-// CustomThemeInjector: Injects the active custom theme. The legacy extension
-// system is deliberately absent from this rendering boundary.
+// CustomThemeInjector: Injects the active custom theme.
 // ──────────────────────────────────────────────
 import { useEffect } from "react";
 import { useThemes } from "../../hooks/use-themes";

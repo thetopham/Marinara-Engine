@@ -421,6 +421,7 @@ assert.deepEqual(
 import {
   compactVideoPromptText,
   getSceneVideoPromptLimits,
+  resolveGalleryVideoNarrationSummary,
 } from "../../packages/server/src/services/video/prompt-context.js";
 import { resolveGameGmPromptTemplate } from "../../packages/server/src/services/generation/game-gm-prompt-runtime.js";
 import { countUserMessagesAfterSummaryAnchor } from "../../packages/server/src/services/conversation/auto-summary.service.js";
@@ -2587,6 +2588,69 @@ const cases: RegressionCase[] = [
       assert.equal(compactVideoPromptText(direction, omniLimits.narrationSummary), direction.trim());
       assert.ok(compactVideoPromptText(direction, defaultLimits.narrationSummary).endsWith("..."));
       assert.equal(xaiLimits.finalPrompt, 3800);
+    },
+  },
+  {
+    name: "Roleplay Gallery Animate uses the selected image's source narration",
+    run() {
+      const messages = [
+        {
+          id: "source-turn",
+          role: "assistant",
+          content: "The active swipe now describes a quiet room.",
+          extra: "{}",
+        },
+        {
+          id: "active-source-turn",
+          role: "assistant",
+          content: "Mira raises the lantern and studies the opening door.",
+          extra: JSON.stringify({ attachments: [{ type: "image", galleryId: "active-gallery-image" }] }),
+        },
+        {
+          id: "latest-turn",
+          role: "assistant",
+          content: "Much later, Sol runs across the moonlit courtyard.",
+          extra: "{malformed",
+        },
+        {
+          id: "later-system-event",
+          role: "system",
+          content: "A system event records a participant joining the chat.",
+          extra: "{}",
+        },
+        {
+          id: "later-narrator-event",
+          role: "narrator",
+          content: "An unrelated narrator event should not become animation direction.",
+          extra: "{}",
+        },
+        {
+          id: "latest-user-turn",
+          role: "user",
+          content: "Follow Sol.",
+          extra: "{}",
+        },
+      ];
+      const swipes = [
+        {
+          messageId: "source-turn",
+          content: "Mira slowly draws the ancient blade as dust falls from the ceiling.",
+          extra: JSON.stringify({ attachments: [{ type: "image", galleryId: "swipe-gallery-image" }] }),
+        },
+      ];
+
+      assert.equal(
+        resolveGalleryVideoNarrationSummary(messages, swipes, "swipe-gallery-image", 650),
+        "Mira slowly draws the ancient blade as dust falls from the ceiling.",
+      );
+      assert.equal(
+        resolveGalleryVideoNarrationSummary(messages, swipes, "active-gallery-image", 650),
+        "Mira raises the lantern and studies the opening door.",
+      );
+      assert.equal(
+        resolveGalleryVideoNarrationSummary(messages, swipes, "legacy-upload-without-source", 650),
+        "Much later, Sol runs across the moonlit courtyard.",
+      );
     },
   },
   {

@@ -26,7 +26,7 @@ import { migrateCharacterExtendedDescriptionsToLorebooks } from "./services/lore
 import { migrateLegacyDefaultAgentPrompts } from "./services/agents/default-prompt-migration.js";
 import { APP_VERSION, resetTurnGameRegistry } from "@marinara-engine/shared";
 import { existsSync } from "fs";
-import { basename, join, resolve, dirname } from "path";
+import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { getBuildCommit, getBuildLabel } from "./config/build-info.js";
 import {
@@ -47,10 +47,9 @@ import { initializeCapabilityAgentRegistry } from "./services/capability-package
 import { capabilityPackageManager } from "./services/capability-packages/package-manager.service.js";
 import { capabilityModuleRuntime } from "./services/capability-packages/capability-module-runtime.service.js";
 import { migrateLegacyCapabilities } from "./services/capability-packages/legacy-capability-migration.js";
+import { createClientStaticOptions } from "./config/client-static-config.js";
 
 const isLite = process.env.MARINARA_LITE === "true" || process.env.MARINARA_LITE === "1";
-const REVALIDATE_FILES = new Set(["index.html"]);
-const NO_STORE_FILES = new Set(["manifest.json", "sw.js", "registerSW.js"]);
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
 
 export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
@@ -241,34 +240,7 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const clientDist = resolve(__dirname, "..", "..", "client", "dist");
   if (existsSync(clientDist)) {
-    await app.register(fastifyStatic, {
-      root: clientDist,
-      prefix: "/",
-      wildcard: false,
-      decorateReply: false,
-      maxAge: 0,
-      setHeaders(res, filePath) {
-        const fileName = basename(filePath);
-
-        if (REVALIDATE_FILES.has(fileName)) {
-          res.setHeader("Cache-Control", "no-cache, must-revalidate");
-          res.setHeader("Pragma", "no-cache");
-          res.setHeader("Expires", "0");
-          return;
-        }
-
-        if (NO_STORE_FILES.has(fileName)) {
-          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-          res.setHeader("Pragma", "no-cache");
-          res.setHeader("Expires", "0");
-          return;
-        }
-
-        if (/\.[A-Za-z0-9_-]{8,}\.(css|js)$/.test(fileName)) {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        }
-      },
-    });
+    await app.register(fastifyStatic, createClientStaticOptions(clientDist));
 
     // SPA fallback — serve index.html for non-API routes
     app.setNotFoundHandler(async (req, reply) => {

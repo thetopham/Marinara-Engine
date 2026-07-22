@@ -1,4 +1,4 @@
-import { isOpenAIGpt56Model } from "@marinara-engine/shared";
+import { isOpenAIGpt56Model, NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH } from "@marinara-engine/shared";
 
 export const NOODLE_JSON_OUTPUT_HEADING = "# JSON Output Format";
 
@@ -107,11 +107,12 @@ const profilesSchema = {
 const privatePostSchema = {
   type: "object",
   properties: {
+    title: { type: ["string", "null"], maxLength: NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH },
     content: { type: "string" },
     imagePrompt: nullableString,
     poll: pollSchema,
   },
-  required: ["content", "imagePrompt", "poll"],
+  required: ["title", "content", "imagePrompt", "poll"],
   additionalProperties: false,
 } as const;
 

@@ -164,6 +164,10 @@ export interface NoodlePost {
   updatedAt: string;
 }
 
+export interface NoodlerManagedPost extends NoodlePost {
+  title: string | null;
+}
+
 export interface NoodleAccountSubscription {
   id: string;
   viewerAccountId: string;
@@ -184,6 +188,7 @@ export interface NoodlerPostView {
   access: NoodlePostAccess;
   ppvPrice: number | null;
   locked: boolean;
+  title: string | null;
   content: string | null;
   imageUrl: string | null;
   imagePrompt: string | null;

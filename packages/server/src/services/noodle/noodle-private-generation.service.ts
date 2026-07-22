@@ -4,9 +4,9 @@ import {
   type APIProvider,
   type NoodleAccount,
   type NoodleIdentityDisclosure,
-  type NoodlePost,
   type NoodlePrivateGenerationRequest,
   type NoodleStageProfileInput,
+  type NoodlerManagedPost,
 } from "@marinara-engine/shared";
 import { isDebugAgentsEnabled } from "../../config/runtime-config.js";
 import type { DB } from "../../db/connection.js";
@@ -32,7 +32,7 @@ export type PrivatePostGenerationInput = {
 };
 
 export type PrivatePostGenerationResult =
-  | { ok: true; post: NoodlePost }
+  | { ok: true; post: NoodlerManagedPost }
   | { ok: false; error: "private_account_not_found"; message: string };
 
 const PRIVATE_POST_MAX_TOKENS = 2048;
@@ -93,12 +93,12 @@ export function protectPrivateGeneratedIdentity(
     .trim();
 }
 
-function formatPrivatePostHistory(posts: NoodlePost[], protect: (value: string) => string): string {
+function formatPrivatePostHistory(posts: NoodlerManagedPost[], protect: (value: string) => string): string {
   if (posts.length === 0) return "No previous posts on this private page.";
   return posts
     .slice()
     .reverse()
-    .map((post) => `- ${post.createdAt}: ${protect(post.content)}`)
+    .map((post) => `- ${post.createdAt}: ${post.title ? `${protect(post.title)} — ` : ""}${protect(post.content)}`)
     .join("\n");
 }
 
@@ -107,7 +107,7 @@ export function buildPrivatePostMessages(input: {
   stagePersonality: string;
   disclosureMode: NoodleIdentityDisclosure;
   publicIdentity: PublicIdentity | null;
-  recentPosts: NoodlePost[];
+  recentPosts: NoodlerManagedPost[];
   request: Pick<NoodlePrivateGenerationRequest, "privatePostGuide" | "privateProjectWork">;
 }): ChatMessage[] {
   const protect = (value: string) =>
@@ -118,7 +118,7 @@ export function buildPrivatePostMessages(input: {
     "Use the private stage profile as supplied.",
     identityInstruction(input.disclosureMode, input.publicIdentity),
     "An optional imagePrompt must be a concrete visual description for this post, or null when no image fits.",
-    "Return one JSON object with content, imagePrompt, and poll. Set poll to null unless a two-to-four-option poll naturally fits.",
+    "Return one JSON object with title, content, imagePrompt, and poll. Use null for title when a heading would not improve the post. Set poll to null unless a two-to-four-option poll naturally fits.",
     "Return JSON only. No prose outside the JSON object.",
   ].join("\n");
   const user = [
@@ -227,7 +227,7 @@ export async function generatePrivatePost(
       {
         role: "user",
         content:
-          "The response was not one valid private-post JSON object. Return exactly one object with content, imagePrompt, and poll. Return JSON only.",
+          "The response was not one valid private-post JSON object. Return exactly one object with title, content, imagePrompt, and poll. Return JSON only.",
       },
     ];
     logDebugOverride(
@@ -241,16 +241,21 @@ export async function generatePrivatePost(
     generated = parsePrivatePost(content);
   }
 
-  const poll = generated.poll ? createNoodlePoll(generated.poll) : null;
-  const protectedContent = protectPrivateGeneratedIdentity(generated.content, disclosureMode, publicIdentity);
-  if (!protectedContent) throw new Error("Private generation returned no usable post content.");
+  const protectedGenerated = {
+    title: protectPrivateGeneratedIdentity(generated.title, disclosureMode, publicIdentity),
+    content: protectPrivateGeneratedIdentity(generated.content, disclosureMode, publicIdentity),
+    imagePrompt: protectPrivateGeneratedIdentity(generated.imagePrompt, disclosureMode, publicIdentity),
+    poll: generated.poll,
+  };
+  if (!protectedGenerated.content) throw new Error("Private generation returned no usable post content.");
+  const validatedGenerated = noodleGeneratedPrivatePostSchema.parse(protectedGenerated);
+  const poll = validatedGenerated.poll ? createNoodlePoll(validatedGenerated.poll) : null;
   const post = await noodle.createPrivatePost({
     authorAccountId: account.id,
-    content: protectedContent,
+    title: validatedGenerated.title,
+    content: validatedGenerated.content,
     imageUrl: null,
-    imagePrompt: normalizeNoodleImagePrompt(
-      protectPrivateGeneratedIdentity(generated.imagePrompt, disclosureMode, publicIdentity),
-    ),
+    imagePrompt: normalizeNoodleImagePrompt(validatedGenerated.imagePrompt),
     source: "generated",
     access: input.request.access,
     ppvPrice: input.request.access === "ppv" ? (input.request.ppvPrice ?? null) : null,

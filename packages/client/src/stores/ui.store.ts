@@ -47,7 +47,6 @@ export const LOREBOOK_PANEL_CATEGORY_OPTIONS = [
 export type LorebookPanelCategory = (typeof LOREBOOK_PANEL_CATEGORY_OPTIONS)[number];
 export const LOREBOOK_PANEL_SORT_OPTIONS = ["name-asc", "name-desc", "newest", "oldest", "tokens"] as const;
 export type LorebookPanelSort = (typeof LOREBOOK_PANEL_SORT_OPTIONS)[number];
-export const RESOURCE_PANEL_SORT_OPTIONS = BASIC_PANEL_SORT_OPTIONS;
 export type ResourcePanelSort = BasicPanelSort;
 export const CONNECTION_PANEL_SORT_OPTIONS = [...BASIC_PANEL_SORT_OPTIONS, "custom"] as const;
 export type ConnectionPanelSort = (typeof CONNECTION_PANEL_SORT_OPTIONS)[number];
@@ -1178,8 +1177,6 @@ export function pickSyncedSettings(state: UIState) {
     rememberedGameSetupText: state.rememberedGameSetupText,
   };
 }
-
-export type SyncedSettings = ReturnType<typeof pickSyncedSettings>;
 
 export const useUIStore = create<UIState>()(
   persist(
@@ -2835,9 +2832,7 @@ export const useUIStore = create<UIState>()(
         noodleOpen: state.noodleOpen,
         noodleSelectedPersonaId: state.noodleSelectedPersonaId,
         noodleNavigation:
-          state.noodleNavigation.mode === "verification"
-            ? { mode: "private", view: "hub" }
-            : state.noodleNavigation,
+          state.noodleNavigation.mode === "verification" ? { mode: "private", view: "hub" } : state.noodleNavigation,
         characterLibraryOpen: state.characterLibraryOpen,
         cardLibraryKind: state.cardLibraryKind,
         agentCatalogOpen: state.agentCatalogOpen,

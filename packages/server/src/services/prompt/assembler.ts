@@ -8,9 +8,6 @@ import type { DB } from "../../db/connection.js";
 import { logger } from "../../lib/logger.js";
 import type {
   ChatMLMessage,
-  PromptPreset,
-  PromptSection,
-  PromptGroup,
   MarkerConfig,
   WrapFormat,
   GenerationParameters,
@@ -260,7 +257,6 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
   const wrapFormat = (input.preset.wrapFormat || "xml") as WrapFormat;
   const parameters = parsePresetParameters(input.preset.parameters);
   const sectionOrder = JSON.parse(input.preset.sectionOrder) as string[];
-  const groupOrder = JSON.parse(input.preset.groupOrder) as string[];
   const variableValues = JSON.parse(input.preset.variableValues) as Record<string, string>;
   // Preset text can safely delay all character macros until the responder is known.
   // Lorebook content only delays names so field macros keep the same budgeting behavior.
@@ -438,7 +434,6 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
   // Build ordered messages, wrapping grouped sections
   const messages: ChatMLMessage[] = [];
   const processedSections = new Set<string>();
-  let chatHistoryEndIdx = -1; // index in messages[] after the last chat_history message
 
   // Process in section order, grouping adjacent sections in the same group
   for (let i = 0; i < orderedSections.length; i++) {
@@ -472,7 +467,6 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
       processedSections.add(section.id);
       if (section.isChatHistory) {
         messages.push(...section.messages);
-        chatHistoryEndIdx = messages.length;
       } else {
         messages.push(...section.messages.map((message) => ({ ...message, contextKind: "prompt" as const })));
       }

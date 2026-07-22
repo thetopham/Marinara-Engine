@@ -2641,7 +2641,7 @@ const JSON_AGENTS = new Set([
  * directive. Strip that leaked content before it can be injected into the
  * main prompt.
  */
-function sanitizeTextAgentResponse(agentType: string, text: string): string {
+function sanitizeTextAgentResponse(text: string): string {
   const cleaned = text
     .replace(/<committed_tracker_state\b[^>]*>[\s\S]*?<\/committed_tracker_state\s*>/gi, "")
     .replace(/<assistant_response\b[^>]*>[\s\S]*?<\/assistant_response\s*>/gi, "")
@@ -2674,7 +2674,7 @@ function parseAgentResponse(
 
   // Text-based context-injection agents. Sanitize before injection so
   // leaked tracker/roleplay content can't reach the main prompt.
-  return { type: resultType, data: { text: sanitizeTextAgentResponse(config.type, responseText) } };
+  return { type: resultType, data: { text: sanitizeTextAgentResponse(responseText) } };
 }
 
 /** Extract JSON from a response that may contain markdown fences. */

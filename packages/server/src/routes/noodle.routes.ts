@@ -6,7 +6,6 @@ import { z } from "zod";
 import {
   createNoodlePoll,
   canManageNoodleReply,
-  extractNoodleMentionHandles,
   noodleAccountFollowUpdateSchema,
   noodleAccountProfileUpdateSchema,
   noodleAccountSettingsPatchSchema,
@@ -32,7 +31,6 @@ import {
   noodleStageProfileDraftRequestSchema,
   readNoodlePollFromMetadata,
   type NoodleAccount,
-  type NoodleInteractionType,
   type NoodlerPostView,
 } from "@marinara-engine/shared";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
@@ -185,7 +183,7 @@ export async function noodleRoutes(app: FastifyInstance) {
             imagePrompt: locked ? null : post.imagePrompt,
             metadata: locked ? null : post.metadata,
             createdAt: post.createdAt,
-            interactions: locked ? [] : interactionsByPostId.get(post.id) ?? [],
+            interactions: locked ? [] : (interactionsByPostId.get(post.id) ?? []),
           };
         }),
       };
@@ -290,12 +288,7 @@ export async function noodleRoutes(app: FastifyInstance) {
       resolveViewerPersona(parsed.data.personaId),
       noodle.getPrivateAccountById(id),
     ]);
-    if (
-      !viewer ||
-      !creator ||
-      creator.publicAccountId === viewer.id ||
-      isNoodlerHiddenFromViewer(creator, viewer.id)
-    ) {
+    if (!viewer || !creator || creator.publicAccountId === viewer.id || isNoodlerHiddenFromViewer(creator, viewer.id)) {
       return reply.code(404).send({ error: "NoodleR stage profile not found" });
     }
     const subscription = await noodle.subscribe(viewer.id, creator.id);

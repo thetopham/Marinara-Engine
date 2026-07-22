@@ -988,6 +988,12 @@ export async function generateRoutes(app: FastifyInstance) {
         logger.warn(err, "[generate] Failed to remember timezone for chat %s", input.chatId);
       }
     }
+    const currentBackgroundSource =
+      input.currentBackground !== undefined ? input.currentBackground : chatMeta.background;
+    const currentBackground =
+      typeof currentBackgroundSource === "string" && currentBackgroundSource.trim()
+        ? currentBackgroundSource.trim()
+        : null;
     const promptNow = toZonedWallClockDate(new Date(), promptTimeZone);
     const excludePastReasoning = chatMeta.excludePastReasoning !== false;
     const imageCaptioningRuntime: ImageCaptioningRuntime = await resolveImageCaptioningRuntime({
@@ -3485,7 +3491,7 @@ export async function generateRoutes(app: FastifyInstance) {
             backgroundAgent.settings?.autoGenerateBackgrounds === true &&
             chatMeta.gameStoryboardViewerDisplayMode !== "background";
           agentContext.memory._availableBackgrounds = [];
-          agentContext.memory._currentBackground = chatMeta.background ?? null;
+          agentContext.memory._currentBackground = currentBackground;
           if (backgroundGenerationEnabled) {
             agentContext.memory._backgroundGenerationEnabled = true;
           }
@@ -3540,7 +3546,7 @@ export async function generateRoutes(app: FastifyInstance) {
           illustratorBackgroundGenerationEnabled(chatMode, chatMeta)
         ) {
           agentContext.memory._illustratorBackgroundGenerationEnabled = true;
-          agentContext.memory._currentBackground = chatMeta.background ?? null;
+          agentContext.memory._currentBackground = currentBackground;
         }
 
         const spotifyMusicAgents = resolvedAgents.filter(
@@ -8179,6 +8185,7 @@ export async function generateRoutes(app: FastifyInstance) {
                       chatName: chat.name,
                       chatMode: chatMode === "visual_novel" ? "visual_novel" : "roleplay",
                       chatMetadata: freshMeta,
+                      currentBackground: backgroundBeforeGeneration ?? currentBackground,
                       illustratorAgent: illustratorBackgroundAgent,
                       assistantResponse: combinedResponse,
                       decisionReason: backgroundDecisionReason,

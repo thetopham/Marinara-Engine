@@ -14,7 +14,7 @@ import {
   type AgentFailure,
   type IllustratorRetryTarget,
 } from "../lib/agent-failures";
-import { chatBackgroundMetadataToUrl } from "../lib/backgrounds";
+import { chatBackgroundMetadataToUrl, chatBackgroundUrlToMetadata } from "../lib/backgrounds";
 import { formatGenerationParameterError } from "../lib/generation-parameter-errors";
 import {
   getTypewriterRevealCharsPerSecond,
@@ -783,6 +783,11 @@ function getCachedChatForGeneration(qc: QueryClient, chatId: string): Chat | und
   if (detail) return detail;
   const list = qc.getQueryData<Chat[]>(chatKeys.list());
   return list?.find((chat) => chat.id === chatId);
+}
+
+function getActiveChatBackgroundForGeneration(chatId: string): string | null | undefined {
+  if (useChatStore.getState().activeChatId !== chatId) return undefined;
+  return chatBackgroundUrlToMetadata(useUIStore.getState().chatBackground);
 }
 
 function parseChatCharacterIds(rawIds: unknown): string[] {
@@ -1567,11 +1572,13 @@ export function useGenerate() {
         if (flushPatch) await flushPatch();
 
         await waitForPendingChatMetadataSaves(params.chatId);
+        const currentBackground = getActiveChatBackgroundForGeneration(params.chatId);
 
         for await (const event of api.streamEvents(
           "/generate",
           {
             ...params,
+            ...(currentBackground !== undefined ? { currentBackground } : {}),
             userStatus,
             userActivity,
             userTimeZone,
@@ -3135,6 +3142,7 @@ export function useGenerate() {
         }
 
         await waitForPendingChatMetadataSaves(chatId);
+        const currentBackground = getActiveChatBackgroundForGeneration(chatId);
 
         let agentResultCount = 0;
         let trackerPatchCount = 0;
@@ -3146,6 +3154,7 @@ export function useGenerate() {
           {
             chatId,
             agentTypes,
+            ...(currentBackground !== undefined ? { currentBackground } : {}),
             streaming: useUIStore.getState().enableStreaming,
             debugMode: retryDebugMode,
             queueImageGenerationRequests: useUIStore.getState().queueImageGenerationRequests,

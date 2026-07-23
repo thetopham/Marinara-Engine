@@ -32,7 +32,7 @@ function escapeClosingTag(source: string, tag: "style") {
   return source.replace(new RegExp(`</${tag}`, "giu"), `<\\/${tag}`);
 }
 
-function browserWorkerSource(extension: PersonalExtension) {
+export function browserWorkerSource(extension: PersonalExtension) {
   const identity = JSON.stringify({
     id: extension.id,
     name: extension.name,
@@ -67,9 +67,72 @@ function browserWorkerSource(extension: PersonalExtension) {
   const log = (level, args) => send({ type: "log", level, args: args.map((value) => {
     try { return JSON.parse(JSON.stringify(value)); } catch { return String(value); }
   }) });
+  // Constrained UI: the worker describes a window as a small whitelist of
+  // element descriptors. The trusted iframe bootstrap renders them with
+  // textContent only (never HTML) and routes button clicks back here, so the
+  // extension gets interactive UI without any DOM, markup, or host access.
+  const MAX_UI_WINDOWS = 4;
+  const MAX_UI_ELEMENTS = 60;
+  const MAX_UI_TEXT = 8000;
+  const UI_ELEMENT_KINDS = new Set(["heading", "text", "pre", "button", "input", "spacer"]);
+  const uiWindows = new Set();
+  const uiEventHandlers = new Map();
+  const uiCloseHandlers = new Map();
+  let uiWindowCounter = 0;
+  const clampText = (value) => String(value == null ? "" : value).slice(0, MAX_UI_TEXT);
+  const normalizeUiElements = (elements) => {
+    if (!Array.isArray(elements)) throw new Error("window elements must be an array");
+    if (elements.length > MAX_UI_ELEMENTS) throw new Error("window has too many elements (max " + MAX_UI_ELEMENTS + ")");
+    return elements.map((element) => {
+      if (!element || typeof element !== "object" || !UI_ELEMENT_KINDS.has(element.kind)) {
+        throw new Error("unsupported window element");
+      }
+      if (element.kind === "button" || element.kind === "input") {
+        if (typeof element.id !== "string" || !element.id) throw new Error(element.kind + " element requires a string id");
+      }
+      return {
+        kind: element.kind,
+        id: typeof element.id === "string" ? element.id.slice(0, 128) : undefined,
+        text: clampText(element.text),
+        label: element.label == null ? undefined : clampText(element.label),
+        placeholder: element.placeholder == null ? undefined : clampText(element.placeholder),
+        value: element.value == null ? undefined : clampText(element.value),
+        multiline: element.kind === "input" ? Boolean(element.multiline) : undefined,
+      };
+    });
+  };
+  const showWindow = (options) => {
+    const config = options || {};
+    if (uiWindows.size >= MAX_UI_WINDOWS) throw new Error("too many open extension windows (max " + MAX_UI_WINDOWS + ")");
+    const windowId = "w" + String(++uiWindowCounter);
+    const elements = normalizeUiElements(config.elements);
+    uiWindows.add(windowId);
+    if (typeof config.onEvent === "function") uiEventHandlers.set(windowId, config.onEvent);
+    if (typeof config.onClose === "function") uiCloseHandlers.set(windowId, config.onClose);
+    send({ type: "ui-show", windowId, title: clampText(config.title || extension.name), elements });
+    return {
+      id: windowId,
+      update: (next) => {
+        if (!uiWindows.has(windowId)) return;
+        const patch = next || {};
+        send({
+          type: "ui-update",
+          windowId,
+          title: patch.title == null ? undefined : clampText(patch.title),
+          elements: patch.elements == null ? undefined : normalizeUiElements(patch.elements),
+        });
+      },
+      close: () => {
+        if (!uiWindows.delete(windowId)) return;
+        uiEventHandlers.delete(windowId);
+        uiCloseHandlers.delete(windowId);
+        send({ type: "ui-close", windowId });
+      },
+    };
+  };
   const marinara = Object.freeze({
     runtime: "client",
-    version: 2,
+    version: 3,
     extensionId: extension.id,
     extensionName: extension.name,
     log: Object.freeze({
@@ -82,6 +145,9 @@ function browserWorkerSource(extension: PersonalExtension) {
       get: () => storage("get"),
       patch: (patch) => storage("patch", patch),
       delete: () => storage("delete"),
+    }),
+    ui: Object.freeze({
+      showWindow,
     }),
     setTimeout: managedTimeout,
     setInterval: managedInterval,
@@ -100,6 +166,28 @@ function browserWorkerSource(extension: PersonalExtension) {
       pending.delete(message.requestId);
       if (message.ok) request.resolve(message.value);
       else request.reject(new Error(message.error || "Extension storage request failed"));
+    }
+    if (message?.type === "ui-event" && typeof message.windowId === "string") {
+      const handler = uiEventHandlers.get(message.windowId);
+      if (handler) {
+        try {
+          handler({
+            windowId: message.windowId,
+            elementId: typeof message.elementId === "string" ? message.elementId : "",
+            values: message.values && typeof message.values === "object" ? message.values : {},
+          });
+        } catch (error) {
+          send({ type: "log", level: "error", args: [error instanceof Error ? error.message : String(error)] });
+        }
+      }
+    }
+    if (message?.type === "ui-closed" && typeof message.windowId === "string") {
+      if (uiWindows.delete(message.windowId)) {
+        const handler = uiCloseHandlers.get(message.windowId);
+        uiEventHandlers.delete(message.windowId);
+        uiCloseHandlers.delete(message.windowId);
+        if (handler) { try { handler({ windowId: message.windowId }); } catch {} }
+      }
     }
     if (message?.type === "stop") {
       for (const cleanup of [...cleanupFns].reverse()) {
@@ -122,7 +210,7 @@ ${extension.js ?? ""}
 `;
 }
 
-function sandboxDocument(extension: PersonalExtension, nonce: string) {
+export function sandboxDocument(extension: PersonalExtension, nonce: string) {
   const boot = JSON.stringify({
     id: extension.id,
     name: extension.name,
@@ -146,6 +234,135 @@ function sandboxDocument(extension: PersonalExtension, nonce: string) {
   const workerUrl = URL.createObjectURL(new Blob([extension.workerSource], { type: "text/javascript" }));
   const worker = new Worker(workerUrl);
   URL.revokeObjectURL(workerUrl);
+
+  // Host-rendered window layer. The worker only sends element descriptors;
+  // everything below builds DOM with textContent (never parsed markup) inside
+  // this opaque-origin iframe, so the extension can present interactive UI
+  // without touching Marinara's page or being able to inject markup.
+  const root = document.createElement("div");
+  root.setAttribute("data-ext-root", "");
+  Object.assign(root.style, { position: "fixed", inset: "0", display: "none", padding: "1rem", boxSizing: "border-box", overflow: "auto", fontFamily: "system-ui, sans-serif" });
+  document.body.appendChild(root);
+  const uiWindows = new Map();
+  const syncVisibility = () => {
+    const open = uiWindows.size > 0;
+    root.style.display = open ? "flex" : "none";
+    root.style.flexDirection = "column";
+    root.style.gap = "0.75rem";
+    root.style.alignItems = "center";
+    root.style.justifyContent = "center";
+    root.style.background = open ? "rgba(0,0,0,0.45)" : "transparent";
+    post({ type: open ? "ui-window-open" : "ui-window-close", contentHash: extension.contentHash });
+  };
+  // Clicking the backdrop (outside any card) dismisses, matching host modals.
+  root.addEventListener("click", (event) => {
+    if (event.target !== root) return;
+    for (const windowId of [...uiWindows.keys()]) closeWindowLocally(windowId, true);
+  });
+  const closeWindowLocally = (windowId, notifyWorker) => {
+    const entry = uiWindows.get(windowId);
+    if (!entry) return;
+    entry.card.remove();
+    uiWindows.delete(windowId);
+    if (notifyWorker) worker.postMessage({ type: "ui-closed", windowId });
+    syncVisibility();
+  };
+  const collectValues = (windowId) => {
+    const values = {};
+    const entry = uiWindows.get(windowId);
+    if (entry) for (const [id, node] of entry.inputs) values[id] = String(node.value ?? "");
+    return values;
+  };
+  const buildElement = (windowId, descriptor, inputs) => {
+    if (descriptor.kind === "heading") {
+      const el = document.createElement("h2");
+      el.textContent = descriptor.text || "";
+      Object.assign(el.style, { margin: "0 0 0.25rem", fontSize: "1rem", fontWeight: "700" });
+      return el;
+    }
+    if (descriptor.kind === "text") {
+      const el = document.createElement("p");
+      el.textContent = descriptor.text || "";
+      Object.assign(el.style, { margin: "0", lineHeight: "1.5", whiteSpace: "pre-wrap", wordBreak: "break-word" });
+      return el;
+    }
+    if (descriptor.kind === "pre") {
+      const el = document.createElement("pre");
+      el.textContent = descriptor.text || "";
+      Object.assign(el.style, { margin: "0", padding: "0.5rem", borderRadius: "6px", background: "rgba(127,127,127,0.15)", overflow: "auto", fontFamily: "ui-monospace, monospace", fontSize: "0.8125rem", lineHeight: "1.4" });
+      return el;
+    }
+    if (descriptor.kind === "spacer") {
+      const el = document.createElement("div");
+      el.style.height = "0.25rem";
+      return el;
+    }
+    if (descriptor.kind === "input") {
+      const wrap = document.createElement("label");
+      Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.8125rem" });
+      if (descriptor.label) { const lab = document.createElement("span"); lab.textContent = descriptor.label; wrap.appendChild(lab); }
+      const field = descriptor.multiline ? document.createElement("textarea") : document.createElement("input");
+      if (!descriptor.multiline) field.type = "text";
+      if (descriptor.placeholder) field.placeholder = descriptor.placeholder;
+      field.value = descriptor.value || "";
+      field.setAttribute("data-ext-input", descriptor.id);
+      Object.assign(field.style, { padding: "0.4rem 0.5rem", borderRadius: "6px", border: "1px solid rgba(127,127,127,0.4)", background: "rgba(127,127,127,0.08)", color: "inherit", font: "inherit" });
+      if (descriptor.multiline) field.rows = 4;
+      inputs.set(descriptor.id, field);
+      wrap.appendChild(field);
+      return wrap;
+    }
+    if (descriptor.kind === "button") {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.textContent = descriptor.label || descriptor.text || "Button";
+      Object.assign(el.style, { alignSelf: "flex-start", padding: "0.4rem 0.85rem", borderRadius: "6px", border: "1px solid rgba(127,127,127,0.4)", background: "rgba(127,127,127,0.15)", color: "inherit", font: "inherit", cursor: "pointer" });
+      el.addEventListener("click", () => {
+        worker.postMessage({ type: "ui-event", windowId, elementId: descriptor.id, values: collectValues(windowId) });
+      });
+      return el;
+    }
+    return document.createElement("span");
+  };
+  const renderBody = (entry, elements) => {
+    entry.body.textContent = "";
+    entry.inputs = new Map();
+    for (const descriptor of elements) entry.body.appendChild(buildElement(entry.id, descriptor, entry.inputs));
+  };
+  const showWindow = (windowId, title, elements) => {
+    closeWindowLocally(windowId, false);
+    const card = document.createElement("section");
+    Object.assign(card.style, { width: "100%", maxWidth: "26rem", borderRadius: "10px", border: "1px solid rgba(127,127,127,0.35)", background: "rgba(24,24,27,0.98)", color: "#f4f4f5", boxShadow: "0 12px 40px rgba(0,0,0,0.45)", overflow: "hidden" });
+    const header = document.createElement("div");
+    Object.assign(header.style, { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", padding: "0.5rem 0.5rem 0.5rem 0.85rem", borderBottom: "1px solid rgba(127,127,127,0.3)" });
+    const titleEl = document.createElement("strong");
+    titleEl.textContent = title || extension.name;
+    titleEl.style.fontSize = "0.875rem";
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.textContent = "✕";
+    Object.assign(closeBtn.style, { border: "none", background: "transparent", color: "inherit", cursor: "pointer", fontSize: "1rem", lineHeight: "1", padding: "0.35rem 0.5rem", borderRadius: "6px" });
+    closeBtn.addEventListener("click", () => closeWindowLocally(windowId, true));
+    header.appendChild(titleEl);
+    header.appendChild(closeBtn);
+    const body = document.createElement("div");
+    Object.assign(body.style, { display: "flex", flexDirection: "column", gap: "0.6rem", padding: "0.85rem" });
+    card.appendChild(header);
+    card.appendChild(body);
+    root.appendChild(card);
+    const entry = { id: windowId, card, body, titleEl, inputs: new Map() };
+    uiWindows.set(windowId, entry);
+    renderBody(entry, elements);
+    syncVisibility();
+  };
+  const updateWindow = (windowId, title, elements) => {
+    const entry = uiWindows.get(windowId);
+    if (!entry) return;
+    if (typeof title === "string") entry.titleEl.textContent = title;
+    if (Array.isArray(elements)) renderBody(entry, elements);
+  };
+
   let lastHeartbeat = Date.now();
   let stopped = false;
   let messageWindowStartedAt = Date.now();
@@ -181,6 +398,18 @@ function sandboxDocument(extension: PersonalExtension, nonce: string) {
         return;
       }
     }
+    if (message?.type === "ui-show") {
+      showWindow(message.windowId, message.title, Array.isArray(message.elements) ? message.elements : []);
+      return;
+    }
+    if (message?.type === "ui-update") {
+      updateWindow(message.windowId, message.title, message.elements);
+      return;
+    }
+    if (message?.type === "ui-close") {
+      closeWindowLocally(message.windowId, false);
+      return;
+    }
     if (message?.type === "storage" || message?.type === "log" || message?.type === "ready" || message?.type === "error") {
       post(message);
     }
@@ -199,9 +428,13 @@ function sandboxDocument(extension: PersonalExtension, nonce: string) {
     if (event.source !== window.parent || event.data?.channel !== "marinara-personal-extension") return;
     const message = event.data;
     if (message.type === "storage-result") worker.postMessage(message);
+    if (message.type === "ui-dismiss") {
+      for (const windowId of [...uiWindows.keys()]) closeWindowLocally(windowId, true);
+    }
     if (message.type === "stop") {
       stopped = true;
       window.clearInterval(watchdog);
+      for (const windowId of [...uiWindows.keys()]) closeWindowLocally(windowId, false);
       worker.postMessage({ type: "stop" });
       window.setTimeout(() => worker.terminate(), 500);
     }

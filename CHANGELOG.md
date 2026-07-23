@@ -30,6 +30,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed Web Search (and other tools) returning empty or malformed parameters with GPT-5.6/5.5/5.4 and Codex models on the OpenAI Responses API. Streamed function-call arguments are keyed by the response item id rather than the call id, so the tool query is no longer dropped mid-stream (#4010).
 - Kept gradient **Accent Pulse** animating while the Appearance tab is open, so color changes can be previewed where the setting is configured.
 - Reworked Character and Persona avatar editing with a non-overlapping miniature AI wand, equal Upload/Generate actions in Metadata, a downward upload arrow, and accent-colored removal controls. Game Assets selection, menu, and removal states now follow the configured chroma instead of fixed pink or red treatments.
 - Fixed Character Tavern imports from the Card Browser: their cards store character data in compressed zTXt PNG chunks, which every Marinara card parser (Card Browser import, file/URL import, SillyTavern bulk import) now reads alongside tEXt and iTXt. Re-exporting such a character also strips the stale compressed data instead of shipping outdated card JSON (#4002).

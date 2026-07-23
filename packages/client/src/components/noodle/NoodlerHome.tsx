@@ -783,7 +783,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
   if (selectedProfile) {
     return (
       <NoodleShell {...shellProps} rightRail={emptyRightRail}>
-      <NoodlerFrame onBack={() => onNavigate({ mode: "private", view: "profiles" })} title={selectedProfile.displayName}>
+      <main className="h-full min-h-0 overflow-y-auto">
         <StageProfileView
           key={`${selectedProfile.id}:${shellPersonaAccount?.id ?? "no-viewer"}`}
           profile={selectedProfile}
@@ -834,7 +834,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
             )
           }
         />
-      </NoodlerFrame>
+      </main>
       </NoodleShell>
     );
   }
@@ -1892,7 +1892,7 @@ function StageProfileView({
   return (
     <>
       <NoodleProfileSurface
-        mobileHeader={<div className="border-b border-[var(--noodle-divider)] px-4 py-3 text-sm font-bold lg:hidden">Creator profile</div>}
+        mobileHeader={null}
         account={profile}
         displayHandle={profile.handle}
         handleMeta={<>
@@ -2243,7 +2243,7 @@ function ViewerHub({
                   <NoodlePostCard
                     key={post.id}
                     post={toNoodlePostCardModel(post, creator.profile)}
-                    ctx={{ ...postCardCtx, postManagement: false }}
+                    ctx={postCardCtx}
                   />
                 ),
               )}

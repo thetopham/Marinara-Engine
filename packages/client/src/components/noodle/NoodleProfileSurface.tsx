@@ -53,7 +53,6 @@ interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTab> {
   leadingActions?: ReactNode;
   secondaryActions?: ReactNode;
   decorativeBanner?: boolean;
-  touchActions?: boolean;
   location?: string;
   bioContent: ReactNode;
   contentActions?: ReactNode;
@@ -77,7 +76,6 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
   leadingActions,
   secondaryActions,
   decorativeBanner = false,
-  touchActions = false,
   location,
   bioContent,
   contentActions,
@@ -181,10 +179,7 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
                 else editor.onStartEditing();
               }}
               disabled={editor.isEditing ? !editor.canSave || editor.isSaving : false}
-              className={cn(
-                "rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
-                touchActions ? "min-h-11" : "h-9",
-              )}
+              className="h-9 rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {editor.isEditing ? (editor.isSaving ? "Saving" : "Save") : "Edit Profile"}
             </button>
@@ -194,8 +189,7 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
               onClick={followAction.onToggle}
               disabled={followAction.pending}
               className={cn(
-                "rounded-full px-5 text-xs font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
-                touchActions ? "min-h-11" : "h-9",
+                "h-9 rounded-full px-5 text-xs font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
                 followAction.followed
                   ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
                   : "bg-[var(--foreground)] text-[var(--background)]",

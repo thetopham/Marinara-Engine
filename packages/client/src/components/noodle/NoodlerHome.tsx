@@ -100,6 +100,29 @@ interface PrivatePostSubmission {
   ppvPrice: number | null;
 }
 
+interface PrivatePostDraft {
+  title: string;
+  body: string;
+  access: NoodlePostAccess;
+  ppvPrice: string;
+}
+
+const EMPTY_PRIVATE_POST_DRAFT: PrivatePostDraft = {
+  title: "",
+  body: "",
+  access: "public",
+  ppvPrice: "5",
+};
+
+function isEmptyPrivatePostDraft(draft: PrivatePostDraft): boolean {
+  return (
+    draft.title === EMPTY_PRIVATE_POST_DRAFT.title &&
+    draft.body === EMPTY_PRIVATE_POST_DRAFT.body &&
+    draft.access === EMPTY_PRIVATE_POST_DRAFT.access &&
+    draft.ppvPrice === EMPTY_PRIVATE_POST_DRAFT.ppvPrice
+  );
+}
+
 type NoodlerProfileTab = "posts" | "media" | "subscribers";
 
 function toNoodlePostCardModel(view: NoodlerPostView, profile: NoodlerStageProfile): NoodlePostCardModel {
@@ -259,7 +282,44 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
       window.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [accountSwitcherOpen]);
-  const exitToPublic = () => onNavigate({ mode: "public", view: "home" });
+  const [privatePostDrafts, setPrivatePostDrafts] = useState<Record<string, PrivatePostDraft>>({});
+  const updatePrivatePostDraft = (profileId: string, patch: Partial<PrivatePostDraft>) => {
+    setPrivatePostDrafts((current) => {
+      const nextDraft = {
+        ...EMPTY_PRIVATE_POST_DRAFT,
+        ...current[profileId],
+        ...patch,
+      };
+      if (!isEmptyPrivatePostDraft(nextDraft)) {
+        return { ...current, [profileId]: nextDraft };
+      }
+      if (!current[profileId]) return current;
+      const next = { ...current };
+      delete next[profileId];
+      return next;
+    });
+  };
+  const clearPrivatePostDraft = (profileId: string) => {
+    setPrivatePostDrafts((current) => {
+      if (!current[profileId]) return current;
+      const next = { ...current };
+      delete next[profileId];
+      return next;
+    });
+  };
+  const confirmDiscardPrivatePostDrafts = () =>
+    Object.keys(privatePostDrafts).length === 0 ||
+    window.confirm("Discard unpublished NoodleR post drafts?");
+  const exitToPublic = () => {
+    if (!confirmDiscardPrivatePostDrafts()) return;
+    setPrivatePostDrafts({});
+    onNavigate({ mode: "public", view: "home" });
+  };
+  const openSettings = () => {
+    if (!confirmDiscardPrivatePostDrafts()) return;
+    setPrivatePostDrafts({});
+    onNavigate({ mode: "settings" });
+  };
   const [feedSearch, setFeedSearch] = useState("");
   const [feedTab, setFeedTab] = useState<"all" | "subscribed">("all");
   const viewerQuery = useNoodlerViewer(viewerPersonaId, enabled);
@@ -627,7 +687,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     onOpenProfile: mainAuthorProfile
       ? () => onNavigate({ mode: "private", view: "profile", accountId: mainAuthorProfile.id })
       : undefined,
-    onOpenSettings: () => onNavigate({ mode: "settings" }),
+    onOpenSettings: openSettings,
     overlays: (
       <BrowserChrome
         badgeLabel="Private"
@@ -792,6 +852,12 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
           viewerAccount={shellPersonaAccount}
           postCardCtx={postCardCtx}
           viewerAccounts={viewerAccounts}
+          viewerIsLoading={Boolean(viewerPersonaId) && !viewerQuery.data && viewerQuery.isLoading}
+          viewerIsError={Boolean(viewerPersonaId) && !viewerQuery.data && viewerQuery.isError}
+          onRetryViewer={() => void viewerQuery.refetch()}
+          draft={privatePostDrafts[selectedProfile.id] ?? EMPTY_PRIVATE_POST_DRAFT}
+          onDraftChange={(patch) => updatePrivatePostDraft(selectedProfile.id, patch)}
+          onClearDraft={() => clearPrivatePostDraft(selectedProfile.id)}
           isLoading={postsQuery.isLoading}
           isError={postsQuery.isError}
           onRetry={() => void postsQuery.refetch()}
@@ -802,6 +868,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
             }
             deleteProfile.mutate(selectedProfile.id, {
               onSuccess: () => {
+                clearPrivatePostDraft(selectedProfile.id);
                 onNavigate({ mode: "private", view: "profiles" });
                 toast.success("Stage profile deleted.");
               },
@@ -974,6 +1041,17 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
         tab={feedTab}
         onTabChange={setFeedTab}
         authorProfile={accountsQuery.isSuccess ? mainAuthorProfile : null}
+        authorDraft={
+          mainAuthorProfile
+            ? privatePostDrafts[mainAuthorProfile.id] ?? EMPTY_PRIVATE_POST_DRAFT
+            : EMPTY_PRIVATE_POST_DRAFT
+        }
+        onAuthorDraftChange={(patch) => {
+          if (mainAuthorProfile) updatePrivatePostDraft(mainAuthorProfile.id, patch);
+        }}
+        onClearAuthorDraft={() => {
+          if (mainAuthorProfile) clearPrivatePostDraft(mainAuthorProfile.id);
+        }}
         authorLoading={accountsQuery.isLoading || !data}
         authorError={accountsQuery.isError && !accountsQuery.data}
         onRetryAuthor={() => void accountsQuery.refetch()}
@@ -1711,6 +1789,12 @@ function StageProfileView({
   viewerAccount,
   postCardCtx,
   viewerAccounts,
+  viewerIsLoading,
+  viewerIsError,
+  onRetryViewer,
+  draft,
+  onDraftChange,
+  onClearDraft,
   isLoading,
   isError,
   onRetry,
@@ -1734,6 +1818,12 @@ function StageProfileView({
   viewerAccount: NoodleAccount | null;
   postCardCtx: ReturnType<typeof useNoodlePostCardController>["ctx"];
   viewerAccounts: NoodleAccount[];
+  viewerIsLoading: boolean;
+  viewerIsError: boolean;
+  onRetryViewer: () => void;
+  draft: PrivatePostDraft;
+  onDraftChange: (patch: Partial<PrivatePostDraft>) => void;
+  onClearDraft: () => void;
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
@@ -1822,8 +1912,14 @@ function StageProfileView({
             detail="When a viewer subscribes to this creator, they will appear here."
           />
         )
-      ) : isLoading ? (
+      ) : viewerIsLoading || isLoading ? (
         <div className="flex justify-center py-12"><Loader2 size={22} className="animate-spin text-[var(--noodle-blue)]" /></div>
+      ) : viewerIsError ? (
+        <EmptyState
+          title="Viewer access could not be loaded."
+          action="Try again"
+          onAction={onRetryViewer}
+        />
       ) : isError ? (
         <EmptyState
           title="Private posts could not be loaded."
@@ -1922,7 +2018,6 @@ function StageProfileView({
           )}
         </>}
         decorativeBanner
-        touchActions
         leadingActions={
           viewingOwnCreator ? (
             <span className="inline-flex h-9 items-center rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold text-[var(--muted-foreground)]">
@@ -1987,6 +2082,9 @@ function StageProfileView({
           <PrivatePostComposer
             key={profile.id}
             profile={profile}
+            draft={draft}
+            onDraftChange={onDraftChange}
+            onClearDraft={onClearDraft}
             onManualPost={onManualPost}
             onGuidedPost={onGuidedPost}
             manualPending={manualPending}
@@ -2075,6 +2173,9 @@ function ViewerHub({
   tab,
   onTabChange,
   authorProfile,
+  authorDraft,
+  onAuthorDraftChange,
+  onClearAuthorDraft,
   authorLoading,
   authorError,
   onRetryAuthor,
@@ -2101,6 +2202,9 @@ function ViewerHub({
   tab: "all" | "subscribed";
   onTabChange: (tab: "all" | "subscribed") => void;
   authorProfile: NoodlerManagedStageProfile | null;
+  authorDraft: PrivatePostDraft;
+  onAuthorDraftChange: (patch: Partial<PrivatePostDraft>) => void;
+  onClearAuthorDraft: () => void;
   authorLoading: boolean;
   authorError: boolean;
   onRetryAuthor: () => void;
@@ -2171,6 +2275,10 @@ function ViewerHub({
         <PrivatePostComposer
           key={authorProfile.id}
           profile={authorProfile}
+          collapsible={false}
+          draft={authorDraft}
+          onDraftChange={onAuthorDraftChange}
+          onClearDraft={onClearAuthorDraft}
           onManualPost={onManualPost}
           onGuidedPost={onGuidedPost}
           manualPending={manualPending}
@@ -2354,37 +2462,40 @@ type PrivateComposerTool = "media" | "coin";
 
 function PrivatePostComposer({
   profile,
+  collapsible = true,
+  draft,
+  onDraftChange,
+  onClearDraft,
   onManualPost,
   onGuidedPost,
   manualPending,
   guidePending,
 }: {
   profile: NoodlerManagedStageProfile;
+  collapsible?: boolean;
+  draft: PrivatePostDraft;
+  onDraftChange: (patch: Partial<PrivatePostDraft>) => void;
+  onClearDraft: () => void;
   onManualPost: (input: PrivatePostSubmission) => Promise<void>;
   onGuidedPost: (input: PrivatePostSubmission) => Promise<void>;
   manualPending: boolean;
   guidePending: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [access, setAccess] = useState<NoodlePostAccess>("public");
-  const [ppvPrice, setPpvPrice] = useState("5");
   const [postError, setPostError] = useState<string | null>(null);
   const [guideError, setGuideError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<PrivateComposerTool | null>(null);
   const [mediaPickerTab, setMediaPickerTab] = useState<ConversationMediaPickerTabId>("emoji");
   const mediaToolRef = useRef<HTMLDivElement | null>(null);
   const coinToolRef = useRef<HTMLDivElement | null>(null);
+  const { title, body, access, ppvPrice } = draft;
+  const hasDraft = !isEmptyPrivatePostDraft(draft);
   const parsedPrice = Number(ppvPrice);
   const pending = manualPending || guidePending;
   const guide = serializePrivatePostGuide(title, body);
 
   const clearDraft = () => {
-    setTitle("");
-    setBody("");
-    setAccess("public");
-    setPpvPrice("5");
+    onClearDraft();
     setPostError(null);
     setGuideError(null);
     setActiveTool(null);
@@ -2440,7 +2551,7 @@ function PrivatePostComposer({
     }
   };
 
-  if (!expanded) {
+  if (collapsible && !expanded) {
     return (
       <div className="border-b border-[var(--noodle-divider)] px-4 py-3">
         <button
@@ -2451,7 +2562,9 @@ function PrivatePostComposer({
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">Post as {profile.displayName}</span>
-            <span className="block text-xs text-[var(--muted-foreground)]">Write directly or guide the AI</span>
+            <span className="block text-xs text-[var(--muted-foreground)]">
+              {hasDraft ? "Draft saved" : "Write directly or guide the AI"}
+            </span>
           </span>
           <Pencil size={16} />
         </button>
@@ -2462,7 +2575,7 @@ function PrivatePostComposer({
   return (
     <NoodleComposerShell
       dataComponent="NoodlerHome.PrivatePostComposer"
-      header={
+      header={collapsible ? (
         <button
           type="button"
           onClick={() => {
@@ -2476,7 +2589,7 @@ function PrivatePostComposer({
           <ChevronDown size={14} />
           Post as {profile.displayName}
         </button>
-      }
+      ) : undefined}
       avatar={<ProfileInitial profile={profile} />}
       tools={
         <NoodleComposerToolRow
@@ -2535,9 +2648,9 @@ function PrivatePostComposer({
                 activeTab={mediaPickerTab}
                 onActiveTabChange={setMediaPickerTab}
                 onClose={() => setActiveTool(null)}
-                onEmojiSelect={(emoji) => setBody((current) => current + emoji)}
+                onEmojiSelect={(emoji) => onDraftChange({ body: body + emoji })}
                 onGifSelect={() => {}}
-                onStickerSelect={(name) => setBody((current) => `${current}sticker:${name}:`)}
+                onStickerSelect={(name) => onDraftChange({ body: `${body}sticker:${name}:` })}
                 className="w-full !border-[var(--marinara-chat-chrome-panel-border)] !bg-[var(--background)] !text-[var(--foreground)] shadow-2xl shadow-black/35"
               />
             </NoodleAnchoredPopover>
@@ -2552,7 +2665,7 @@ function PrivatePostComposer({
                       key={option}
                       type="button"
                       aria-pressed={access === option}
-                      onClick={() => setAccess(option)}
+                      onClick={() => onDraftChange({ access: option })}
                       className={cn(
                         "min-h-8 rounded px-2 text-xs font-bold capitalize",
                         access === option
@@ -2575,7 +2688,7 @@ function PrivatePostComposer({
                       max="999999"
                       step="0.01"
                       value={ppvPrice}
-                      onChange={(event) => setPpvPrice(event.target.value)}
+                      onChange={(event) => onDraftChange({ ppvPrice: event.target.value })}
                       aria-label="PPV price"
                       className="mari-chrome-field h-9 w-full rounded-md border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--noodle-blue)]"
                     />
@@ -2597,7 +2710,7 @@ function PrivatePostComposer({
         <span className="sr-only">Post title (optional)</span>
         <input
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => onDraftChange({ title: event.target.value })}
           maxLength={NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH}
           disabled={pending}
           placeholder="Title (optional)"
@@ -2606,7 +2719,7 @@ function PrivatePostComposer({
       </label>
       <textarea
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={(event) => onDraftChange({ body: event.target.value })}
         maxLength={NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH}
         disabled={pending}
         aria-label="Post body"

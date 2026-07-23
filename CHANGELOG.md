@@ -28,6 +28,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Listed ComfyUI models from the DiffusionModels folder (UNETLoader) alongside StableDiffusion checkpoints in the connection editor's "Fetch models from API", so models such as Anima and zImage are selectable without typing their names manually (#3993).
 - Disabled Venice.ai's optional `safe_mode` blur in native image requests so supported generations are returned without the provider's default censoring overlay (#3990).
 - Protected launcher-driven Engine updates with a private snapshot of the configured user-data directory outside the checkout and automatic restoration if an update attempt leaves that directory missing or empty. Launcher dependency refreshes now use the pinned lockfile instead of destructive forced reinstalls, preventing the Windows Fastify plugin type failures reported after v2.3.4 updates (#3961, #3976).
 - Installed and verified Sharp's WebAssembly runtime on Termux while suppressing unsupported Android native source builds, restoring NovelAI Precise Reference preprocessing without requiring an Android NDK (#3975).

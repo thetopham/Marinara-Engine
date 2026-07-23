@@ -59,7 +59,12 @@ import {
   withoutNpcAvatarRevision,
 } from "../../packages/client/src/lib/game-npc-avatar.js";
 import { characterMatchesSearch, parseCharacterDisplayData } from "../../packages/client/src/lib/character-display.js";
-import { DEFAULT_GENERATION_PARAMS } from "../../packages/shared/src/constants/defaults.js";
+import {
+  DEFAULT_GENERATION_PARAMS,
+  DEFAULT_TRANSLATION_SYSTEM_PROMPT,
+  resolveTranslationSystemPrompt,
+} from "../../packages/shared/src/constants/defaults.js";
+import { normalizeIllustratorImagesPerGeneration } from "../../packages/shared/src/utils/illustrator-generation-count.js";
 import { getChatModeCapabilities } from "../../packages/shared/src/constants/chat-mode-capabilities.js";
 import { mergeNoodleCustomEmojiMap } from "../../packages/client/src/hooks/use-noodle-custom-emojis.js";
 import {
@@ -104,6 +109,7 @@ import {
 } from "../../packages/client/src/lib/emoji-shortcodes.js";
 import { persistGeneratedImageToEntityGalleries } from "../../packages/server/src/services/image/generated-image-entity-gallery.js";
 import { resolveIllustratorImageSize } from "../../packages/server/src/services/image/image-generation-settings.js";
+import { generateIllustratorImageVariants } from "../../packages/server/src/services/image/illustrator-image-variants.js";
 import { fetchBotBrowserJson } from "../../packages/server/src/services/bot-browser/fetch-json.js";
 import { isAllowedResponseContentType, validateOutboundUrl } from "../../packages/server/src/utils/security.js";
 import { seedDefaultBackgrounds } from "../../packages/server/src/db/seed-backgrounds.js";
@@ -675,6 +681,24 @@ assert.equal(resolveInitialGameGmConnectionId("explicit-connection", "chat-conne
 assert.equal(resolveInitialGameGmConnectionId(undefined, null), null);
 assert.equal(GAME_SETUP_GENERATION_TIMEOUT_MS, 500_000);
 assert.equal(DEFAULT_GENERATION_PARAMS.reasoningEffort, "maximum");
+assert.match(DEFAULT_TRANSLATION_SYSTEM_PROMPT, /\{\{targetLanguage\}\}/u);
+assert.match(resolveTranslationSystemPrompt(DEFAULT_TRANSLATION_SYSTEM_PROMPT, "Japanese"), /into Japanese/u);
+assert.equal(normalizeIllustratorImagesPerGeneration(undefined), 1);
+assert.equal(normalizeIllustratorImagesPerGeneration("3"), 3);
+assert.equal(normalizeIllustratorImagesPerGeneration(99), 4);
+const attemptedImageVariants: number[] = [];
+assert.deepEqual(
+  await generateIllustratorImageVariants({
+    count: 3,
+    generate: async (index) => {
+      attemptedImageVariants.push(index);
+      if (index === 1) throw new Error("one variant failed");
+      return `image-${index}`;
+    },
+  }),
+  ["image-0", "image-2"],
+);
+assert.deepEqual(attemptedImageVariants, [0, 1, 2]);
 
 assert.equal(
   buildVeniceApiUrl("https://api.venice.ai/api/v1", "models"),

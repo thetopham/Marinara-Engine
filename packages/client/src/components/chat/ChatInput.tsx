@@ -932,7 +932,7 @@ export const ChatInput = memo(function ChatInput({
     if (chatMeta.translateInput && message.trim()) {
       try {
         const { translateText } = await import("../../lib/translate-text");
-        const translated = await translateText(message);
+        const translated = await translateText(message, "input");
         if (translated.trim()) message = translated;
       } catch {
         toast.error("Failed to translate message — sending original");
@@ -1176,7 +1176,7 @@ export const ChatInput = memo(function ChatInput({
     if (chatMeta.translateInput && message.trim()) {
       try {
         const { translateText } = await import("../../lib/translate-text");
-        const translated = await translateText(message);
+        const translated = await translateText(message, "input");
         if (translated.trim()) message = translated;
       } catch {
         toast.error("Failed to translate message; posting original");

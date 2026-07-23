@@ -8,6 +8,9 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 - Reintroduced local-only **Personal Extensions** in **Settings > Addons** for self-authored, locally imported, or Professor Mari-authored browser and server code. New and changed code stays disabled until the user reviews and approves its exact SHA-256 fingerprint; imports, profile transfers, and revision restores cannot carry execution approval, and there is no catalog, URL installer, or automatic updater.
 - Added review-gated public npm dependencies for Professor Mari's workspace changes. She can request a root, client, server, or shared package, but Marinara resolves it to an exact registry version and integrity and waits for the user before installing it with lifecycle scripts disabled.
+- Added **Set as avatar** to Character and Persona Gallery images in both the grid and full-size viewer, using path-contained, image-validated server copies (#3974).
+- Added separate Model and user target languages plus independent outgoing and incoming AI prompts to chat translation. Custom prompts support the `{{targetLanguage}}` placeholder, while existing single-language chat settings remain compatible (#3965).
+- Added a per-chat **Images Per Generation** setting to Illustrator in Conversation, Roleplay, and Game, generating up to four sequential image variants through the existing provider queue and gallery pipeline (#3966).
 
 ### Changed
 
@@ -18,6 +21,17 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Rejected untrusted HTTP Host names before CORS, loopback authentication bypasses, or privileged reads can process a request, preventing DNS rebinding from exposing chats, galleries, backups, and other local data. Direct LAN, Tailscale, IPv4, IPv6, localhost, and local machine-name access remains available, while intentional public and reverse-proxy names can be added through `TRUSTED_HOSTS`.
 - Replaced silent startup updates for installed Agent packages with a responsive per-version confirmation. Choosing **No** records that decision without changing the installed package, and the existing **Update** action remains available in **Agents → Download Agents**.
 - Restricted official Agent catalog artifacts to their canonical Marinara-Agents repository URLs while preserving explicit custom-catalog overrides.
+
+### Fixed
+
+- Protected launcher-driven Engine updates with a private snapshot of the configured user-data directory outside the checkout and automatic restoration if an update attempt leaves that directory missing or empty. Launcher dependency refreshes now use the pinned lockfile instead of destructive forced reinstalls, preventing the Windows Fastify plugin type failures reported after v2.3.4 updates (#3961, #3976).
+- Installed and verified Sharp's WebAssembly runtime on Termux while suppressing unsupported Android native source builds, restoring NovelAI Precise Reference preprocessing without requiring an Android NDK (#3975).
+- Re-checked Do Not Disturb immediately before delayed foreground, exchange, and background autonomous generations, so enabling it while a message is waiting reliably suppresses that message (#3959).
+- Allowed an Agent explicitly assigned to Local Sidecar to start that runtime on demand even when the global tracker-sidecar default is disabled (#3960).
+- Made explicit Gallery **Illustrate** actions generate the requested image even when the Illustrator's automatic-generation decision says no (#3963).
+- Kept Conversation bubbles within the mobile viewport and exposed live Model Thoughts while a response is still streaming (#3964, #3971).
+- Saved image, video, and provider-default connection parameters before the final connection refresh, preventing stale cached defaults from replacing the user's latest values (#3972).
+- Enlarged generated image attachments in Conversation and Roleplay while keeping them contained within the chat viewport (#3966).
 
 ## [2.3.4]
 

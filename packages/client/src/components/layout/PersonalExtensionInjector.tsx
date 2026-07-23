@@ -44,8 +44,25 @@ async function cleanupExtension(id: string) {
   active.iframe.remove();
 }
 
+const STORAGE_ACTIONS = new Set<SandboxMessage["action"]>(["get", "patch", "delete"]);
+const LOG_LEVELS = new Set<NonNullable<SandboxMessage["level"]>>(["debug", "info", "warn", "error"]);
+
 async function handleStorage(active: ActiveClientExtension, message: SandboxMessage) {
-  if (!message.requestId || !message.action) return;
+  // Never infer DELETE from an unknown action: a malformed message must be
+  // rejected, not silently mapped onto a destructive request.
+  if (!message.requestId || !STORAGE_ACTIONS.has(message.action)) {
+    active.iframe.contentWindow?.postMessage(
+      {
+        channel: "marinara-personal-extension",
+        type: "storage-result",
+        requestId: message.requestId,
+        ok: false,
+        error: "Storage request was rejected by the host",
+      },
+      "*",
+    );
+    return;
+  }
   try {
     let value: Record<string, unknown> = {};
     if (message.action === "get") {
@@ -100,8 +117,12 @@ export function PersonalExtensionInjector() {
         void handleStorage(active, message);
         return;
       }
-      if (message.type === "log" && message.level) {
-        console[message.level](`[Personal Extension ${active.extension.name}]`, ...(message.args ?? []));
+      if (message.type === "log" && LOG_LEVELS.has(message.level as NonNullable<SandboxMessage["level"]>)) {
+        const args = Array.isArray(message.args) ? message.args : [];
+        console[message.level as NonNullable<SandboxMessage["level"]>](
+          `[Personal Extension ${active.extension.name}]`,
+          ...args,
+        );
         return;
       }
       if (message.type === "ready" && message.contentHash === active.contentHash) {

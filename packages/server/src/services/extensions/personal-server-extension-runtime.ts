@@ -38,6 +38,7 @@ type RunnerMessage = {
   message?: string;
 };
 
+const LOG_LEVELS = new Set<NonNullable<RunnerMessage["level"]>>(["debug", "info", "warn", "error"]);
 const STARTUP_TIMEOUT_MS = 10_000;
 const CLEANUP_TIMEOUT_MS = 3_000;
 const MAX_PROTOCOL_BYTES = 2 * 1024 * 1024;
@@ -242,6 +243,20 @@ export class PersonalServerExtensionRuntime {
 
     const sandbox = await spawnSandboxedPersonalExtension();
     const { child } = sandbox;
+    // Attach lifecycle listeners before the first setup await. A ChildProcess
+    // that fails during `open` below would otherwise emit "error" with no
+    // listener, which throws and crashes the main server process; a "close"
+    // in the same window would be missed and leak the sandbox.
+    let earlyExit: { code: number | null; signal: string | null; error?: Error } | null = null;
+    const earlyErrorHandler = (error: Error) => {
+      earlyExit = { code: null, signal: null, error };
+    };
+    const earlyCloseHandler = (code: number | null, signal: string | null) => {
+      earlyExit = { code, signal };
+    };
+    child.once("error", earlyErrorHandler);
+    child.once("close", earlyCloseHandler);
+
     const active: ActiveExtension = {
       id: extension.id,
       contentHash: extension.contentHash,
@@ -260,7 +275,17 @@ export class PersonalServerExtensionRuntime {
     let lastHeartbeat = Date.now();
     let messageWindowStartedAt = Date.now();
     let messageCount = 0;
-    const outputHandle = await open(sandbox.protocol.outputPath, "r");
+    let outputHandle: Awaited<ReturnType<typeof open>>;
+    try {
+      outputHandle = await open(sandbox.protocol.outputPath, "r");
+    } catch (error) {
+      child.off("error", earlyErrorHandler);
+      child.off("close", earlyCloseHandler);
+      active.expectedStop = true;
+      child.kill("SIGKILL");
+      await sandbox.cleanup();
+      throw error;
+    }
     active.watchdog = setInterval(() => {
       if (active.expectedStop) return;
       void Promise.all([stat(sandbox.protocol.heartbeatPath), stat(sandbox.protocol.errorPath)])
@@ -351,9 +376,9 @@ export class PersonalServerExtensionRuntime {
               child.kill("SIGKILL");
             } else if (message.type === "storage") {
               void this.handleStorageMessage(extension, active, message);
-            } else if (message.type === "log" && message.level) {
+            } else if (message.type === "log" && message.level && LOG_LEVELS.has(message.level)) {
               logger[message.level](
-                { extensionId: extension.id, extensionName: extension.name, args: message.args ?? [] },
+                { extensionId: extension.id, extensionName: extension.name, args: Array.isArray(message.args) ? message.args : [] },
                 "[personal-extension] %s",
                 extension.name,
               );
@@ -369,8 +394,7 @@ export class PersonalServerExtensionRuntime {
       active.outputPoller = setInterval(() => void pollOutput(), 25);
       active.outputPoller.unref?.();
       void pollOutput();
-      child.once("error", (error) => fail(describeError(error)));
-      child.once("close", (code, signal) => {
+      const handleClose = (code: number | null, signal: string | null) => {
         if (active.watchdog) clearInterval(active.watchdog);
         if (active.outputPoller) clearInterval(active.outputPoller);
         void outputHandle.close();
@@ -383,7 +407,17 @@ export class PersonalServerExtensionRuntime {
           }
           await sandbox.cleanup();
         })();
-      });
+      };
+      // Hand off from the early setup-phase listeners, replaying an exit that
+      // already happened while `open` was pending.
+      child.off("error", earlyErrorHandler);
+      child.off("close", earlyCloseHandler);
+      child.once("error", (error) => fail(describeError(error)));
+      child.once("close", handleClose);
+      if (earlyExit) {
+        if (earlyExit.error) fail(describeError(earlyExit.error));
+        else handleClose(earlyExit.code, earlyExit.signal);
+      }
     });
 
     await this.send(active, {

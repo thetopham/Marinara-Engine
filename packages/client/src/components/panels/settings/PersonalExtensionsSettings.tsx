@@ -231,10 +231,14 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
   const runExtension = useCallback(
     async (extension: PersonalExtension) => {
       const confirmed = await showConfirmDialog({
-        title: extension.runtime === "server" ? "Run Trusted Server Code?" : "Run Personal Browser Code?",
+        title: t(
+          extension.runtime === "server"
+            ? "settings.personalExtensions.approval.titleServer"
+            : "settings.personalExtensions.approval.titleBrowser",
+        ),
         message: riskMessage(extension, t),
-        confirmLabel: "Run Exact Code",
-        cancelLabel: "Keep Disabled",
+        confirmLabel: t("settings.personalExtensions.approval.confirmLabel"),
+        cancelLabel: t("settings.personalExtensions.approval.cancelLabel"),
         tone: "destructive",
       });
       if (!confirmed) return;

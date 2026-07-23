@@ -245,7 +245,6 @@
   "settings.controls.quoteStyle.help": "Wähle, wie gerade und intelligente Anführungszeichen in Chat-Eingaben vereinheit und in KI-Ausgabe angezeigt werden.",
   "settings.controls.quoteStyle.label": "Anführungszeichen-Stil",
   "settings.controls.rainbowAccent.help": "Durchläuft die App-Akzentfarbe durch Marinaras Regenbogenfarbpalette, während sie aktiviert ist. Deine gespeicherte Akzentfarbe bleibt unverändert. Einstellungen für reduzierte Bewegung werden respektiert.",
-  "settings.controls.rainbowAccent.label": "Regenbogen-Akzent",
   "settings.controls.reducedPaintEffects.help": "Vereinfacht kostspielige Roleplay-Transparenz, Schatten und Szenen-Overlays, um die Navigation reaktiv zu halten, besonders in Firefox. Wird sofort in jedem Browser angewendet.",
   "settings.controls.reducedPaintEffects.label": "Reduzierte Paint-Effekte",
   "settings.controls.replaceTrackerIcons.help": "Blendet den alten Welt-/Spieler-Tracker-Icon-Streifen aus, damit das Tracker-Panel an den Rand angedockt werden kann. Die Agenten-Schaltfläche bleibt sichtbar.",

@@ -41,6 +41,8 @@ import {
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE_ID,
+  GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE,
+  GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID,
   GAME_STORYBOARD_BW_MANGA_ANIMATION_PROMPT_TEMPLATE,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE,
@@ -466,6 +468,7 @@ import {
   resolveNpcPortraitAppearance,
   sanitizeNpcPortraitAppearanceText,
   selectStoryboardAppearanceCharacterNames,
+  sanitizeStoryboardPlan,
 } from "../../packages/server/src/routes/game.routes.js";
 import { buildLegacyDefaultAgentConfigUpdate } from "../../packages/server/src/services/agents/default-prompt-migration.js";
 import { buildMemoryRecallBlock } from "../../packages/server/src/services/generation/memory-recall-context.js";
@@ -2122,11 +2125,14 @@ const cases: RegressionCase[] = [
       const stillAnimationPreset = GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.find(
         (template) => template.id === GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE_ID,
       );
+      const promptDirectorPreset = GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.find(
+        (template) => template.id === GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID,
+      );
       const illustrationIds = new Set(GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES.map((template) => template.id));
       const animationIds = new Set(GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.map((template) => template.id));
 
       assert.equal(GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES.length, 5);
-      assert.equal(GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.length, 6);
+      assert.equal(GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.length, 7);
       assert.equal(GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID, GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID);
       assert.notEqual(
         GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE_ID,
@@ -2148,6 +2154,13 @@ const cases: RegressionCase[] = [
       );
       assert.equal(illustrationPreset?.promptTemplate, GAME_STORYBOARD_COMIC_PROMPT_TEMPLATE);
       assert.equal(stillAnimationPreset?.promptTemplate, GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE);
+      assert.equal(promptDirectorPreset?.promptTemplate, GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /one flowing present-tense paragraph of 4-8/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /ambient sound, sound effects, music/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /"videoPrompt": string/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /"continuityNotes": string/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /"cameraMotion": string/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /"transitionHint": string/);
       assert.match(stillAnimationPreset?.promptTemplate ?? "", /style-neutral/);
       assert.match(illustrationPreset?.promptTemplate ?? "", /2-6 panels per illustration/);
       assert.doesNotMatch(illustrationPreset?.promptTemplate ?? "", /\$\{durationSeconds\}-second/);
@@ -2197,6 +2210,7 @@ const cases: RegressionCase[] = [
       assert.match(drawerSource, /builtInTemplates\.map\(\(template\) =>/);
       assert.match(gameRouteSource, /getGameStoryboardPromptTemplateKind\(template, selectedAnimationTemplateId\)/);
       assert.match(gameRouteSource, /const builtInTemplates = args\.generateVideos/);
+      assert.match(gameRouteSource, /const narrationSummary =\s*animationDirection \|\|/);
       assert.match(
         gameRouteSource,
         /storyboardImagePromptTemplateId: readTrimmedString\(meta\.gameStoryboardImagePromptTemplateId\)/,
@@ -2214,6 +2228,77 @@ const cases: RegressionCase[] = [
       assert.match(gameSurfaceSource, /setStoryboardViewerPlayingVideoId\(activeStoryboardKeyframe\.video\.id\)/);
       assert.match(backgroundViewerSource, /onEnded=\{\(\) =>/);
       assert.doesNotMatch(backgroundViewerSource, /\bloop\b/);
+    },
+  },
+  {
+    name: "Storyboard Prompt Director preserves rich animation fields without changing illustration plans",
+    async run() {
+      const sourceNarration = "Lyra runs beneath the storm as the shrine gate opens behind her.";
+      const sections = [{ index: 0, kind: "narration" as const, content: sourceNarration }];
+      const rawPlan = {
+        title: "Storm gate",
+        summary: sourceNarration,
+        keyframes: [
+          {
+            title: "Lyra reaches the gate",
+            sectionStartIndex: 0,
+            sectionEndIndex: 0,
+            anchorQuote: "Lyra runs beneath the storm",
+            anchorKind: "narration",
+            narrationBeat: "Lyra races toward the opening shrine gate.",
+            imagePrompt: "Lyra in a runner's starting stride before a storm-lit shrine gate.",
+            videoPrompt:
+              "0-3s Lyra accelerates through the rain. 3-6s the gate opens as thunder rolls and she braces at the threshold.",
+            characters: ["Lyra"],
+            continuityNotes: "Lyra keeps one sword, one scabbard, and the torn silver cloak.",
+            cameraMotion: "Track beside Lyra, then settle into a close medium shot.",
+            transitionHint: "Hold as the gate finishes opening.",
+            durationSeconds: 6,
+            aspectRatio: "16:9",
+          },
+        ],
+      };
+      const common = {
+        sourceNarration,
+        sections,
+        keyframeCount: 1,
+        durationSeconds: 6,
+        aspectRatio: "16:9" as const,
+        allowedCharacterNames: ["Lyra"],
+        maxVisibleCharacters: 1,
+      };
+
+      const animationPlan = sanitizeStoryboardPlan(rawPlan, { ...common, includeVideoPrompts: true });
+      const illustrationPlan = sanitizeStoryboardPlan(rawPlan, { ...common, includeVideoPrompts: false });
+
+      assert.equal(animationPlan.keyframes[0]?.videoPrompt, rawPlan.keyframes[0]?.videoPrompt);
+      assert.equal(animationPlan.keyframes[0]?.continuityNotes, rawPlan.keyframes[0]?.continuityNotes);
+      assert.equal(animationPlan.keyframes[0]?.cameraMotion, rawPlan.keyframes[0]?.cameraMotion);
+      assert.equal(animationPlan.keyframes[0]?.transitionHint, rawPlan.keyframes[0]?.transitionHint);
+      assert.equal(illustrationPlan.keyframes[0]?.videoPrompt, "");
+      assert.equal(illustrationPlan.keyframes[0]?.continuityNotes, "");
+      assert.equal(illustrationPlan.keyframes[0]?.cameraMotion, "");
+      assert.equal(illustrationPlan.keyframes[0]?.transitionHint, "");
+
+      const animationMessages = await buildStoryboardIllustratorMessages({
+        promptOverridesStorage: {} as never,
+        meta: { gameStoryboardAnimationPromptTemplateId: GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID },
+        setupConfig: null,
+        latestState: null,
+        sourceNarration,
+        sections,
+        keyframeCount: 1,
+        durationSeconds: 6,
+        aspectRatio: "16:9",
+        generateVideos: true,
+        allowedCharacterNames: ["Lyra"],
+        maxVisibleCharacters: 1,
+      });
+      const animationTask = animationMessages.messages[1]?.content ?? "";
+      assert.match(animationMessages.systemPrompt, /Storyboard Prompt Director/);
+      assert.match(animationMessages.systemPrompt, /"videoPrompt": string/);
+      assert.match(animationTask, /Include videoPrompt, cameraMotion, transitionHint, and continuityNotes/);
+      assert.doesNotMatch(animationTask, /^Do not include videoPrompt/m);
     },
   },
   {
@@ -2926,11 +3011,17 @@ const cases: RegressionCase[] = [
           durationSeconds: 6,
           aspectRatio: "16:9",
           sourceIllustrationLine: "Use image-123 as the first frame/reference image.",
+          continuityNotesBlock: "Continuity: Mira keeps the silver cloak.",
+          cameraMotionBlock: "Camera: Track beside Mira.",
+          transitionHintBlock: "Ending handoff: Hold on the opening gate.",
         },
       });
 
       assert.match(storyboardPrompt, /anime shot from the supplied first-frame illustration/);
       assert.match(storyboardPrompt, /Stage severe harm with broadcast-anime restraint/);
+      assert.match(storyboardPrompt, /Continuity: Mira keeps the silver cloak/);
+      assert.match(storyboardPrompt, /Camera: Track beside Mira/);
+      assert.match(storyboardPrompt, /Ending handoff: Hold on the opening gate/);
       assert.doesNotMatch(storyboardPrompt, /CHAT VIDEO|GLOBAL VIDEO OVERRIDE/);
 
       const comicReferencePrompt = await loadGameVideoPrompt({
@@ -2963,6 +3054,9 @@ const cases: RegressionCase[] = [
           "${sourceIllustrationLine}",
           "Scene: ${sceneTitle}",
           "Story beat: ${narrationSummary}",
+          "${continuityNotesBlock}",
+          "${cameraMotionBlock}",
+          "${transitionHintBlock}",
           "Characters: ${charactersLine}",
           "Setting: ${settingLine}",
           "Art style: ${artStyleLine}",

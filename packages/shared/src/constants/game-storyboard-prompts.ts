@@ -6,6 +6,7 @@ export const GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE_ID = "still-keyfram
 export const GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID = "comic-page-animation";
 export const GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID = GAME_STORYBOARD_COMIC_ANIMATION_PROMPT_TEMPLATE_ID;
 export const GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE_ID = "anime-episode-director";
+export const GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID = "storyboard-prompt-director";
 export const GAME_STORYBOARD_COLORED_MANGA_PROMPT_TEMPLATE_ID = "colored-manga-keyframes";
 export const GAME_STORYBOARD_BW_MANGA_PROMPT_TEMPLATE_ID = "bw-manga-keyframes";
 export const GAME_STORYBOARD_NOVELAI_PROMPT_TEMPLATE_ID = "novelai-keyframes";
@@ -44,6 +45,9 @@ export const GAME_STORYBOARD_PROMPT_TEMPLATE_VARIABLES = [
 
 export const GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE =
   '{ "title": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "characters": string[] } ] }';
+
+export const GAME_STORYBOARD_PROMPT_DIRECTOR_JSON_SHAPE_LINE =
+  '{ "title": string, "summary": string, "keyframes": [ { "title": string, "sectionStartIndex": number, "sectionEndIndex": number, "anchorQuote": string, "anchorKind": "narration" | "dialogue" | "readable" | "system", "narrationBeat": string, "imagePrompt": string, "videoPrompt": string, "characters": string[], "continuityNotes": string, "cameraMotion": string, "transitionHint": string, "durationSeconds": number, "aspectRatio": "16:9" | "9:16" } ] }';
 
 const GAME_STORYBOARD_SHARED_STILL_PROMPT_LINES = [
   "Create exactly ${keyframeCount} ordered keyframes unless the narration is too short to support that many; never create more than 6.",
@@ -154,6 +158,28 @@ export const GAME_STORYBOARD_ANIME_EPISODE_PROMPT_TEMPLATE = [
   "Anchor every keyframe to the supplied turn_sections using sectionStartIndex, sectionEndIndex, anchorQuote, and anchorKind.",
   "Return strict JSON only with this shape:",
   GAME_STORYBOARD_KEYFRAME_JSON_SHAPE_LINE,
+].join("\n");
+
+export const GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE = [
+  "You are Marinara's Game Mode Storyboard Prompt Director.",
+  "Turn exactly one completed GM narration into ordered first-frame illustrations and detailed animation scripts. Use only events present in the GM narration.",
+  "Create exactly ${keyframeCount} shots when the narration contains enough distinct visual beats. For a shorter turn, return fewer shots rather than duplicating moments, padding the plan, or inventing events.",
+  "Each keyframe becomes one continuous ${durationSeconds}-second ${aspectRatio} image-to-video shot. Do not create a montage or place a cut inside a keyframe.",
+  "Use only the GM narration as the story source. Do not include the user's CYOA/action, because that action causes the next turn.",
+  "Anchor every keyframe to the supplied turn_sections using sectionStartIndex, sectionEndIndex, anchorQuote, and anchorKind. Keep the keyframes chronological and prefer contiguous source ranges.",
+  "Keep character identity, face, hair, clothing, anatomy, injuries, equipment, carried objects, creature anatomy, effect origins, positions, environment, lighting, weather, and damage continuous unless the narration explicitly changes them.",
+  "Keep each keyframe.characters exactly synchronized with the named characters visibly present in imagePrompt. Use only allowed visible characters.",
+  "Write narrationBeat as a short human-readable summary of the selected visual beat.",
+  "Write imagePrompt as time T=0: the exact first frame immediately before or as the action begins. Describe visible subjects, starting pose and expression, composition, camera position, environment, lighting, palette, textures, and important props, but do not include later consequences or animation instructions.",
+  "Write videoPrompt as one flowing present-tense paragraph of 4-8 descriptive sentences focused on what happens after the supplied first frame. Establish the shot briefly, describe actions in causal order, specify when and how the camera moves relative to the subject, include relevant ambient sound, sound effects, music, and quoted dialogue, then state the final pose, composition, continuing action, or hold.",
+  "For clips with several connected actions, use compact inline time ranges such as 0-3s, 3-6s, and 6-${durationSeconds}s while preserving one continuous spatially clear shot. Prefer one strong causal action chain over several unrelated actions or complex physics.",
+  "Do not spend videoPrompt re-describing static appearance already established by imagePrompt. Include only physical details needed to make motion, contact, scale, or effect origin unambiguous.",
+  "Write continuityNotes as compact fixed visual rules for identity, wardrobe, anatomy, equipment, props, creature structure, damage state, and allowed effect origins. Do not put new events there.",
+  "Write cameraMotion as the exact camera behavior and timing relative to the primary subject. Use a locked camera or one motivated move at a time.",
+  "Write transitionHint as the intended ending handoff: a continuing action, a brief hold, or the source-supported transition into the next keyframe. Use 'continuous shot' when no transition is needed.",
+  "Avoid conflicting camera instructions, conflicting lighting, overloaded scenes, unsupported transformations, teleportation, duplicate characters, extra anatomy, extra weapons, subtitles, captions, UI, logos, and watermarks.",
+  "Return strict JSON only with this shape:",
+  GAME_STORYBOARD_PROMPT_DIRECTOR_JSON_SHAPE_LINE,
 ].join("\n");
 
 const GAME_STORYBOARD_SHARED_SINGLE_SHOT_ANIMATION_PROMPT_LINES = [
@@ -294,6 +320,13 @@ export const GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES: AgentPromptTemplateO
 ];
 
 export const GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES: AgentPromptTemplateOption[] = [
+  {
+    id: GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID,
+    name: "Storyboard Prompt Director",
+    description:
+      "Plans a first frame plus a detailed chronological animation script, continuity rules, camera motion, audio, and ending handoff for each clip.",
+    promptTemplate: GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE,
+  },
   {
     id: GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE_ID,
     name: "Still Keyframe Animation",

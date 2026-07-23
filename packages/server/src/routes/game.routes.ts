@@ -1529,9 +1529,14 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
   debugMode?: boolean;
 }): Promise<string> {
   const sourceDescription = `storyboard keyframe ${args.frameIndex + 1} (${args.galleryImage.id})`;
+  const animationDirection = compactVideoPromptText(args.plannedFrame.videoPrompt, 6000);
   const narrationSummary =
+    animationDirection ||
     compactVideoPromptText(args.plannedFrame.narrationBeat, args.promptLimits.narrationSummary) ||
     latestNarrationSummary(args.messages, args.promptLimits.narrationSummary);
+  const continuityNotes = compactVideoPromptText(args.plannedFrame.continuityNotes, 2500);
+  const cameraMotion = compactVideoPromptText(args.plannedFrame.cameraMotion, 1200);
+  const transitionHint = compactVideoPromptText(args.plannedFrame.transitionHint, 800);
   const characterNames =
     args.plannedFrame.characters.length > 0
       ? args.plannedFrame.characters
@@ -1563,6 +1568,9 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
       durationSeconds: args.plannedFrame.durationSeconds,
       aspectRatio: args.plannedFrame.aspectRatio,
       sourceIllustrationLine: `Use ${sourceDescription} as the first frame/reference image.`,
+      continuityNotesBlock: continuityNotes ? `Continuity: ${continuityNotes}` : "",
+      cameraMotionBlock: cameraMotion ? `Camera: ${cameraMotion}` : "",
+      transitionHintBlock: transitionHint ? `Ending handoff: ${transitionHint}` : "",
     },
   });
   return limitSceneVideoPromptForProvider(promptDraft, args.promptLimits.finalPrompt);
@@ -5132,6 +5140,7 @@ function fallbackStoryboardPlan(args: {
   aspectRatio: GameSceneVideoAspectRatio;
   allowedCharacterNames?: string[];
   maxVisibleCharacters?: number;
+  includeVideoPrompts?: boolean;
 }): PlannedStoryboard {
   const cleanNarration = compactStoryboardText(args.sourceNarration, 2000);
   const frameCount = normalizeStoryboardKeyframeCount(args.keyframeCount);
@@ -5183,7 +5192,7 @@ function fallbackStoryboardPlan(args: {
         narrationBeat: beat,
         mangaPanelPrompt: scopedImagePrompt,
         imagePrompt: scopedImagePrompt,
-        videoPrompt: "",
+        videoPrompt: args.includeVideoPrompts ? beat : "",
         characters: reconciledCharacters.characters,
         characterPrompts: [],
         continuityNotes: "",
@@ -5196,7 +5205,7 @@ function fallbackStoryboardPlan(args: {
   };
 }
 
-function sanitizeStoryboardPlan(
+export function sanitizeStoryboardPlan(
   raw: unknown,
   args: {
     sourceNarration: string;
@@ -5206,6 +5215,7 @@ function sanitizeStoryboardPlan(
     aspectRatio: GameSceneVideoAspectRatio;
     allowedCharacterNames?: string[];
     maxVisibleCharacters?: number;
+    includeVideoPrompts?: boolean;
   },
 ): PlannedStoryboard {
   const root = asStoryboardRecord(raw);
@@ -5241,7 +5251,21 @@ function sanitizeStoryboardPlan(
         fallbackFrame?.anchorQuote ||
         "";
       const title = compactStoryboardText(frame.title, 120) || `Keyframe ${index + 1}`;
-      const frameText = [title, imagePrompt, mangaPanelPrompt, narrationBeat].filter(Boolean).join("\n");
+      const videoPrompt = args.includeVideoPrompts ? compactStoryboardText(frame.videoPrompt, 6000) : "";
+      const continuityNotes = args.includeVideoPrompts ? compactStoryboardText(frame.continuityNotes, 2500) : "";
+      const cameraMotion = args.includeVideoPrompts ? compactStoryboardText(frame.cameraMotion, 1200) : "";
+      const transitionHint = args.includeVideoPrompts ? compactStoryboardText(frame.transitionHint, 800) : "";
+      const frameText = [
+        title,
+        imagePrompt,
+        mangaPanelPrompt,
+        narrationBeat,
+        videoPrompt,
+        continuityNotes,
+        cameraMotion,
+      ]
+        .filter(Boolean)
+        .join("\n");
       const reconciledCharacters = reconcileStoryboardCharactersForFrame({
         value: frame.characters,
         allowedCharacterNames: args.allowedCharacterNames,
@@ -5267,12 +5291,12 @@ function sanitizeStoryboardPlan(
         narrationBeat,
         mangaPanelPrompt: mangaPanelPrompt || scopedImagePrompt,
         imagePrompt: scopedImagePrompt,
-        videoPrompt: "",
+        videoPrompt,
         characters: reconciledCharacters.characters,
         characterPrompts,
-        continuityNotes: "",
-        cameraMotion: "",
-        transitionHint: "",
+        continuityNotes,
+        cameraMotion,
+        transitionHint,
         durationSeconds: normalizeStoryboardDuration(frame.durationSeconds, args.durationSeconds),
         aspectRatio: normalizeStoryboardAspectRatio(frame.aspectRatio, args.aspectRatio),
       };
@@ -5519,7 +5543,9 @@ export async function buildStoryboardIllustratorMessages(args: {
             promptTask,
             `Target keyframes: ${args.keyframeCount}.`,
             `Aspect ratio: ${args.aspectRatio}.`,
-            "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
+            args.generateVideos
+              ? "Follow the selected animation planner's JSON contract. Include videoPrompt, cameraMotion, transitionHint, and continuityNotes when that contract requests them; otherwise those fields may be omitted."
+              : "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
             "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
             "Use only allowed visible characters from game_context; include a new NPC only if that exact name appears in this GM narration.",
             args.maxVisibleCharacters
@@ -10434,6 +10460,7 @@ export async function gameRoutes(app: FastifyInstance) {
         aspectRatio: input.aspectRatio,
         allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
         maxVisibleCharacters: storyboardMaxVisibleCharacters,
+        includeVideoPrompts: generateStoryboardVideos,
       } as const;
       if (input.plannedStoryboard !== undefined) {
         plan = sanitizeStoryboardPlan(input.plannedStoryboard, storyboardPlanSanitizerOptions);
@@ -10449,7 +10476,7 @@ export async function gameRoutes(app: FastifyInstance) {
               conn.model ?? "",
               {
                 stream: false,
-                maxTokens: structuredCharacterPrompts ? 3600 : 2200,
+                maxTokens: generateStoryboardVideos ? 6000 : structuredCharacterPrompts ? 3600 : 2200,
                 responseFormat: { type: "json_object" },
                 signal: storyboardAbortSignal,
               },
@@ -10477,6 +10504,7 @@ export async function gameRoutes(app: FastifyInstance) {
             aspectRatio: input.aspectRatio,
             allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
             maxVisibleCharacters: storyboardMaxVisibleCharacters,
+            includeVideoPrompts: generateStoryboardVideos,
           });
         }
       }

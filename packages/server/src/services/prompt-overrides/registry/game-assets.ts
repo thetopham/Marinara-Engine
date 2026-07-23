@@ -391,6 +391,9 @@ export interface GameVideoCtx extends Record<string, string | number | undefined
   durationSeconds: number;
   aspectRatio: string;
   sourceIllustrationLine: string;
+  continuityNotesBlock?: string;
+  cameraMotionBlock?: string;
+  transitionHintBlock?: string;
 }
 
 export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
@@ -401,7 +404,8 @@ export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
     { name: "sceneTitle", description: "Short scene title or visual subject.", example: "Moonlit duel aftermath" },
     {
       name: "narrationSummary",
-      description: "Compact story beat from the latest visible scene narration.",
+      description:
+        "Detailed storyboard video direction when available, otherwise a compact story beat from the latest visible scene narration.",
       example: "Korr kneels in the rain as Lyra steadies herself over the fallen blade.",
     },
     {
@@ -431,6 +435,21 @@ export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
       description: "Pre-formatted reminder that the provided image is the first frame/reference.",
       example: "Use the provided scene illustration as the first frame/reference image.",
     },
+    {
+      name: "continuityNotesBlock",
+      description: "Optional pre-formatted fixed visual continuity rules from a storyboard planner.",
+      example: "Continuity: Lyra keeps one sword and the torn silver cloak.",
+    },
+    {
+      name: "cameraMotionBlock",
+      description: "Optional pre-formatted camera timing and movement from a storyboard planner.",
+      example: "Camera: Track beside Lyra, then settle into a close medium shot.",
+    },
+    {
+      name: "transitionHintBlock",
+      description: "Optional pre-formatted ending hold or handoff from a storyboard planner.",
+      example: "Ending handoff: Hold as the gate opens behind her.",
+    },
   ],
   defaultBuilder: (ctx) => renderTemplate(GAME_VIDEO_PROMPT_TEMPLATE, ctx, GAME_VIDEO_PROMPT_TEMPLATE_VARIABLES),
   exampleContext: {
@@ -443,5 +462,8 @@ export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
     durationSeconds: 10,
     aspectRatio: "16:9",
     sourceIllustrationLine: "Use the provided scene illustration as the first frame/reference image.",
+    continuityNotesBlock: "Continuity: Lyra keeps one sword and the torn silver cloak.",
+    cameraMotionBlock: "Camera: Track beside Lyra, then settle into a close medium shot.",
+    transitionHintBlock: "Ending handoff: Hold as the gate opens behind her.",
   },
 };

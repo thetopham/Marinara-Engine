@@ -1577,6 +1577,10 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
   return limitSceneVideoPromptForProvider(promptDraft, args.promptLimits.finalPrompt);
 }
 
+function gameVideoRuntimeUsesService(runtime: GameVideoRuntime, service: "seedance" | "comfyui"): boolean {
+  return runtime.source.trim().toLowerCase() === service || runtime.serviceHint.trim().toLowerCase() === service;
+}
+
 async function resolveGameVideoConnectionId(
   meta: Record<string, unknown>,
   connections: ReturnType<typeof createConnectionsStorage>,
@@ -10617,6 +10621,8 @@ export async function gameRoutes(app: FastifyInstance) {
         ]),
       );
       let storyboardReferenceSheetBase64: string | null = null;
+      let storyboardReferenceSheetVideoImage: VideoReferenceImage | null = null;
+      const storyboardVideoWarnings: string[] = [];
 
       const buildStoryboardReferenceSheetIllustration = () => {
         if (!plan.referenceSheetPrompt) return null;
@@ -10986,7 +10992,14 @@ export async function gameRoutes(app: FastifyInstance) {
                 galleryImagePath,
                 sourceGalleryImagePathForMetadata(galleryImage),
               );
-              const prompt = await buildStoryboardGalleryAnimatePrompt({
+              const durationSeconds = Math.min(videoRuntime.maxDurationSeconds, plannedFrame.durationSeconds);
+              const useSeedanceDirectorReferences =
+                generateStoryboardReferenceSheet &&
+                storyboardReferenceSheetVideoImage !== null &&
+                gameVideoRuntimeUsesService(videoRuntime, "seedance");
+              const useLtxDirector =
+                generateStoryboardReferenceSheet && gameVideoRuntimeUsesService(videoRuntime, "comfyui");
+              const basePrompt = await buildStoryboardGalleryAnimatePrompt({
                 promptOverridesStorage,
                 galleryImage,
                 plannedFrame,
@@ -10999,6 +11012,15 @@ export async function gameRoutes(app: FastifyInstance) {
                 promptLimits: videoRuntime.promptLimits,
                 debugMode: requestDebug,
               });
+              const prompt = useSeedanceDirectorReferences
+                ? limitSceneVideoPromptForProvider(
+                    [
+                      "Reference order: image 1 is the canonical production reference sheet; image 2 is the exact first frame. Preserve image 1 identity, costume, equipment, anatomy, and scale, while beginning the action from image 2.",
+                      basePrompt,
+                    ].join("\n\n"),
+                    videoRuntime.promptLimits.finalPrompt,
+                  )
+                : basePrompt;
               await storyboards.updateKeyframe(frame.id, { videoPrompt: prompt });
               if (debugLogsEnabled) {
                 debugLog("[debug/game/storyboard-video] frame=%d prompt:\n%s", frame.index + 1, prompt);
@@ -11011,11 +11033,27 @@ export async function gameRoutes(app: FastifyInstance) {
                 {
                   prompt,
                   model: videoRuntime.model,
-                  durationSeconds: Math.min(videoRuntime.maxDurationSeconds, plannedFrame.durationSeconds),
+                  durationSeconds,
                   aspectRatio: plannedFrame.aspectRatio,
                   resolution: videoRuntime.resolution,
                   comfyWorkflow: videoRuntime.comfyWorkflow,
                   referenceImage,
+                  referenceImages: useSeedanceDirectorReferences && storyboardReferenceSheetVideoImage
+                    ? [storyboardReferenceSheetVideoImage, referenceImage]
+                    : undefined,
+                  referenceMode: useSeedanceDirectorReferences ? "reference" : undefined,
+                  generateAudio: useSeedanceDirectorReferences ? true : undefined,
+                  ltxDirector: useLtxDirector
+                    ? {
+                        globalPrompt: prompt,
+                        localPrompts: (plannedFrame.videoPrompt || plannedFrame.narrationBeat || prompt).replaceAll(
+                          "|",
+                          "/",
+                        ),
+                        segmentLengths: "%length%",
+                        durationSeconds,
+                      }
+                    : undefined,
                   publicReferenceUpload: videoRuntime.publicReferenceUpload,
                   fallback: videoFallback,
                   signal: backgroundSignal,
@@ -11036,7 +11074,13 @@ export async function gameRoutes(app: FastifyInstance) {
               });
               if (!videoRow) throw new Error("Storyboard video metadata could not be saved.");
               metadataSaved = true;
-              await storyboards.updateKeyframe(frame.id, { sceneVideoId: videoRow.id, status: "complete" });
+              const videoWarning = generated.warnings?.filter(Boolean).join(" ") || null;
+              if (videoWarning) storyboardVideoWarnings.push(videoWarning);
+              await storyboards.updateKeyframe(frame.id, {
+                sceneVideoId: videoRow.id,
+                status: "complete",
+                error: videoWarning,
+              });
               return { generatedImage: true, generatedVideo: true, imageFailure: false, videoFailure: false };
             } catch (err) {
               if (savedFilePath && !metadataSaved) {
@@ -11147,7 +11191,11 @@ export async function gameRoutes(app: FastifyInstance) {
               if (!galleryImage) throw new Error("Storyboard reference sheet could not be saved to gallery.");
               const galleryImagePath = resolveGalleryImagePath(galleryImage);
               if (!galleryImagePath) throw new Error("Storyboard reference sheet file could not be found.");
-              storyboardReferenceSheetBase64 = readFileSync(galleryImagePath).toString("base64");
+              storyboardReferenceSheetVideoImage = readOmniReferenceImage(
+                galleryImagePath,
+                sourceGalleryImagePathForMetadata(galleryImage),
+              );
+              storyboardReferenceSheetBase64 = storyboardReferenceSheetVideoImage.base64;
               await storyboards.update(storyboardRow.id, { referenceSheetImageId: galleryImage.id });
               if (debugLogsEnabled) {
                 debugLog(
@@ -11185,7 +11233,15 @@ export async function gameRoutes(app: FastifyInstance) {
                   (videoRuntime && generatedVideos < plan.keyframes.length)
                 ? "partial"
                 : "complete";
-          const updatedStoryboard = await storyboards.update(storyboardRow.id, { status: finalStatus });
+          const latestStoryboardRow = await storyboards.getById(storyboardRow.id);
+          const warningText = Array.from(new Set(storyboardVideoWarnings)).join(" ");
+          const finalError = [latestStoryboardRow?.error, warningText ? `Video warning: ${warningText}` : null]
+            .filter(Boolean)
+            .join(" ");
+          const updatedStoryboard = await storyboards.update(storyboardRow.id, {
+            status: finalStatus,
+            error: finalError || null,
+          });
           if (!updatedStoryboard) throw new Error("Storyboard metadata could not be reloaded");
         } catch (err) {
           const message = err instanceof Error ? err.message : "Storyboard media rendering failed";

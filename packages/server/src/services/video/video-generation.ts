@@ -28,6 +28,19 @@ export interface VideoGenerationRequest {
   aspectRatio: "16:9" | "9:16";
   resolution?: "480p" | "720p" | "1080p";
   referenceImage?: VideoReferenceImage | null;
+  /** Ordered provider reference materials. Used only when referenceMode is "reference". */
+  referenceImages?: VideoReferenceImage[];
+  /** Preserve first-frame behavior unless a caller explicitly requests provider reference mode. */
+  referenceMode?: "first-frame" | "reference";
+  /** Request provider-generated audio when the selected provider supports it. */
+  generateAudio?: boolean;
+  /** Allowlisted scene/timing values compiled into exactly one LTXDirector node. */
+  ltxDirector?: {
+    globalPrompt: string;
+    localPrompts: string;
+    segmentLengths: string;
+    durationSeconds: number;
+  };
   /** API-format workflow JSON for local ComfyUI video generation. */
   comfyWorkflow?: string;
   lastFrameImage?: VideoReferenceImage | null;
@@ -56,6 +69,7 @@ export interface VideoGenerationResult {
   base64: string;
   mimeType: "video/mp4";
   ext: "mp4";
+  warnings?: string[];
 }
 
 const GAME_SCENE_VIDEOS_DIR = join(DATA_DIR, "game-scene-videos");
@@ -92,6 +106,13 @@ class VideoGenerationDeadlineError extends Error {
   constructor(timeoutMs: number) {
     super(`Video generation timed out after ${Math.round(timeoutMs / 1000)} seconds`);
     this.name = "VideoGenerationDeadlineError";
+  }
+}
+
+export class VideoGenerationCapabilityError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "VideoGenerationCapabilityError";
   }
 }
 
@@ -154,6 +175,11 @@ async function generateVideoUnqueued(
     }
     throw new Error(`Unsupported video generation service: ${resolvedService || serviceHint || source}`);
   } catch (error) {
+    if (error instanceof VideoGenerationCapabilityError) throw error;
+    if (resolvedService === "seedance" && request.referenceMode === "reference") {
+      const message = error instanceof Error ? error.message : "Unknown Seedance reference-mode error";
+      throw new VideoGenerationCapabilityError(`Seedance reference-to-video failed: ${message}`, { cause: error });
+    }
     const fallback = request.fallback;
     if (!fallback || request.signal?.aborted) throw error;
     logger.warn(
@@ -308,6 +334,189 @@ function replaceComfyUiVideoPlaceholders(value: unknown, replacements: Record<st
   return value;
 }
 
+type LtxDirectorRequest = NonNullable<VideoGenerationRequest["ltxDirector"]>;
+
+export interface CompiledLtxDirectorWorkflow {
+  workflow: unknown;
+  applied: boolean;
+  warnings: string[];
+  frameRate?: number;
+  width?: number;
+  height?: number;
+  durationFrames?: number;
+}
+
+const LTX_DIRECTOR_PATCHED_INPUTS = [
+  "start_second",
+  "end_second",
+  "duration_seconds",
+  "start_frame",
+  "end_frame",
+  "duration_frames",
+  "global_prompt",
+  "local_prompts",
+  "segment_lengths",
+  "timeline_data",
+] as const;
+
+function findLtxDirectorNodes(workflow: unknown): Array<[string, Record<string, unknown>]> {
+  return Object.entries(asRecord(workflow)).filter((entry): entry is [string, Record<string, unknown>] => {
+    const node = asRecord(entry[1]);
+    return node.class_type === "LTXDirector";
+  });
+}
+
+function readPositiveLtxNumber(value: unknown, label: string): number {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new VideoGenerationCapabilityError(`LTXDirector ${label} must resolve to a positive number.`);
+  }
+  return parsed;
+}
+
+function parseLtxTimelineData(value: unknown, replacements: Record<string, string | number>): Record<string, unknown> {
+  if (typeof value !== "string") {
+    throw new VideoGenerationCapabilityError("LTXDirector timeline_data must be a JSON string.");
+  }
+  try {
+    const resolved = Object.entries(replacements).reduce((timelineJson, [placeholder, replacement]) => {
+      const jsonSafeReplacement =
+        typeof replacement === "string" ? JSON.stringify(replacement).slice(1, -1) : String(replacement);
+      return timelineJson.replaceAll(placeholder, jsonSafeReplacement);
+    }, value);
+    const parsed = JSON.parse(resolved) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new VideoGenerationCapabilityError("LTXDirector timeline_data is not valid nested JSON.", { cause: error });
+  }
+}
+
+function resolveLtxDirectorText(value: string, replacements: Record<string, string | number>): string {
+  return Object.entries(replacements).reduce(
+    (resolved, [placeholder, replacement]) => resolved.replaceAll(placeholder, String(replacement)),
+    value,
+  );
+}
+
+/**
+ * Compile sanitized scene direction into the allowlisted content/timing inputs of
+ * exactly one LTXDirector node. The saved workflow remains the runtime graph.
+ */
+export function compileLtxDirectorWorkflow(args: {
+  workflow: unknown;
+  replacements: Record<string, string | number>;
+  director: LtxDirectorRequest;
+  referenceImageName: string;
+}): CompiledLtxDirectorWorkflow {
+  const provisionalWorkflow = replaceComfyUiVideoPlaceholders(args.workflow, args.replacements);
+  const provisionalNodes = findLtxDirectorNodes(provisionalWorkflow);
+  if (provisionalNodes.length !== 1) {
+    const warning =
+      `LTX Director handoff skipped: expected exactly one LTXDirector node, found ${provisionalNodes.length}. ` +
+      "The existing ComfyUI placeholder workflow was used instead.";
+    return { workflow: provisionalWorkflow, applied: false, warnings: [warning] };
+  }
+
+  const rawNodeEntry = findLtxDirectorNodes(args.workflow)[0];
+  if (!rawNodeEntry) {
+    throw new VideoGenerationCapabilityError("LTXDirector node could not be resolved from the saved workflow.");
+  }
+  const [nodeId] = provisionalNodes[0]!;
+  const provisionalInputs = asRecord(provisionalNodes[0]![1].inputs);
+  const frameRate = readPositiveLtxNumber(provisionalInputs.frame_rate, "frame_rate");
+  const width = readPositiveLtxNumber(provisionalInputs.custom_width, "custom_width");
+  const height = readPositiveLtxNumber(provisionalInputs.custom_height, "custom_height");
+  const durationSeconds = readPositiveLtxNumber(args.director.durationSeconds, "duration_seconds");
+  const durationFrames = Math.max(1, Math.round(durationSeconds * frameRate));
+  const finalReplacements = {
+    ...args.replacements,
+    "%length%": durationFrames,
+    "%reference_image_name%": args.referenceImageName,
+  };
+  const resolvedWorkflow = replaceComfyUiVideoPlaceholders(args.workflow, finalReplacements);
+  const resolvedNode = asRecord(asRecord(resolvedWorkflow)[nodeId]);
+  const resolvedInputs = asRecord(resolvedNode.inputs);
+  const resolvedTimeline = parseLtxTimelineData(asRecord(rawNodeEntry[1].inputs).timeline_data, finalReplacements);
+
+  const globalPrompt = args.director.globalPrompt.trim();
+  const localPrompts = resolveLtxDirectorText(args.director.localPrompts, finalReplacements).trim();
+  const segmentLengths = resolveLtxDirectorText(args.director.segmentLengths, finalReplacements).trim();
+  if (!globalPrompt || !localPrompts || !segmentLengths) {
+    throw new VideoGenerationCapabilityError(
+      "LTXDirector global prompt, local prompts, and segment lengths must all be non-empty.",
+    );
+  }
+  const localPromptParts = localPrompts
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const segmentFrameCounts = segmentLengths.split(",").map((part) => Number(part.trim()));
+  if (
+    segmentFrameCounts.length !== localPromptParts.length ||
+    segmentFrameCounts.some((count) => !Number.isInteger(count) || count <= 0) ||
+    segmentFrameCounts.reduce((total, count) => total + count, 0) !== durationFrames
+  ) {
+    throw new VideoGenerationCapabilityError(
+      `LTXDirector segment lengths must contain one positive frame count per local prompt and total ${durationFrames} frames.`,
+    );
+  }
+
+  const timelineData = {
+    ...resolvedTimeline,
+    global_prompt: globalPrompt,
+    normalStartFrame: 0,
+    normalDurationFrames: durationFrames,
+    segments: [
+      {
+        id: "marinara-reference",
+        start: 0,
+        length: Math.min(durationFrames, Math.max(1, Math.round(frameRate))),
+        prompt: "",
+        type: "image",
+        imageFile: args.referenceImageName,
+        isEndFrame: false,
+      },
+    ],
+  };
+  const patchedInputs: Record<string, unknown> = {
+    ...resolvedInputs,
+    start_second: 0,
+    end_second: durationSeconds,
+    duration_seconds: durationSeconds,
+    start_frame: 0,
+    end_frame: durationFrames,
+    duration_frames: durationFrames,
+    global_prompt: globalPrompt,
+    local_prompts: localPrompts,
+    segment_lengths: segmentLengths,
+    timeline_data: JSON.stringify(timelineData),
+  };
+  const patchedWorkflow = {
+    ...asRecord(resolvedWorkflow),
+    [nodeId]: { ...resolvedNode, inputs: patchedInputs },
+  };
+
+  for (const inputName of LTX_DIRECTOR_PATCHED_INPUTS) {
+    if (!(inputName in patchedInputs)) {
+      throw new VideoGenerationCapabilityError(`LTXDirector ${inputName} was not compiled.`);
+    }
+  }
+  if (patchedInputs.start_frame !== 0 || patchedInputs.end_frame !== durationFrames) {
+    throw new VideoGenerationCapabilityError("LTXDirector frame range did not compile correctly.");
+  }
+
+  return {
+    workflow: patchedWorkflow,
+    applied: true,
+    warnings: [],
+    frameRate,
+    width,
+    height,
+    durationFrames,
+  };
+}
+
 function comfyUiVideoFetch(url: string | URL, init?: RequestInit, maxResponseBytes = 2 * 1024 * 1024) {
   return safeFetch(url, {
     ...(init ?? {}),
@@ -407,18 +616,64 @@ async function generateComfyUiVideo(baseUrl: string, request: VideoGenerationReq
     "%length%": Math.max(1, Math.round(request.durationSeconds * 16)),
   };
   if (request.model?.trim()) replacements["%model%"] = request.model.trim();
-  if (request.referenceImage && workflowText.includes("%reference_image_name%")) {
-    replacements["%reference_image_name%"] = await uploadComfyUiVideoReference(
-      base,
-      request.referenceImage,
-      request.signal,
-    );
+  let compiledWorkflow: unknown;
+  let workflowWarnings: string[] = [];
+  if (request.ltxDirector) {
+    const resolvedNodeCount = findLtxDirectorNodes(replaceComfyUiVideoPlaceholders(workflow, replacements)).length;
+    if (resolvedNodeCount === 1) {
+      if (!request.referenceImage) {
+        throw new VideoGenerationCapabilityError("LTXDirector video generation requires a first-frame image.");
+      }
+      const referenceImageName = await uploadComfyUiVideoReference(base, request.referenceImage, request.signal);
+      const compiled = compileLtxDirectorWorkflow({
+        workflow,
+        replacements,
+        director: request.ltxDirector,
+        referenceImageName,
+      });
+      compiledWorkflow = compiled.workflow;
+      workflowWarnings = compiled.warnings;
+      logger.debug(
+        "[video-gen/comfyui] Compiled LTXDirector frameRate=%d size=%dx%d frames=%d prompt=%s",
+        compiled.frameRate ?? 0,
+        compiled.width ?? 0,
+        compiled.height ?? 0,
+        compiled.durationFrames ?? 0,
+        request.prompt,
+      );
+    } else {
+      const compiled = compileLtxDirectorWorkflow({
+        workflow,
+        replacements,
+        director: request.ltxDirector,
+        referenceImageName: "",
+      });
+      workflowWarnings = compiled.warnings;
+      logger.warn("[video-gen/comfyui] %s", workflowWarnings[0]);
+      if (request.referenceImage && workflowText.includes("%reference_image_name%")) {
+        replacements["%reference_image_name%"] = await uploadComfyUiVideoReference(
+          base,
+          request.referenceImage,
+          request.signal,
+        );
+      }
+      compiledWorkflow = replaceComfyUiVideoPlaceholders(workflow, replacements);
+    }
+  } else {
+    if (request.referenceImage && workflowText.includes("%reference_image_name%")) {
+      replacements["%reference_image_name%"] = await uploadComfyUiVideoReference(
+        base,
+        request.referenceImage,
+        request.signal,
+      );
+    }
+    compiledWorkflow = replaceComfyUiVideoPlaceholders(workflow, replacements);
   }
 
   const queueResponse = await comfyUiVideoFetch(`${base}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: replaceComfyUiVideoPlaceholders(workflow, replacements) }),
+    body: JSON.stringify({ prompt: compiledWorkflow }),
     signal: request.signal,
   });
   const queueText = await queueResponse.text();
@@ -459,7 +714,12 @@ async function generateComfyUiVideo(baseUrl: string, request: VideoGenerationReq
       if (!videoResponse.ok) throw new Error(`ComfyUI video fetch failed (${videoResponse.status})`);
       const buffer = Buffer.from(await videoResponse.arrayBuffer());
       if (!isMp4Buffer(buffer)) throw new Error("ComfyUI returned a non-MP4 video output");
-      return { base64: buffer.toString("base64"), mimeType: "video/mp4", ext: "mp4" };
+      return {
+        base64: buffer.toString("base64"),
+        mimeType: "video/mp4",
+        ext: "mp4",
+        ...(workflowWarnings.length > 0 ? { warnings: workflowWarnings } : {}),
+      };
     }
     if (isComfyUiWorkflowComplete(entry?.status)) {
       throw new Error("ComfyUI video workflow completed without an MP4 output");
@@ -846,6 +1106,43 @@ async function generateOpenRouterVideo(
   }
 }
 
+export function buildSeedanceVideoInput(
+  request: Pick<
+    VideoGenerationRequest,
+    "prompt" | "durationSeconds" | "aspectRatio" | "resolution" | "referenceImages" | "referenceMode" | "generateAudio"
+  >,
+  imageUrls: string[],
+): Record<string, unknown> {
+  const referenceMode = request.referenceMode === "reference";
+  if (referenceMode) {
+    const materialCount = request.referenceImages?.length ?? 0;
+    if (materialCount < 1 || materialCount > 9) {
+      throw new VideoGenerationCapabilityError(
+        `Seedance reference-to-video requires between 1 and 9 ordered image references; received ${materialCount}.`,
+      );
+    }
+    if (imageUrls.length !== materialCount) {
+      throw new VideoGenerationCapabilityError(
+        `Seedance reference-to-video resolved ${imageUrls.length} URLs for ${materialCount} image references.`,
+      );
+    }
+  }
+  const duration = Math.min(15, Math.max(4, Math.trunc(request.durationSeconds)));
+  return {
+    prompt: request.prompt,
+    generation_type: referenceMode ? "reference-to-video" : imageUrls.length > 0 ? "image-to-video" : "text-to-video",
+    duration,
+    aspect_ratio: request.aspectRatio,
+    resolution: request.resolution || DEFAULT_SEEDANCE_VIDEO_RESOLUTION,
+    generate_audio: request.generateAudio ?? false,
+    watermark: false,
+    web_search: false,
+    return_last_frame: false,
+    seed: -1,
+    ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
+  };
+}
+
 async function generateSeedanceVideo(
   baseUrl: string,
   apiKey: string,
@@ -855,25 +1152,14 @@ async function generateSeedanceVideo(
   const model = request.model?.trim() || DEFAULT_SEEDANCE_VIDEO_MODEL;
   const startUrl = buildSeedanceUrl(baseUrl, "v1/videos/generations");
   const imageUrls = await seedanceReferenceImageUrls(request);
-  const duration = Math.min(15, Math.max(4, Math.trunc(request.durationSeconds)));
   const body: Record<string, unknown> = {
     model,
-    input: {
-      prompt: request.prompt,
-      generation_type: imageUrls.length > 0 ? "image-to-video" : "text-to-video",
-      duration,
-      aspect_ratio: request.aspectRatio,
-      resolution: request.resolution || DEFAULT_SEEDANCE_VIDEO_RESOLUTION,
-      generate_audio: false,
-      watermark: false,
-      web_search: false,
-      return_last_frame: false,
-      seed: -1,
-      ...(imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
-    },
+    input: buildSeedanceVideoInput(request, imageUrls),
   };
 
-  const maxAttempts = 2;
+  // Reference mode may incur a second paid job if retried after provider acceptance.
+  // Keep its failure visible so the saved sheet/frame can be reviewed and retried manually.
+  const maxAttempts = request.referenceMode === "reference" ? 1 : 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt > 1) {
       logger.warn("[video-gen/seedance] Retrying failed generation after opaque provider task failure");
@@ -1236,6 +1522,26 @@ function referenceImageToDataUri(image: VideoReferenceImage): string {
 }
 
 async function seedanceReferenceImageUrls(request: VideoGenerationRequest): Promise<string[]> {
+  if (request.referenceMode === "reference") {
+    const references = request.referenceImages ?? [];
+    if (references.length < 1 || references.length > 9) {
+      throw new VideoGenerationCapabilityError(
+        `Seedance reference-to-video requires between 1 and 9 ordered image references; received ${references.length}.`,
+      );
+    }
+    const urls: string[] = [];
+    for (let index = 0; index < references.length; index += 1) {
+      urls.push(
+        await seedanceReferenceImageUrl(
+          references[index]!,
+          `reference image ${index + 1}`,
+          request.publicReferenceUpload,
+          request.signal,
+        ),
+      );
+    }
+    return urls;
+  }
   if (!request.referenceImage) return [];
   const firstFrame = await seedanceReferenceImageUrl(
     request.referenceImage,

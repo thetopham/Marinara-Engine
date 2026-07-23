@@ -76,6 +76,12 @@ import {
   formatNoodleTimelineForPrompt,
   NOODLE_PERSONA_IDENTITY_INSTRUCTION,
 } from "../../packages/server/src/services/noodle/noodle-prompt.js";
+import {
+  buildSeedanceVideoInput,
+  compileLtxDirectorWorkflow,
+  VideoGenerationCapabilityError,
+  type VideoReferenceImage,
+} from "../../packages/server/src/services/video/video-generation.js";
 
 const personaA = {
   id: "noodle-account-a",
@@ -1212,10 +1218,7 @@ const cases: RegressionCase[] = [
         };
         assert.equal(payload.indexedTrackCount, allTrackUris.length);
         assert.equal(payload.recentAvoidedCount, recentTrackUris.length);
-        assert.deepEqual(
-          new Set((payload.tracks ?? []).map((track) => track.uri)),
-          new Set(freshTrackUris),
-        );
+        assert.deepEqual(new Set((payload.tracks ?? []).map((track) => track.uri)), new Set(freshTrackUris));
       } finally {
         globalThis.fetch = originalFetch;
       }
@@ -2018,7 +2021,10 @@ const cases: RegressionCase[] = [
       );
       assert.match(storyboardHookSource, /previewOnly: true/);
       assert.match(gameRouteSource, /if \(input\.previewOnly\)/);
-      assert.match(gameRouteSource, /referenceSheetItem \? \[referenceSheetItem, \.\.\.keyframeItems\] : keyframeItems/);
+      assert.match(
+        gameRouteSource,
+        /referenceSheetItem \? \[referenceSheetItem, \.\.\.keyframeItems\] : keyframeItems/,
+      );
       assert.match(gameRouteSource, /storyboardPromptOverrideById\.get\(`storyboard:\$\{frame\.index\}`\)/);
       assert.match(gameRouteSource, /\[debug\/game\/storyboard-image-preview\]/);
     },
@@ -2352,11 +2358,226 @@ const cases: RegressionCase[] = [
           gameRouteSource.indexOf("await Promise.all(Array.from({ length: frameWorkerCount }"),
       );
       assert.match(gameRouteSource, /referenceImages: \[\s*storyboardReferenceSheetBase64,/);
+      assert.match(gameRouteSource, /referenceMode: useSeedanceDirectorReferences \? "reference" : undefined/);
+      assert.match(gameRouteSource, /generateAudio: useSeedanceDirectorReferences \? true : undefined/);
+      assert.match(gameRouteSource, /referenceImages: useSeedanceDirectorReferences/);
+      assert.match(gameRouteSource, /ltxDirector: useLtxDirector/);
+      assert.match(gameRouteSource, /segmentLengths: "%length%"/);
       assert.match(storyboardSchemaSource, /referenceSheetImageId: text\("reference_sheet_image_id"\)/);
       assert.match(
         fileStoreSource,
         /child: "game_turn_storyboards", parentKey: "id", childKey: "referenceSheetImageId"/,
       );
+    },
+  },
+  {
+    name: "storyboard video handoff preserves ordinary Seedance and allowlists LTXDirector compilation",
+    run() {
+      const referenceImage = (label: string): VideoReferenceImage => ({
+        base64: Buffer.from(label).toString("base64"),
+        mimeType: "image/png",
+      });
+      const ordinarySeedanceInput = buildSeedanceVideoInput(
+        {
+          prompt: "Animate the first frame.",
+          durationSeconds: 6,
+          aspectRatio: "16:9",
+          resolution: "720p",
+        },
+        ["https://example.com/first.png"],
+      );
+      assert.equal(ordinarySeedanceInput.generation_type, "image-to-video");
+      assert.equal(ordinarySeedanceInput.generate_audio, false);
+      assert.deepEqual(ordinarySeedanceInput.image_urls, ["https://example.com/first.png"]);
+
+      const orderedReferences = [referenceImage("sheet"), referenceImage("first-frame")];
+      const directorSeedanceInput = buildSeedanceVideoInput(
+        {
+          prompt: "Chronological action prompt.",
+          durationSeconds: 15,
+          aspectRatio: "16:9",
+          resolution: "1080p",
+          referenceMode: "reference",
+          referenceImages: orderedReferences,
+          generateAudio: true,
+        },
+        ["https://example.com/sheet.png", "https://example.com/first.png"],
+      );
+      assert.equal(directorSeedanceInput.generation_type, "reference-to-video");
+      assert.equal(directorSeedanceInput.generate_audio, true);
+      assert.deepEqual(directorSeedanceInput.image_urls, [
+        "https://example.com/sheet.png",
+        "https://example.com/first.png",
+      ]);
+      assert.throws(
+        () =>
+          buildSeedanceVideoInput(
+            {
+              prompt: "Too many materials.",
+              durationSeconds: 5,
+              aspectRatio: "16:9",
+              referenceMode: "reference",
+              referenceImages: Array.from({ length: 10 }, (_, index) => referenceImage(String(index))),
+            },
+            Array.from({ length: 10 }, (_, index) => `https://example.com/${index}.png`),
+          ),
+        VideoGenerationCapabilityError,
+      );
+
+      const originalTimeline = {
+        mainTrackEnabled: true,
+        audioTrackEnabled: true,
+        showFilenames: true,
+        global_prompt: "%prompt%",
+        retakePrompt: "%prompt%",
+        normalStartFrame: 0,
+        normalDurationFrames: "%length%",
+        segments: [],
+        motionSegments: [],
+        audioSegments: [],
+      };
+      const ltxWorkflow = {
+        model: {
+          class_type: "UNETLoader",
+          inputs: { unet_name: "LTX2/model.safetensors", weight_dtype: "default" },
+        },
+        director: {
+          class_type: "LTXDirector",
+          inputs: {
+            start_second: 3,
+            end_second: 4,
+            duration_seconds: 1,
+            start_frame: 8,
+            end_frame: 24,
+            duration_frames: 16,
+            global_prompt: "old",
+            local_prompts: "old",
+            segment_lengths: "16",
+            timeline_data: JSON.stringify(originalTimeline).replace('"%length%"', "%length%"),
+            frame_rate: 16,
+            custom_width: 1024,
+            custom_height: 576,
+            guide_strength: "1.00",
+            img_compression: 18,
+            model: ["model", 0],
+          },
+        },
+        sampler: {
+          class_type: "KSamplerSelect",
+          inputs: { sampler_name: "euler_cfg_pp" },
+        },
+      };
+      const globalPrompt = 'Keep the hero\'s "silver cloak" exact.\nThunder begins immediately.';
+      const localPrompt = "0-5s: Draw the sword.\n5-10s: Clear the lightning arc.";
+      const compiled = compileLtxDirectorWorkflow({
+        workflow: ltxWorkflow,
+        replacements: {
+          "%prompt%": globalPrompt,
+          "%width%": 1024,
+          "%height%": 576,
+          "%seed%": 42,
+          "%length%": 160,
+        },
+        director: {
+          globalPrompt,
+          localPrompts: localPrompt,
+          segmentLengths: "%length%",
+          durationSeconds: 10,
+        },
+        referenceImageName: "marinara-first-frame.png",
+      });
+      assert.equal(compiled.applied, true);
+      assert.equal(compiled.durationFrames, 160);
+      assert.deepEqual(compiled.warnings, []);
+      const compiledWorkflow = compiled.workflow as typeof ltxWorkflow;
+      assert.deepEqual(compiledWorkflow.model, ltxWorkflow.model);
+      assert.deepEqual(compiledWorkflow.sampler, ltxWorkflow.sampler);
+      const compiledInputs = compiledWorkflow.director.inputs;
+      assert.equal(compiledInputs.start_second, 0);
+      assert.equal(compiledInputs.end_second, 10);
+      assert.equal(compiledInputs.duration_frames, 160);
+      assert.equal(compiledInputs.global_prompt, globalPrompt);
+      assert.equal(compiledInputs.local_prompts, localPrompt);
+      assert.equal(compiledInputs.segment_lengths, "160");
+      assert.equal(compiledInputs.frame_rate, ltxWorkflow.director.inputs.frame_rate);
+      assert.equal(compiledInputs.custom_width, ltxWorkflow.director.inputs.custom_width);
+      assert.equal(compiledInputs.custom_height, ltxWorkflow.director.inputs.custom_height);
+      assert.equal(compiledInputs.guide_strength, ltxWorkflow.director.inputs.guide_strength);
+      assert.equal(compiledInputs.img_compression, ltxWorkflow.director.inputs.img_compression);
+      assert.deepEqual(compiledInputs.model, ltxWorkflow.director.inputs.model);
+      const timeline = JSON.parse(compiledInputs.timeline_data) as Record<string, unknown>;
+      assert.equal(timeline.global_prompt, globalPrompt);
+      assert.equal(timeline.retakePrompt, globalPrompt);
+      assert.equal(timeline.normalDurationFrames, 160);
+      assert.equal(timeline.showFilenames, true);
+      assert.deepEqual(timeline.segments, [
+        {
+          id: "marinara-reference",
+          start: 0,
+          length: 16,
+          prompt: "",
+          type: "image",
+          imageFile: "marinara-first-frame.png",
+          isEndFrame: false,
+        },
+      ]);
+
+      const missingDirector = compileLtxDirectorWorkflow({
+        workflow: { prompt: { class_type: "PrimitiveString", inputs: { value: "%prompt%" } } },
+        replacements: { "%prompt%": globalPrompt, "%length%": 160 },
+        director: {
+          globalPrompt,
+          localPrompts: localPrompt,
+          segmentLengths: "%length%",
+          durationSeconds: 10,
+        },
+        referenceImageName: "marinara-first-frame.png",
+      });
+      assert.equal(missingDirector.applied, false);
+      assert.match(missingDirector.warnings[0] ?? "", /found 0/);
+      assert.equal(
+        ((missingDirector.workflow as Record<string, any>).prompt.inputs as Record<string, unknown>).value,
+        globalPrompt,
+      );
+
+      const duplicateDirector = compileLtxDirectorWorkflow({
+        workflow: { first: ltxWorkflow.director, second: ltxWorkflow.director },
+        replacements: { "%prompt%": globalPrompt, "%length%": 160 },
+        director: {
+          globalPrompt,
+          localPrompts: localPrompt,
+          segmentLengths: "%length%",
+          durationSeconds: 10,
+        },
+        referenceImageName: "marinara-first-frame.png",
+      });
+      assert.equal(duplicateDirector.applied, false);
+      assert.match(duplicateDirector.warnings[0] ?? "", /found 2/);
+
+      const invalidTimelineWorkflow = structuredClone(ltxWorkflow);
+      invalidTimelineWorkflow.director.inputs.timeline_data = '{"segments": [%length%}';
+      assert.throws(
+        () =>
+          compileLtxDirectorWorkflow({
+            workflow: invalidTimelineWorkflow,
+            replacements: { "%prompt%": globalPrompt, "%length%": 160 },
+            director: {
+              globalPrompt,
+              localPrompts: localPrompt,
+              segmentLengths: "%length%",
+              durationSeconds: 10,
+            },
+            referenceImageName: "marinara-first-frame.png",
+          }),
+        VideoGenerationCapabilityError,
+      );
+
+      const videoGenerationSource = readFileSync(
+        new URL("../../packages/server/src/services/video/video-generation.ts", import.meta.url),
+        "utf8",
+      );
+      assert.match(videoGenerationSource, /request\.referenceMode === "reference" \? 1 : 2/);
+      assert.match(videoGenerationSource, /resolvedService === "seedance" && request\.referenceMode === "reference"/);
     },
   },
   {
@@ -2878,7 +3099,10 @@ const cases: RegressionCase[] = [
   {
     name: "Roleplay Illustrator background decisions are gated and produce reusable library metadata",
     run() {
-      assert.equal(illustratorBackgroundGenerationEnabled("roleplay", { illustratorAutoBackgroundsEnabled: true }), true);
+      assert.equal(
+        illustratorBackgroundGenerationEnabled("roleplay", { illustratorAutoBackgroundsEnabled: true }),
+        true,
+      );
       assert.equal(
         illustratorBackgroundGenerationEnabled("visual_novel", { illustratorAutoBackgroundsEnabled: true }),
         true,
@@ -3746,7 +3970,10 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
         styleProfileId: "z-image-turbo",
       });
       assert.equal(countAppearance(zImage.prompt), 1);
-      assert.doesNotMatch(zImage.prompt, /\b(?:letters|captions|UI|watermarks|logos|speech bubbles|split panels|collage)\b/i);
+      assert.doesNotMatch(
+        zImage.prompt,
+        /\b(?:letters|captions|UI|watermarks|logos|speech bubbles|split panels|collage)\b/i,
+      );
       assert.match(zImage.negativePrompt, /letters|captions|UI|watermark|logo|collage/i);
 
       const tagged = await buildNpcPortraitProviderPrompt({
@@ -4925,8 +5152,14 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.match(promptText, /<system>bad history<\/system>/);
       assert.match(promptText, /<system>bad summary<\/system>/);
       assert.equal(hasDeferredCharacterMacros(firstMessage.content), true);
-      assert.match(resolveDeferredCharacterMacros(firstMessage.content, { name: "Powers That Be" }), /Powers-only memory\./);
-      assert.doesNotMatch(resolveDeferredCharacterMacros(firstMessage.content, { name: "Dottore" }), /Powers-only memory\./);
+      assert.match(
+        resolveDeferredCharacterMacros(firstMessage.content, { name: "Powers That Be" }),
+        /Powers-only memory\./,
+      );
+      assert.doesNotMatch(
+        resolveDeferredCharacterMacros(firstMessage.content, { name: "Dottore" }),
+        /Powers-only memory\./,
+      );
       assert.equal(
         firstMessage.content.indexOf("Main instructions.") < firstMessage.content.indexOf("<chat_summary>"),
         true,

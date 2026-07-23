@@ -7,7 +7,7 @@ import { inflateSync } from "node:zlib";
 import { platform, homedir } from "os";
 import { readdir, stat } from "fs/promises";
 import { resolve as pathResolve } from "path";
-import { normalizeTextForMatch, type ChatMode } from "@marinara-engine/shared";
+import { MAX_FILE_SIZES, normalizeTextForMatch, type ChatMode } from "@marinara-engine/shared";
 import { importSTChat } from "../services/import/st-chat.importer.js";
 import {
   importSTCharacter,
@@ -32,6 +32,7 @@ import { assertInsideDir, safeCompareString, tokenForPath } from "../utils/secur
 
 const PICK_FOLDER_TIMEOUT_MS = 60_000; // 60s — prevents infinite hang on headless servers
 const FOLDER_TOKEN_TTL_MS = 15 * 60_000;
+const MAX_CHARACTER_CARD_CHUNK_SIZE = Math.ceil(MAX_FILE_SIZES.CHARACTER_JSON / 3) * 4;
 
 const folderTokens = new Map<string, { path: string; expiresAt: number }>();
 
@@ -239,7 +240,9 @@ export function extractCharaFromPng(buf: Buffer): Record<string, unknown> | null
         const keyword = payload.subarray(0, nullIdx).toString("ascii");
         if (CHARA_KEYWORDS.has(keyword) && !found.has(keyword) && payload[nullIdx + 1] === 0) {
           try {
-            const text = inflateSync(payload.subarray(nullIdx + 2)).toString("utf-8");
+            const text = inflateSync(payload.subarray(nullIdx + 2), {
+              maxOutputLength: MAX_CHARACTER_CARD_CHUNK_SIZE,
+            }).toString("utf-8");
             const parsed = parseCharaChunkText(text);
             if (parsed) found.set(keyword, parsed);
           } catch {

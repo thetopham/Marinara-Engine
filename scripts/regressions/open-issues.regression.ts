@@ -62,6 +62,7 @@ import { characterMatchesSearch, parseCharacterDisplayData } from "../../package
 import {
   DEFAULT_GENERATION_PARAMS,
   DEFAULT_TRANSLATION_SYSTEM_PROMPT,
+  MAX_FILE_SIZES,
   resolveTranslationSystemPrompt,
 } from "../../packages/shared/src/constants/defaults.js";
 import { normalizeIllustratorImagesPerGeneration } from "../../packages/shared/src/utils/illustrator-generation-count.js";
@@ -2965,6 +2966,30 @@ try {
     (clientParsed.json as { data?: { name?: string } }).data?.name,
     "Tavern Import",
     "Client Card Browser import must extract character JSON from zTXt chunks",
+  );
+
+  const maxCharacterCardChunkSize = Math.ceil(MAX_FILE_SIZES.CHARACTER_JSON / 3) * 4;
+  const oversizedZtxtData = Buffer.concat([
+    Buffer.from("chara", "ascii"),
+    Buffer.from([0, 0]),
+    deflateSync(Buffer.alloc(maxCharacterCardChunkSize + 1, 0x41)),
+  ]);
+  const oversizedZtxtPng = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("zTXt", oversizedZtxtData),
+    pngChunk("IDAT", idat),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+  assert.equal(
+    extractCharaFromPng(oversizedZtxtPng),
+    null,
+    "Server import must reject zTXt metadata that expands beyond the character-card limit",
+  );
+  await assert.rejects(
+    parsePngCharacterCard(new File([new Uint8Array(oversizedZtxtPng)], "oversized-card.png", { type: "image/png" })),
+    /No character data found/,
+    "Client import must reject zTXt metadata that expands beyond the character-card limit",
   );
 
   const { injectTextChunk } = await import("../../packages/server/src/routes/characters.routes.js");

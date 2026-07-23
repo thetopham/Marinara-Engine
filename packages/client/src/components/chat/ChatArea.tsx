@@ -840,9 +840,7 @@ export function ChatArea() {
   const chatCharIds = useMemo(() => getChatCharacterIds({ characterIds: chatCharacterIdsRaw }), [chatCharacterIdsRaw]);
   const chatPersonaId = useMemo(() => resolveChatPersonaId(chat), [chat]);
   const { data: chatPersona } = usePersona(chatPersonaId);
-  const { data: activePersonaFallback } = useActivePersona(
-    !!chat?.id && !chatPersonaId && chatMode === "conversation",
-  );
+  const { data: activePersonaFallback } = useActivePersona(!!chat?.id && !chatPersonaId && chatMode === "conversation");
 
   const activeCharacterQueries = useQueries({
     queries: chatCharIds.map((id) => ({
@@ -1406,11 +1404,29 @@ export function ChatArea() {
   // Sync translation config from chat metadata to the translation store
   useEffect(() => {
     if (!chat?.id) return;
+    const legacyTargetLanguage = chatMeta.translationTargetLang?.trim() || "en";
+    const legacySystemPrompt = typeof chatMeta.translationPrompt === "string" ? chatMeta.translationPrompt : undefined;
+    const inputSystemPrompt =
+      chatMeta.translationInputPrompt === undefined
+        ? legacySystemPrompt
+        : typeof chatMeta.translationInputPrompt === "string"
+          ? chatMeta.translationInputPrompt
+          : undefined;
+    const outputSystemPrompt =
+      chatMeta.translationOutputPrompt === undefined
+        ? legacySystemPrompt
+        : typeof chatMeta.translationOutputPrompt === "string"
+          ? chatMeta.translationOutputPrompt
+          : undefined;
     useTranslationStore.getState().setConfig({
       provider: chatMeta.translationProvider ?? "google",
-      targetLanguage: chatMeta.translationTargetLang ?? "en",
+      // A cleared settings field stores "" — fall back to the legacy/default
+      // language so translation never runs with an empty target.
+      inputTargetLanguage: chatMeta.translationInputTargetLang?.trim() || legacyTargetLanguage,
+      outputTargetLanguage: chatMeta.translationOutputTargetLang?.trim() || legacyTargetLanguage,
       connectionId: chatMeta.translationConnectionId,
-      systemPrompt: typeof chatMeta.translationPrompt === "string" ? chatMeta.translationPrompt : undefined,
+      inputSystemPrompt,
+      outputSystemPrompt,
       deeplApiKey: chatMeta.translationDeeplApiKey,
       deeplxUrl: chatMeta.translationDeeplxUrl,
     });
@@ -1418,8 +1434,12 @@ export function ChatArea() {
     chat?.id,
     chatMeta.translationProvider,
     chatMeta.translationTargetLang,
+    chatMeta.translationInputTargetLang,
+    chatMeta.translationOutputTargetLang,
     chatMeta.translationConnectionId,
     chatMeta.translationPrompt,
+    chatMeta.translationInputPrompt,
+    chatMeta.translationOutputPrompt,
     chatMeta.translationDeeplApiKey,
     chatMeta.translationDeeplxUrl,
   ]);
@@ -1943,9 +1963,7 @@ export function ChatArea() {
     const types =
       manualTypes.length > 0
         ? manualTypes
-        : Array.from(enabledAgentTypes).filter(
-            (type) => isBuiltInTrackerAgentType(type) || !isBuiltInAgentType(type),
-          );
+        : Array.from(enabledAgentTypes).filter((type) => isBuiltInTrackerAgentType(type) || !isBuiltInAgentType(type));
     if (types.length === 0) return;
     await retryAgents(activeChatId, types);
   }, [activeChatId, isStreaming, agentProcessing, enabledAgentTypes, manualTrackerTypes, retryAgents]);

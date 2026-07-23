@@ -91,6 +91,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SpriteGenerationModal } from "../ui/SpriteGenerationModal";
 import { AvatarGenerationModal } from "../ui/AvatarGenerationModal";
 import { AvatarCropWidget } from "../ui/AvatarCropWidget";
+import { AvatarReplaceActions } from "../ui/AvatarReplaceActions";
 import { SpriteFrameEditor } from "../ui/SpriteFrameEditor";
 import { SpriteWandCleanupEditor } from "../ui/SpriteWandCleanupEditor";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
@@ -114,6 +115,7 @@ import {
 import { useQuoteFormatter } from "../../hooks/use-quote-formatter";
 import { LorebookAssignmentSection } from "../lorebooks/LorebookAssignmentSection";
 import { ConvoProfileFields } from "../characters/ConvoProfileFields";
+import { useTranslation } from "react-i18next";
 
 // ── Tabs ──
 const TABS = [
@@ -168,7 +170,7 @@ const PERSONA_SPRITES_HELP =
   "Upload sprites one by one, or use Upload Folder to bulk-import a folder of PNGs. Each filename becomes the expression name, for example admiration.png becomes admiration. To rotate variants, share a prefix before an underscore, for example happy_01.png and happy_blush.png. Persona sprites can be used in Game Mode and roleplay with the Expression Engine. Use transparent PNGs for best results.";
 
 const PERSONA_COLORS_HELP =
-  "Name color is applied to your persona's display name in chat. Gradients use CSS linear-gradient. Dialogue color applies to text inside dialogue quotation marks and can optionally be bolded from Settings. Box color sets the background color of your persona's message bubble. An empty dialogue color uses the default from Settings > Appearance when enabled; other empty fields use theme colors.";
+  "Name color is applied to your persona's display name in chat. Gradients use CSS linear-gradient. Dialogue color applies to text inside dialogue quotation marks and can optionally be bolded from Settings. Box color sets the background color of your persona's message bubble. An empty dialogue color uses the default from Settings > Appearance; other empty fields use theme colors.";
 
 const PERSONA_STATS_HELP =
   "Status bars represent your persona's physical and mental state, such as hunger, energy, or mood. The Persona Stats agent adjusts values realistically based on what happens in the narrative. Bars are displayed in the HUD widget during chat with color-coded gradients. Values set here serve as the initial defaults for new conversations.";
@@ -948,6 +950,7 @@ function createCharacterDataFromPersona(formData: PersonaFormData): CharacterDat
 }
 
 export function PersonaEditor() {
+  const { t } = useTranslation();
   const personaId = useUIStore((s) => s.personaDetailId);
   const closeDetail = useUIStore((s) => s.closePersonaDetail);
   const { data: allPersonas, isLoading } = usePersonas();
@@ -1396,8 +1399,8 @@ export function PersonaEditor() {
             ) : (
               <User size="1.375rem" className="text-white" />
             )}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-              <Camera size="1rem" className="text-white" />
+            <div className="absolute inset-0 flex items-end justify-start bg-black/40 p-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <Camera size="0.875rem" className="text-white" />
             </div>
             {imageGenerationAvailable && (
               <button
@@ -1406,10 +1409,11 @@ export function PersonaEditor() {
                   event.stopPropagation();
                   setAvatarGeneratorOpen(true);
                 }}
-                className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--card)]/95 text-[var(--primary)] opacity-0 shadow-md ring-1 ring-[var(--border)] transition-opacity hover:bg-[var(--card)] group-hover:opacity-100 max-md:opacity-100"
-                title="Generate avatar"
+                className="absolute right-0 top-0 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[var(--card)]/95 text-[var(--primary)] shadow-md ring-1 ring-[var(--border)] transition-colors before:absolute before:-inset-1 hover:bg-[var(--accent)]"
+                title={t("editor.avatar.generate.label")}
+                aria-label={t("editor.avatar.generate.label")}
               >
-                <Wand2 size="0.75rem" />
+                <Wand2 size="0.375rem" />
               </button>
             )}
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
@@ -1488,6 +1492,10 @@ export function PersonaEditor() {
                 formData={formData}
                 updateField={updateField}
                 avatarPreview={avatarPreview}
+                onSelectAvatar={() => fileInputRef.current?.click()}
+                onGenerateAvatar={() => setAvatarGeneratorOpen(true)}
+                imageGenerationAvailable={imageGenerationAvailable}
+                avatarUploading={uploadAvatar.isPending}
               />
             )}
             {activeTab === "card" && (
@@ -2237,7 +2245,7 @@ function PersonaSpritesTab({
                   type="button"
                   onClick={() => void handleDeleteSingleSprite()}
                   disabled={!!deletingSprites}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--destructive)] px-2.5 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--destructive)]/85 disabled:opacity-50 sm:px-3 sm:text-sm"
+                  className="mari-chrome-accent-surface mari-accent-animated inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:px-3 sm:text-sm"
                 >
                   {deletingSprites === "single" && <Loader2 size="0.875rem" className="animate-spin" />}
                   Delete
@@ -2584,7 +2592,7 @@ function PersonaStatsTab({
                     <button
                       type="button"
                       onClick={() => removeBar(i)}
-                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/15 hover:text-red-400"
+                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
                     >
                       <X size="0.75rem" />
                     </button>
@@ -2667,7 +2675,7 @@ function PersonaStatsTab({
                     <button
                       type="button"
                       onClick={() => updateRpgPools(rpgPools.filter((_, poolIndex) => poolIndex !== i))}
-                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/15 hover:text-red-400"
+                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
                       aria-label={`Remove ${pool.name || "pool"}`}
                     >
                       <X size="0.75rem" />
@@ -2712,7 +2720,7 @@ function PersonaStatsTab({
                     <button
                       type="button"
                       onClick={() => removeRpgAttribute(i)}
-                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/15 hover:text-red-400"
+                      className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
                     >
                       <X size="0.75rem" />
                     </button>
@@ -2736,12 +2744,21 @@ function PersonaMetadataTab({
   formData,
   updateField,
   avatarPreview,
+  onSelectAvatar,
+  onGenerateAvatar,
+  imageGenerationAvailable,
+  avatarUploading,
 }: {
   personaId: string | null;
   formData: PersonaFormData;
   updateField: <K extends keyof PersonaFormData>(key: K, value: PersonaFormData[K]) => void;
   avatarPreview: string | null;
+  onSelectAvatar: () => void;
+  onGenerateAvatar: () => void;
+  imageGenerationAvailable: boolean;
+  avatarUploading: boolean;
 }) {
+  const { t } = useTranslation();
   const [newTag, setNewTag] = useState("");
 
   const addTag = () => {
@@ -2769,6 +2786,20 @@ function PersonaMetadataTab({
         subtitle="Basic persona info: name, title, creator, version, avatar, tags."
         helpText={PERSONA_METADATA_HELP}
       />
+
+      <div className="space-y-1.5">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+          {t("editor.avatar.label")}
+          <HelpTooltip text={t("editor.avatar.persona.help")} />
+        </span>
+        <AvatarReplaceActions
+          hasAvatar={Boolean(avatarPreview)}
+          uploading={avatarUploading}
+          generationAvailable={imageGenerationAvailable}
+          onUpload={onSelectAvatar}
+          onGenerate={onGenerateAvatar}
+        />
+      </div>
 
       {personaId && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 px-3 py-2">
@@ -2875,7 +2906,7 @@ function PersonaMetadataTab({
             <button
               type="button"
               onClick={removeAllTags}
-              className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
+              className="mari-chrome-accent-surface mari-accent-animated rounded-lg border px-2.5 py-1 text-[0.6875rem] font-medium transition-colors"
             >
               Remove All
             </button>
@@ -2889,7 +2920,7 @@ function PersonaMetadataTab({
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--destructive)]/20 hover:text-[var(--destructive)]"
+                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--primary)]/15 hover:text-[var(--primary)]"
                 title={`Remove tag "${tag}"`}
               >
                 <X size="0.625rem" />

@@ -3812,8 +3812,6 @@ function AppearanceSettings() {
   // Text appearance
   const chatFontColor = useUIStore((s) => s.chatFontColor);
   const setChatFontColor = useUIStore((s) => s.setChatFontColor);
-  const defaultDialogueColorEnabled = useUIStore((s) => s.defaultDialogueColorEnabled);
-  const setDefaultDialogueColorEnabled = useUIStore((s) => s.setDefaultDialogueColorEnabled);
   const defaultDialogueColor = useUIStore((s) => s.defaultDialogueColor);
   const setDefaultDialogueColor = useUIStore((s) => s.setDefaultDialogueColor);
   const chatChromeTextColor = useUIStore((s) => s.chatChromeTextColor);
@@ -4193,23 +4191,10 @@ function AppearanceSettings() {
               onChange={setDefaultDialogueColor}
               compact
               label="Default Dialogue Color"
-              helpText="When enabled, this colors dialogue for character and persona cards that do not have their own Dialogue Highlight Color. A card's own dialogue color always overrides it."
+              helpText="Colors dialogue for character and persona cards that do not have their own Dialogue Highlight Color. A card's own dialogue color always overrides it."
               emptyText={`Scheme default ${getDefaultChatTextColor(theme)}`}
               emptyPreviewValue={getDefaultChatTextColor(theme)}
               clearLabel="Reset to scheme default"
-              disabled={!defaultDialogueColorEnabled}
-              headerAction={
-                <SettingsSwitch
-                  checked={defaultDialogueColorEnabled}
-                  onChange={setDefaultDialogueColorEnabled}
-                  ariaLabel={
-                    defaultDialogueColorEnabled
-                      ? "Disable the default dialogue color"
-                      : "Enable the default dialogue color"
-                  }
-                  className="p-0 hover:bg-transparent"
-                />
-              }
             />
           </SearchableSettingTarget>
 

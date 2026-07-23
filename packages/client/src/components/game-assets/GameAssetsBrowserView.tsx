@@ -698,7 +698,7 @@ export function GameAssetsBrowserView({
 
       {canSelectGameAssets && assetSelectionMode && (
         <div className="flex min-h-[36px] items-center gap-3 border-b border-[var(--border)]/40 bg-[var(--foreground)]/5 px-4 py-1.5">
-          <span className="text-xs font-medium text-[var(--foreground)]/80">Game asset selection</span>
+          <span className="text-xs font-medium text-[var(--primary)]">Game asset selection</span>
           <span className="text-xs text-[var(--muted-foreground)]">
             {gameAssetExcludedFolders.length === 0
               ? "All folders included"
@@ -806,7 +806,7 @@ export function GameAssetsBrowserView({
             </button>
             <button
               onClick={() => setModal({ type: "bulk-delete" })}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/10"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/10"
             >
               <Trash2 size="0.75rem" />
               Delete
@@ -935,7 +935,7 @@ export function GameAssetsBrowserView({
                             className={
                               "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border " +
                               (childIncluded
-                                ? "border-[var(--foreground)]/25 bg-[var(--foreground)]/10 text-[var(--foreground)]"
+                                ? "border-[var(--primary)]/35 bg-[var(--primary)]/10 text-[var(--primary)]"
                                 : "border-[var(--border)] text-[var(--muted-foreground)]")
                             }
                           >
@@ -956,7 +956,7 @@ export function GameAssetsBrowserView({
                       <button
                         type="button"
                         onClick={() => handleExcludeSubfolders(subfolders)}
-                        className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs font-medium text-[var(--destructive)] transition-colors hover:bg-[var(--accent)]"
+                        className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/10"
                       >
                         Remove all subfolders from game
                       </button>
@@ -977,7 +977,7 @@ export function GameAssetsBrowserView({
                     }}
                     className={cn(
                       "flex w-full items-center justify-between px-3 py-1.5 text-left text-xs font-medium transition-colors hover:bg-[var(--accent)]",
-                      status === "excluded" ? "text-[var(--foreground)]/80" : "text-[var(--destructive)]",
+                      status === "excluded" ? "text-[var(--foreground)]/80" : "text-[var(--primary)]",
                     )}
                   >
                     {status === "excluded" ? "Include this folder" : "Remove this folder from game"}
@@ -1000,6 +1000,7 @@ export function GameAssetsBrowserView({
           y={contextMenu.y}
           items={contextMenuItems}
           onClose={() => setContextMenu(null)}
+          destructiveTone="accent"
         />
       )}
 
@@ -1066,7 +1067,7 @@ export function GameAssetsBrowserView({
                       }
                       return (
                         <>
-                          <p className="text-[var(--destructive)]">
+                          <p className="text-[var(--primary)]">
                             This folder contains {itemCount} item{itemCount !== 1 ? "s" : ""}.
                           </p>
                           <label className="mt-2 flex items-center gap-2">
@@ -1079,7 +1080,7 @@ export function GameAssetsBrowserView({
                             <span className="text-xs">Delete everything inside</span>
                           </label>
                           {!deleteRecursive && (
-                            <p className="mt-1 text-xs text-[var(--destructive)]">
+                            <p className="mt-1 text-xs text-[var(--primary)]">
                               You must check the box to delete a non-empty folder.
                             </p>
                           )}
@@ -1116,7 +1117,7 @@ export function GameAssetsBrowserView({
                   </strong>
                   ?
                 </p>
-                <p className="mt-1 text-xs text-[var(--destructive)]">This action cannot be undone.</p>
+                <p className="mt-1 text-xs text-[var(--primary)]">This action cannot be undone.</p>
               </div>
             ) : (
               <input
@@ -1157,7 +1158,7 @@ export function GameAssetsBrowserView({
                 className={cn(
                   "rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-90",
                   modal.type === "delete" || modal.type === "bulk-delete"
-                    ? "bg-[var(--destructive)] text-white"
+                    ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
                     : "bg-[var(--secondary)] text-[var(--foreground)] ring-1 ring-[var(--border)]",
                   modal.type === "delete" &&
                     modal.node.type === "folder" &&

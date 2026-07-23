@@ -468,7 +468,7 @@ export function App() {
   const rightPanel = useUIStore((s) => s.rightPanel);
   const settingsTab = useUIStore((s) => s.settingsTab);
   const appearanceSettingsActive = rightPanelOpen && rightPanel === "settings" && settingsTab === "appearance";
-  const pauseChromeEffectsForAppearance = appearanceSettingsActive && !appAccentRgbMode;
+  const pauseChromeEffectsForAppearance = appearanceSettingsActive && !appAccentRgbMode && !appAccentPulseMode;
   const { data: syncedThemes = [] } = useThemes();
   const { data: customNotificationSound } = useCustomNotificationSoundStatus();
   const activeCustomTheme = useMemo(() => syncedThemes.find((themeItem) => themeItem.isActive) ?? null, [syncedThemes]);

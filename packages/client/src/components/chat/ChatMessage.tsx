@@ -62,6 +62,11 @@ import { DIALOGUE_QUOTE_PATTERN_SOURCE, HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE 
 import { resolveMessageRewriteVersions } from "../../lib/message-rewrite-versions";
 import DOMPurify from "dompurify";
 import type { CharacterMap, ExpressionAvatarResolver, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
+import {
+  MESSAGE_SELECTION_CHECKBOX_CLASS,
+  MESSAGE_SELECTION_CHECKBOX_SELECTED_CLASS,
+  MESSAGE_SELECTION_SURFACE_CLASS,
+} from "./message-selection-styles";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import type { ChatImage } from "../../hooks/use-gallery";
 import { ChatImageLightbox } from "./ChatImageLightbox";
@@ -2177,7 +2182,7 @@ export const ChatMessage = memo(function ChatMessage({
         ref={msgRef}
         className={cn(
           "mari-system-message group flex justify-center py-2",
-          multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/5 ring-2 ring-[var(--destructive)]/50",
+          multiSelectMode && isSelected && cn("rounded-lg", MESSAGE_SELECTION_SURFACE_CLASS),
         )}
         onClick={handleMobileTap}
       >
@@ -2218,7 +2223,7 @@ export const ChatMessage = memo(function ChatMessage({
           ref={msgRef}
           className={cn(
             "mari-message mari-message-narrator rpg-narrator-msg group mb-4 px-2",
-            multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/5 ring-2 ring-[var(--destructive)]/50",
+            multiSelectMode && isSelected && cn("rounded-lg", MESSAGE_SELECTION_SURFACE_CLASS),
           )}
           data-card-css={message.characterId ?? undefined}
           onClick={handleMobileTap}
@@ -2233,13 +2238,14 @@ export const ChatMessage = memo(function ChatMessage({
                   aria-checked={isSelected}
                   aria-label={isSelected ? "Deselect message" : "Select message"}
                   className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded border-2 transition-colors",
-                    isSelected
-                      ? "border-[var(--destructive)] bg-[var(--destructive)]"
-                      : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
+                    MESSAGE_SELECTION_CHECKBOX_CLASS,
+                    "flex items-center justify-center",
+                    isSelected && MESSAGE_SELECTION_CHECKBOX_SELECTED_CLASS,
                   )}
                 >
-                  {isSelected && <span className="text-xs font-bold text-white">✓</span>}
+                  {isSelected && (
+                    <span className="text-xs font-bold text-[var(--marinara-chat-chrome-panel-bg)]">✓</span>
+                  )}
                 </button>
               </div>
             )}
@@ -2295,7 +2301,7 @@ export const ChatMessage = memo(function ChatMessage({
             isUser ? "mari-message-user flex-row-reverse" : "mari-message-assistant",
             useCompactRectangleAvatar && "mari-roleplay-message-row--rect-avatar",
             (hideRoleplayAvatars || showRoleplayAvatarPanel) && "mari-roleplay-message-row--wide",
-            multiSelectMode && isSelected && "ring-2 ring-[var(--destructive)]/50 rounded-lg bg-[var(--destructive)]/5",
+            multiSelectMode && isSelected && cn("rounded-lg", MESSAGE_SELECTION_SURFACE_CLASS),
           )}
           data-message-id={message.id}
           data-message-role={message.role}
@@ -2313,13 +2319,14 @@ export const ChatMessage = memo(function ChatMessage({
                 aria-checked={isSelected}
                 aria-label={isSelected ? "Deselect message" : "Select message"}
                 className={cn(
-                  "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
-                  isSelected
-                    ? "border-[var(--destructive)] bg-[var(--destructive)]"
-                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)]",
+                  MESSAGE_SELECTION_CHECKBOX_CLASS,
+                  "flex items-center justify-center",
+                  isSelected && MESSAGE_SELECTION_CHECKBOX_SELECTED_CLASS,
                 )}
               >
-                {isSelected && <span className="text-white text-xs font-bold">✓</span>}
+                {isSelected && (
+                  <span className="text-xs font-bold text-[var(--marinara-chat-chrome-panel-bg)]">✓</span>
+                )}
               </button>
             </div>
           )}
@@ -2853,7 +2860,7 @@ export const ChatMessage = memo(function ChatMessage({
         "mari-message group flex",
         isUser ? "mari-message-user justify-end" : "mari-message-assistant justify-start",
         isGrouped ? "mb-0.5" : "mb-3",
-        multiSelectMode && isSelected && "bg-[var(--destructive)]/5",
+        multiSelectMode && isSelected && MESSAGE_SELECTION_SURFACE_CLASS,
       )}
       data-message-id={message.id}
       data-message-role={message.role}

@@ -444,6 +444,19 @@ async function copyGalleryImageToAvatar(
   return `/api/avatars/file/${filename}`;
 }
 
+// Remove an avatar file created by copyGalleryImageToAvatar when the record
+// update it was copied for did not go through, so failures cannot strand
+// orphaned files in the avatars directory.
+async function removeCopiedAvatarFile(avatarPath: string) {
+  const filename = avatarPath.split("/").pop();
+  if (!filename) return;
+  try {
+    await unlink(assertInsideDir(AVATAR_ROOT, join(AVATAR_ROOT, filename)));
+  } catch {
+    // The copy may not exist if the failure happened before the write.
+  }
+}
+
 // Read every sprite file in data/sprites/<id>/ and return it as
 // { filename, data } so import can restore the same expression set under a
 // new id.
@@ -1312,12 +1325,17 @@ export async function charactersRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: "Gallery image not found" });
     }
 
+    let avatarPath: string | null = null;
     try {
-      const avatarPath = await copyGalleryImageToAvatar("character", id, image.filePath);
+      avatarPath = await copyGalleryImageToAvatar("character", id, image.filePath);
       const updated = await storage.updateAvatar(id, avatarPath);
-      if (!updated) return reply.status(404).send({ error: "Character not found" });
+      if (!updated) {
+        await removeCopiedAvatarFile(avatarPath);
+        return reply.status(404).send({ error: "Character not found" });
+      }
       return updated;
     } catch (error) {
+      if (avatarPath) await removeCopiedAvatarFile(avatarPath);
       logger.warn(error, "Failed to set character %s avatar from gallery image %s", id, imageId);
       return reply.status(400).send({ error: "Gallery image could not be used as an avatar" });
     }
@@ -2349,12 +2367,23 @@ export async function charactersRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Gallery image not found" });
       }
 
+      let avatarPath: string | null = null;
       try {
-        const avatarPath = await copyGalleryImageToAvatar("persona", id, image.filePath);
-        const updated = await storage.updatePersona(id, { avatarPath }, { versionReason: "Avatar update" });
-        if (!updated) return reply.status(404).send({ error: "Persona not found" });
+        avatarPath = await copyGalleryImageToAvatar("persona", id, image.filePath);
+        // The previous crop was normalized against the old image's framing, so
+        // it must not carry over to the replacement avatar.
+        const updated = await storage.updatePersona(
+          id,
+          { avatarPath, avatarCrop: "" },
+          { versionReason: "Avatar update" },
+        );
+        if (!updated) {
+          await removeCopiedAvatarFile(avatarPath);
+          return reply.status(404).send({ error: "Persona not found" });
+        }
         return updated;
       } catch (error) {
+        if (avatarPath) await removeCopiedAvatarFile(avatarPath);
         logger.warn(error, "Failed to set persona %s avatar from gallery image %s", id, imageId);
         return reply.status(400).send({ error: "Gallery image could not be used as an avatar" });
       }

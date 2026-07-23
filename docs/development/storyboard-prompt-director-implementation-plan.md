@@ -4,6 +4,10 @@ Status: Proposed
 
 Related PRD: [Storyboard Prompt Director PRD](storyboard-prompt-director-prd.md)
 
+Broader rollout: [Storyboard Director Agent Roadmap](storyboard-director-agent-roadmap.md).
+This plan covers the Game Mode proving phase only; the agent and Roleplay work follow
+after its exit gate passes.
+
 ## Delivery shape
 
 Implement this as one focused feature PR against `staging`. Before coding, open or confirm the feature issue, identify the owner on it, and open a draft PR when implementation starts.

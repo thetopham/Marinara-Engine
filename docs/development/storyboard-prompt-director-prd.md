@@ -4,6 +4,10 @@ Status: Proposed MVP
 
 Audience: Marinara Engine maintainers and contributors
 
+Broader rollout: [Storyboard Director Agent Roadmap](storyboard-director-agent-roadmap.md).
+This PRD is Phase 1 and should be implemented and verified in Game Mode before the
+planner is packaged as an agent or exposed to Roleplay.
+
 ## Summary
 
 Restore a detailed **Storyboard Prompt Director** as an Animation Planner preset, then let the existing Storyboard pipeline use its character reference sheet and animation script when rendering with Seedance 2.0 or an LTX 2.3 ComfyUI workflow.

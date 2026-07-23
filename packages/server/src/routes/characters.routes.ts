@@ -2573,7 +2573,10 @@ function buildChunk(type: string, data: Buffer): Buffer {
 }
 
 function readPngTextKeyword(chunkType: string, chunkData: Buffer): string | null {
-  if (chunkType !== "tEXt" && chunkType !== "iTXt") return null;
+  // zTXt keywords sit at the same null-terminated position; without it, a
+  // re-exported Character Tavern card would keep stale compressed chara data
+  // alongside the freshly injected tEXt chunk.
+  if (chunkType !== "tEXt" && chunkType !== "iTXt" && chunkType !== "zTXt") return null;
 
   const nullIdx = chunkData.indexOf(0);
   if (nullIdx <= 0) return null;

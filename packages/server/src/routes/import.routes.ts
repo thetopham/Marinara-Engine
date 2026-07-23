@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { execFile } from "child_process";
+import { inflateSync } from "node:zlib";
 import { platform, homedir } from "os";
 import { readdir, stat } from "fs/promises";
 import { resolve as pathResolve } from "path";
@@ -192,8 +193,21 @@ function pickFolder(): Promise<string | null> {
 /** Read PNG tEXt chunk with keyword "chara" → base64-encoded JSON character data */
 const CHARA_KEYWORDS = new Set(["ccv3", "chara"]);
 
-/** Extract character JSON from a PNG buffer, checking tEXt and iTXt chunks for "ccv3" (V3) or "chara" (V2) keywords. */
-function extractCharaFromPng(buf: Buffer): Record<string, unknown> | null {
+/** Parse chunk text that may be raw JSON or base64-encoded JSON. */
+function parseCharaChunkText(text: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    try {
+      return JSON.parse(Buffer.from(text, "base64").toString("utf-8")) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** Extract character JSON from a PNG buffer, checking tEXt, zTXt, and iTXt chunks for "ccv3" (V3) or "chara" (V2) keywords. */
+export function extractCharaFromPng(buf: Buffer): Record<string, unknown> | null {
   if (buf.length < 8) return null;
   const found = new Map<string, Record<string, unknown>>();
   let offset = 8; // skip PNG signature
@@ -212,6 +226,22 @@ function extractCharaFromPng(buf: Buffer): Record<string, unknown> | null {
           try {
             const json = Buffer.from(b64, "base64").toString("utf-8");
             found.set(keyword, JSON.parse(json));
+          } catch {
+            /* skip malformed */
+          }
+        }
+      }
+    } else if (type === "zTXt") {
+      // zTXt: keyword\0 compressionMethod(1 byte, 0 = zlib deflate) compressedText.
+      // Character Tavern cards store their chara/ccv3 payloads this way.
+      const nullIdx = payload.indexOf(0);
+      if (nullIdx >= 0) {
+        const keyword = payload.subarray(0, nullIdx).toString("ascii");
+        if (CHARA_KEYWORDS.has(keyword) && !found.has(keyword) && payload[nullIdx + 1] === 0) {
+          try {
+            const text = inflateSync(payload.subarray(nullIdx + 2)).toString("utf-8");
+            const parsed = parseCharaChunkText(text);
+            if (parsed) found.set(keyword, parsed);
           } catch {
             /* skip malformed */
           }

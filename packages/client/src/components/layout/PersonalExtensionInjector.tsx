@@ -49,7 +49,7 @@ function sizeSandboxPanel(iframe: HTMLIFrameElement, width?: number, height?: nu
     width: `${w}px`,
     height: `${h}px`,
     maxWidth: "calc(100vw - 2rem)",
-    maxHeight: "80vh",
+    maxHeight: "70vh",
     border: "1px solid var(--border)",
     borderRadius: "12px",
     boxShadow: "0 16px 48px rgba(0,0,0,0.4)",

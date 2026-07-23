@@ -487,6 +487,10 @@ export function isCustomAgentRepositoriesEnabled() {
   return isEnabledFlag(process.env.ENABLE_CUSTOM_AGENT_REPOS);
 }
 
+export function isExternalExtensionsEnvEnabled() {
+  return isEnabledFlag(process.env.ENABLE_EXTERNAL_EXTENSIONS);
+}
+
 export function isSidecarRuntimeInstallEnabled() {
   return isEnabledFlag(process.env.SIDECAR_RUNTIME_INSTALL_ENABLED);
 }

@@ -21,7 +21,7 @@ From a phone, tablet, or any other device, backup and restore need the **Admin A
 
 ## Download Backup
 
-**Download Backup** creates one **.zip** file with your database, your settings, and all your media folders (avatars, sprites, backgrounds, gallery images, fonts, and more).
+**Download Backup** creates one **.zip** file with your database, your settings, and all your media folders (avatars, sprites, backgrounds, gallery images, fonts, your custom notification sound, and more).
 
 1. Open **Settings**.
 2. Go to the **Advanced** tab.
@@ -39,7 +39,7 @@ The **.zip** also contains a plain text file named `RESTORE.txt`. It explains ho
 
 ## Export Profile
 
-**Export Profile** creates a smaller file with your account data. Media is included, so avatars and images come along too.
+**Export Profile** creates a smaller file with your account data. Media is included, so avatars, images, and your custom notification sound come along too.
 
 1. Open **Settings**.
 2. Go to the **Advanced** tab.

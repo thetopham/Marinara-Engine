@@ -54,6 +54,7 @@ const BACKUP_DIRS = [
   "game-assets",
   "custom-emojis",
   "custom-stickers",
+  "notification-sounds",
   "lorebooks/images",
   "agents/images",
   "connections/images",

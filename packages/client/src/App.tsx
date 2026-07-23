@@ -16,6 +16,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { APP_VERSION } from "@marinara-engine/shared";
 import { CustomThemeInjector } from "./components/layout/CustomThemeInjector";
+import { PersonalExtensionInjector } from "./components/layout/PersonalExtensionInjector";
 import { ModelDownloadModal } from "./components/modals/ModelDownloadModal";
 import { WhatsNewModal } from "./components/modals/WhatsNewModal";
 import { AppDialogRenderer } from "./components/ui/AppDialogRenderer";
@@ -953,6 +954,7 @@ export function App() {
   return (
     <>
       <CustomThemeInjector />
+      <PersonalExtensionInjector />
       <ChibiProfessorMariEasterEgg />
       <Suspense fallback={null}>
         <LazyAppShell />

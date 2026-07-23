@@ -362,6 +362,16 @@ test("message deletion uses unified chroma controls and selection states", async
       id: string;
     }>;
     const targetMessage = messages[1];
+    const assistantMessageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+      data: { role: "assistant", content: "First assistant swipe." },
+    });
+    expect(assistantMessageResponse.ok()).toBeTruthy();
+    const assistantMessage = (await assistantMessageResponse.json()) as { id: string };
+    const assistantSwipeResponse = await page.request.post(
+      `/api/chats/${chat.id}/messages/${assistantMessage.id}/swipes`,
+      { data: { content: "Alternate assistant swipe." } },
+    );
+    expect(assistantSwipeResponse.ok()).toBeTruthy();
 
     await page.addInitScript((chatId) => localStorage.setItem("marinara-active-chat-id", chatId), chat.id);
     await page.goto("/");
@@ -458,6 +468,40 @@ test("message deletion uses unified chroma controls and selection states", async
 
     await cancelSelection.click();
     await expect(selectionBar).toBeHidden();
+
+    const assistantRow = page.locator(`[data-message-id="${assistantMessage.id}"]`);
+    await expect(assistantRow).toContainText("Alternate assistant swipe.");
+    if (testInfo.project.name.includes("mobile")) {
+      await assistantRow.click({ position: { x: 80, y: 24 } });
+    } else {
+      await assistantRow.hover();
+    }
+    await assistantRow.getByRole("button", { name: "Delete" }).click();
+    await expect(dialog).toBeVisible();
+
+    const assistantDialogActions = dialog.locator('[data-component="MessageDeleteActions"] > button');
+    await expect(assistantDialogActions).toHaveCount(4);
+    const deleteSwipe = dialog.getByRole("button", { name: "Delete only this swipe (2/2)" });
+    await expect(deleteSwipe).toBeVisible();
+    const swipeStyles = await readChromeStyles(deleteSwipe);
+    const deleteMessageStyles = await readChromeStyles(
+      dialog.getByRole("button", { name: "Delete this message" }),
+    );
+    expect(swipeStyles).toHaveLength(1);
+    expect(swipeStyles[0]).toEqual(deleteMessageStyles[0]);
+    expect(swipeStyles[0]?.color).not.toBe(tealStyles[0]?.color);
+    expect(swipeStyles[0]?.className).not.toMatch(/destructive|pink|red|rose/iu);
+
+    await deleteSwipe.click();
+    await expect(dialog).toBeHidden();
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(`/api/chats/${chat.id}/messages/${assistantMessage.id}/swipes`);
+        if (!response.ok()) return -1;
+        return ((await response.json()) as unknown[]).length;
+      })
+      .toBe(1);
+    await expect(assistantRow).toContainText("First assistant swipe.");
   } finally {
     await page.request.delete(`/api/chats/${chat.id}`).catch(() => undefined);
   }

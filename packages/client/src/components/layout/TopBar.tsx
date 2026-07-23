@@ -25,6 +25,10 @@ import { LocalMusicPlayer } from "../chat/LocalMusicPlayer";
 import { MusicDjUnavailablePlayer } from "../music/MusicDjUnavailablePlayer";
 import { useInstalledCapabilityPackages } from "../../hooks/use-capability-packages";
 import { useLocalizedUiText } from "../../localization/use-localized-ui-text";
+import {
+  PersonalExtensionContributionsMenu,
+  PersonalExtensionTopbarButtons,
+} from "./PersonalExtensionContributionsMenu";
 
 type RightPanelButtonPanel = "lorebooks" | "presets" | "connections" | "agents" | "personas";
 
@@ -448,6 +452,9 @@ export function TopBar() {
             </button>
           );
         })}
+
+        <PersonalExtensionTopbarButtons />
+        <PersonalExtensionContributionsMenu />
 
         {/* Settings */}
         <button

@@ -1,6 +1,12 @@
 import { useEffect } from "react";
 import { CSRF_HEADER, CSRF_HEADER_VALUE, type PersonalClientExtensionRuntime } from "@marinara-engine/shared";
 import { usePersonalExtensionRuntime } from "../../hooks/use-personal-extensions";
+import {
+  registerPersonalExtensionContribution,
+  removePersonalExtensionContribution,
+  removePersonalExtensionContributions,
+  setPersonalExtensionContributionDispatcher,
+} from "../../lib/personal-extension-contributions";
 
 type ActiveClientExtension = {
   contentHash: string;
@@ -10,11 +16,23 @@ type ActiveClientExtension = {
 
 type SandboxMessage = {
   channel?: string;
-  type?: "ready" | "error" | "log" | "storage" | "ui-window-open" | "ui-window-close" | "ui-resize";
+  type?:
+    | "ready"
+    | "error"
+    | "log"
+    | "storage"
+    | "ui-window-open"
+    | "ui-window-close"
+    | "ui-resize"
+    | "ui-contribution-register"
+    | "ui-contribution-update"
+    | "ui-contribution-remove";
   contentHash?: string;
   requestId?: string;
   action?: "get" | "patch" | "delete";
   payload?: unknown;
+  contribution?: unknown;
+  contributionId?: unknown;
   level?: "debug" | "info" | "warn" | "error";
   args?: unknown[];
   message?: string;
@@ -101,6 +119,7 @@ function extensionFetch(id: string, path: string, init: RequestInit = {}) {
 async function cleanupExtension(id: string) {
   const active = activeExtensions.get(id);
   activeExtensions.delete(id);
+  removePersonalExtensionContributions(id);
   if (!active) return;
   active.iframe.contentWindow?.postMessage({ channel: "marinara-personal-extension", type: "stop" }, "*");
   active.iframe.remove();
@@ -171,10 +190,23 @@ export function PersonalExtensionInjector() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
-      const active = [...activeExtensions.values()].find((candidate) => candidate.iframe.contentWindow === event.source);
+      const active = [...activeExtensions.values()].find(
+        (candidate) => candidate.iframe.contentWindow === event.source,
+      );
       if (!active || event.origin !== "null") return;
       const message = event.data as SandboxMessage;
       if (!message || message.channel !== "marinara-personal-extension") return;
+      if (
+        (message.type === "ui-contribution-register" || message.type === "ui-contribution-update") &&
+        message.contentHash === active.contentHash
+      ) {
+        registerPersonalExtensionContribution(active.extension, message.contribution);
+        return;
+      }
+      if (message.type === "ui-contribution-remove" && message.contentHash === active.contentHash) {
+        removePersonalExtensionContribution(active.extension.id, active.contentHash, message.contributionId);
+        return;
+      }
       if (message.type === "storage") {
         void handleStorage(active, message);
         return;
@@ -248,6 +280,9 @@ export function PersonalExtensionInjector() {
         contentHash: extension.contentHash,
         extension,
         iframe,
+      });
+      setPersonalExtensionContributionDispatcher(extension, (message) => {
+        iframe.contentWindow?.postMessage({ channel: "marinara-personal-extension", ...message }, "*");
       });
     }
   }, [extensions]);

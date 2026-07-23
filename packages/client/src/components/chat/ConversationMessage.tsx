@@ -5,7 +5,7 @@
 // ──────────────────────────────────────────────
 import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { Brain, Phone, PhoneIncoming, PhoneOff, Trash2, X } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOff, Trash2 } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import {
   formatTextQuotes,
@@ -27,7 +27,6 @@ import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./Gene
 import {
   HiddenFromAIConversationButton,
   ConversationMessageLightbox,
-  MsgAction,
   type MessageData,
   type MessageRenderContext,
 } from "./ConversationMessageShared";
@@ -36,6 +35,7 @@ import { ConversationMessageGrouped } from "./ConversationMessageGrouped";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
 import { ConversationMessageLine } from "./ConversationMessageLine";
 import { MessageReactions } from "./MessageReactions";
+import { MessageThinkingModal } from "./MessageThinkingModal";
 import {
   findRetargetableUserReaction,
   reactionTargetOf,
@@ -44,12 +44,6 @@ import {
   USER_REACTOR,
   type ReactionSegmentTarget,
 } from "../../lib/reactions";
-import {
-  NEUTRAL_PANEL_HEADER,
-  NEUTRAL_PANEL_SCROLL_AREA,
-  NEUTRAL_PANEL_SHELL,
-  NEUTRAL_PANEL_TITLE,
-} from "../ui/neutral-surface-styles";
 
 const EMPTY_CUSTOM_EMOJI_MAP = new Map<string, string>();
 const EMPTY_CUSTOM_STICKER_MAP = new Map<string, string>();
@@ -84,7 +78,6 @@ interface ConversationMessageProps {
   hideUserAvatar?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
-  showStreamingThinkingAction?: boolean;
   messageStyle?: ConversationMessageStyle;
   contentParts?: string[];
   visiblePartCount?: number;
@@ -125,7 +118,6 @@ export const ConversationMessage = memo(function ConversationMessage({
   hideUserAvatar,
   plainUserMessages,
   forceShowActions,
-  showStreamingThinkingAction,
   messageStyle = "classic",
   contentParts,
   visiblePartCount,
@@ -164,6 +156,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const [imageLightbox, setImageLightbox] = useState<{ url: string; prompt?: string | null } | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const msgRef = useRef<HTMLDivElement>(null);
+  const thinkingButtonRef = useRef<HTMLButtonElement>(null);
   const editSwipeIndexRef = useRef<number | null>(null);
 
   // ── Store selectors ──
@@ -208,7 +201,13 @@ export const ConversationMessage = memo(function ConversationMessage({
       : null;
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
   const canRegenerate = !isUser || generationReplay !== null;
-  const thinking = extra?.thinking as string | null | undefined;
+  const thinking =
+    typeof extra?.thinking === "string" && extra.thinking.trim().length > 0 ? (extra.thinking as string) : null;
+
+  useEffect(() => {
+    if (!thinking) setShowThinking(false);
+  }, [thinking]);
+
   const reactions = useMemo<MessageReaction[]>(
     () => (Array.isArray(extra.reactions) ? extra.reactions : []),
     [extra.reactions],
@@ -760,6 +759,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     regenerateButtonTitle,
     regenerateGuidedClass,
     thinking,
+    thinkingButtonRef,
     generationReplay,
     canRegenerate,
     isLastAssistantMessage,
@@ -829,42 +829,13 @@ export const ConversationMessage = memo(function ConversationMessage({
   // ── Shared modals (portals, rendered outside the layout) ──
   const modals = (
     <>
-      {showThinking &&
-        (thinking || showStreamingThinkingAction) &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-            onClick={() => setShowThinking(false)}
-          >
-            <div
-              className={cn(
-                NEUTRAL_PANEL_SHELL,
-                "relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden",
-              )}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className={cn(NEUTRAL_PANEL_HEADER, "flex items-center justify-between gap-3 px-4 py-3")}>
-                <div className={cn(NEUTRAL_PANEL_TITLE, "text-sm")}>
-                  <Brain size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />
-                  Model Thoughts
-                </div>
-                <button
-                  onClick={() => setShowThinking(false)}
-                  className="mari-chrome-control mari-chrome-control--small p-1.5"
-                  aria-label="Close thoughts"
-                >
-                  <X size="0.875rem" />
-                </button>
-              </div>
-              <div className={cn(NEUTRAL_PANEL_SCROLL_AREA, "overflow-y-auto px-4 py-3")}>
-                <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-text)]">
-                  {thinking || "Waiting for model thoughts…"}
-                </pre>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {showThinking && thinking && (
+        <MessageThinkingModal
+          thinking={thinking}
+          onClose={() => setShowThinking(false)}
+          restoreFocusRef={thinkingButtonRef}
+        />
+      )}
       {generationReplay && (
         <GenerationReplayDetailsModal
           open={showGenerationReplay}
@@ -1024,18 +995,20 @@ export const ConversationMessage = memo(function ConversationMessage({
       >
         {isBubbleStyle ? <ConversationMessageBubble ctx={ctx} /> : <ConversationMessageLine ctx={ctx} />}
 
-        {!hideActions && (
+        {(!hideActions || (!!thinking && !isUser)) && (
           <ConversationMessageActions
             isBubbleStyle={isBubbleStyle}
             isUser={isUser}
             showActions={showActions}
-            forceShowActions={forceShowActions}
+            forceShowActions={hideActions && !!thinking ? true : forceShowActions}
+            thinkingOnly={hideActions && !!thinking}
             copied={copied}
             translatedText={translatedText}
             isHiddenFromAI={isHiddenFromAI}
             canRegenerate={canRegenerate}
             isLastAssistantMessage={isLastAssistantMessage}
             thinking={thinking}
+            thinkingButtonRef={thinkingButtonRef}
             generationReplay={generationReplay}
             isGuided={isGuided}
             regenerateButtonTitle={regenerateButtonTitle}
@@ -1054,20 +1027,6 @@ export const ConversationMessage = memo(function ConversationMessage({
             onShowThinking={() => setShowThinking(true)}
             onPickReaction={handleToggleReaction}
           />
-        )}
-        {showStreamingThinkingAction && !isUser && (
-          <div
-            className={cn(
-              "mari-message-actions absolute -top-3 z-10 flex items-center rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm dark:border-white/20 dark:bg-black/40",
-              isBubbleStyle ? "left-12" : "right-4",
-            )}
-          >
-            <MsgAction
-              icon={<Brain size="0.75rem" />}
-              onClick={() => setShowThinking(true)}
-              title="View model thoughts"
-            />
-          </div>
         )}
       </div>
       {reactionRow}

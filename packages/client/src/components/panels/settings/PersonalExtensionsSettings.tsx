@@ -269,7 +269,6 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
         title: "Delete Personal Extension?",
         message: `Delete "${extension.name}" and its private extension storage? This cannot be undone.`,
         confirmLabel: "Delete",
-        tone: "destructive",
       });
       if (!confirmed) return;
       try {
@@ -729,7 +728,7 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
                     className={cn(
                       "group relative rounded-lg border px-3 py-2.5 pr-32 transition-colors max-md:pr-28",
                       extension.enabled
-                        ? "border-emerald-500/25 bg-emerald-500/6"
+                        ? "border-[var(--primary)]/30 bg-[var(--primary)]/[0.07]"
                         : "border-[var(--border)] bg-[var(--secondary)]/45 hover:bg-[var(--secondary)]/70",
                     )}
                   >
@@ -742,7 +741,7 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
                         className={cn(
                           "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
                           extension.enabled
-                            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                            ? "border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)]"
                             : "border-[var(--border)] bg-[var(--background)]/60 text-[var(--muted-foreground)]",
                         )}
                       >
@@ -761,10 +760,10 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
                             className={cn(
                               "rounded px-1.5 py-0.5 text-[0.5625rem] font-semibold ring-1",
                               extension.enabled
-                                ? "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20"
+                                ? "bg-[var(--primary)]/10 text-[var(--primary)] ring-[var(--primary)]/25"
                                 : approved
                                   ? "bg-[var(--background)]/60 text-[var(--muted-foreground)] ring-[var(--border)]"
-                                  : "bg-amber-500/10 text-amber-300 ring-amber-500/20",
+                                  : "bg-[var(--primary)]/[0.06] text-[var(--foreground)] ring-[var(--primary)]/20",
                             )}
                           >
                             {status}

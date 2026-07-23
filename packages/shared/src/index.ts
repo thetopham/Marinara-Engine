@@ -32,6 +32,7 @@ export * from "./types/conversation-call.js";
 export * from "./types/noodle.js";
 export * from "./types/spatial-context.js";
 export * from "./types/capability-runtime.js";
+export * from "./types/personal-extension.js";
 
 // Schemas
 export * from "./schemas/chat.schema.js";
@@ -51,6 +52,7 @@ export * from "./schemas/conversation-call.schema.js";
 export * from "./schemas/noodle.schema.js";
 export * from "./schemas/spatial-context.schema.js";
 export * from "./schemas/capability-package.schema.js";
+export * from "./schemas/personal-extension.schema.js";
 export * from "./schemas/folder.schema.js";
 export * from "./schemas/scene-analysis.schema.js";
 

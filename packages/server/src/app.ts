@@ -8,7 +8,6 @@ import fastifyStatic from "@fastify/static";
 import { getDB, closeDB, type DB } from "./db/connection.js";
 import { registerRoutes } from "./routes/index.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { logger } from "./lib/logger.js";
 import { ipAllowlistHook } from "./middleware/ip-allowlist.js";
 import { basicAuthHook } from "./middleware/basic-auth.js";
 import { csrfProtectionHook } from "./middleware/csrf-protection.js";
@@ -40,7 +39,8 @@ import { corsDelegate } from "./config/cors-config.js";
 import { sidecarProcessService } from "./services/sidecar/sidecar-process.service.js";
 import { startServerAutonomousScheduler } from "./services/conversation/server-autonomous-scheduler.service.js";
 import { startNoodleRefreshScheduler } from "./services/noodle/noodle-refresh-scheduler.service.js";
-import { purgeRetiredExtensionData } from "./services/setup/retired-extension-cleanup.js";
+import { preparePersonalExtensionTrust } from "./services/setup/personal-extension-trust.js";
+import { personalServerExtensionRuntime } from "./services/extensions/personal-server-extension-runtime.js";
 import { runWithGenerationFallbackNotifier } from "./services/generation/fallback-notification.js";
 import { createReplyFallbackNotifier } from "./routes/generate/fallback-notification.js";
 import { initializeCapabilityAgentRegistry } from "./services/capability-packages/capability-agent-registry.service.js";
@@ -91,6 +91,7 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
     try {
       const stopResults = await Promise.allSettled([
         capabilityModuleRuntime.stop(),
+        personalServerExtensionRuntime.stop(),
         sidecarProcessService.stop(),
       ]);
       for (const result of stopResults) {
@@ -139,6 +140,22 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
   // ── Recover orphaned gallery images (files on disk without DB records) ──
   await recoverGalleryImages(db);
 
+  // Legacy extension payloads and any out-of-band code changes are retained as
+  // disabled drafts. Execution always requires approval of the exact hash.
+  const personalExtensionTrust = await preparePersonalExtensionTrust(db);
+  if (personalExtensionTrust.legacyRecordsQuarantined > 0) {
+    app.log.info(
+      "Quarantined %d legacy extension record(s) as Personal Extension drafts",
+      personalExtensionTrust.legacyRecordsQuarantined,
+    );
+  }
+  if (personalExtensionTrust.changedRecordsDisabled > 0) {
+    app.log.warn(
+      "Disabled %d Personal Extension record(s) because stored code changed outside the approval flow",
+      personalExtensionTrust.changedRecordsDisabled,
+    );
+  }
+
   // Keep fallback reporting attached to the originating request even when
   // generation passes through nested services. Streamed routes emit an SSE
   // event; ordinary requests expose a response header consumed by the client.
@@ -185,20 +202,11 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
 
   // Trusted downloaded server capabilities register while Fastify is still mutable.
   await capabilityModuleRuntime.start(app);
+  await personalServerExtensionRuntime.start(db);
   // Server-backed agent definitions are visible only after their runtime reaches
   // functional readiness. Packages without a server entrypoint remain available
   // as soon as their verified files are installed.
   await initializeCapabilityAgentRegistry();
-
-  // Permanently erase payload-bearing records left by the removed extension system.
-  const retiredExtensionCleanup = await purgeRetiredExtensionData(db);
-  if (retiredExtensionCleanup.extensionRecordsRemoved > 0 || retiredExtensionCleanup.extensionSettingsRemoved > 0) {
-    logger.info(
-      "Permanently removed %d retired extension record(s) and %d extension setting(s)",
-      retiredExtensionCleanup.extensionRecordsRemoved,
-      retiredExtensionCleanup.extensionSettingsRemoved,
-    );
-  }
 
   // ── Server-side autonomous conversation scheduler ──
   startServerAutonomousScheduler(app);

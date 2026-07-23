@@ -6,6 +6,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Added
 
+- Added the UI-localization foundation with English fallback, lazily discovered locale JSON files, live Arabic, Chinese, French, German, Hindi, Japanese, Korean, Polish, Portuguese, Russian, and Spanish selection in **Settings > General**, contributor validation and documentation, and locale propagation into downloadable Agent interfaces (#3978).
 - Reintroduced local-only **Personal Extensions** in **Settings > Addons** for self-authored, locally imported, or Professor Mari-authored browser and server code. New and changed code stays disabled until the user reviews and approves its exact SHA-256 fingerprint; imports, profile transfers, and revision restores cannot carry execution approval, and there is no catalog, URL installer, or automatic updater.
 - Added review-gated public npm dependencies for Professor Mari's workspace changes. She can request a root, client, server, or shared package, but Marinara resolves it to an exact registry version and integrity and waits for the user before installing it with lifecycle scripts disabled.
 - Added **Set as avatar** to Character and Persona Gallery images in both the grid and full-size viewer, using path-contained, image-validated server copies (#3974).

@@ -2,7 +2,6 @@
 // Panel: Settings (polished)
 // ──────────────────────────────────────────────
 import {
-  APP_LANGUAGE_OPTIONS,
   TRACKER_DATA_PANEL_SECTIONS,
   TRACKER_PANEL_DEFAULT_BACKGROUND_COLOR,
   useUIStore,
@@ -20,6 +19,7 @@ import {
   type TrackerThoughtBubbleDisplay,
   type VisualTheme,
 } from "../../stores/ui.store";
+import { APP_LANGUAGE_OPTIONS } from "../../localization/locale-loader";
 import { cn, copyToClipboard } from "../../lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ADMIN_SECRET_STORAGE_KEY, ApiError, api, getPrivilegedActionErrorMessage } from "../../lib/api-client";
@@ -27,6 +27,7 @@ import { chatBackgroundUrlToMetadata } from "../../lib/backgrounds";
 import { normalizeThemeCss, sanitizeAppCss } from "../../lib/theme-css";
 import { forceRefreshSpa } from "@/lib/browser-runtime";
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   APP_VERSION,
@@ -2560,6 +2561,7 @@ function QuickRepliesSetting() {
 }
 
 function GeneralSettings() {
+  const { t } = useTranslation();
   const language = useUIStore((s) => s.language);
   const setLanguage = useUIStore((s) => s.setLanguage);
   const enableStreaming = useUIStore((s) => s.enableStreaming);
@@ -2613,23 +2615,23 @@ function GeneralSettings() {
 
   return (
     <div className="flex flex-col gap-3">
-      <SettingsIntro>Core app behavior, ordered from daily controls to mode-specific tuning.</SettingsIntro>
+      <SettingsIntro>{t("settings.application.intro")}</SettingsIntro>
 
       <SettingsSection
-        title="App Behavior"
-        description="Language, safety confirmations, achievements, music, and playful extras."
+        title={t("settings.application.title")}
+        description={t("settings.application.description")}
         icon={<Power size="0.875rem" />}
         {...getSettingsSectionAnchorProps("application")}
       >
         <div className="flex flex-col gap-2.5">
           <label id={getSettingsControlAnchorId("language")} className="flex scroll-mt-3 flex-col gap-1">
             <span className="inline-flex items-center gap-1 text-xs font-medium">
-              Language
-              <HelpTooltip text="Choose the app language. Only English is available right now, but this setting is persisted so future translation PRs can extend it cleanly." />
+              {t("settings.application.language.label")}
+              <HelpTooltip text={t("settings.application.language.help")} />
             </span>
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value as (typeof APP_LANGUAGE_OPTIONS)[number]["id"])}
+              onChange={(e) => setLanguage(e.target.value)}
               className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]"
             >
               {APP_LANGUAGE_OPTIONS.map((option) => (
@@ -2639,8 +2641,7 @@ function GeneralSettings() {
               ))}
             </select>
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-              English is the only bundled language for now. Future translations can add more options here without
-              changing the settings shape.
+              {t("settings.application.language.fallback")}
             </p>
           </label>
 

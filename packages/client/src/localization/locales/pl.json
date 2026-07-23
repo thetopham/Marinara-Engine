@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "locale": "pl",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Wróć do Agentów",
+  "capabilities.actions.close": "Zamknij",
+  "capabilities.actions.tryAgain": "Spróbuj ponownie",
+  "capabilities.failure.load.description": "Nie udało się uruchomić pobranego interfejsu. Twoje czaty i zapisane dane pozostały bez zmian.",
+  "capabilities.failure.load.error": "Nie udało się wczytać pobranego interfejsu.",
+  "capabilities.failure.load.retryLabel": "Spróbuj ponownie wczytać {{name}}",
+  "capabilities.failure.load.title": "Nie udało się wczytać: {{name}}",
+  "capabilities.failure.runtime.description": "W pobranym interfejsie wystąpił błąd. Twoje czaty i zapisane dane pozostały bez zmian.",
+  "capabilities.failure.runtime.error": "Środowisko interfejsu funkcji przestało działać",
+  "capabilities.failure.runtime.title": "Interfejs {{name}} przestał działać",
+  "capabilities.loading": "Wczytywanie: {{name}}",
+  "settings.application.description": "Język, potwierdzenia bezpieczeństwa, osiągnięcia, muzyka i dodatkowe urozmaicenia.",
+  "settings.application.intro": "Podstawowe zachowanie aplikacji, od codziennych ustawień po opcje poszczególnych trybów.",
+  "settings.application.language.fallback": "Jeśli brakuje tłumaczenia, Marinara wyświetli tekst po angielsku.",
+  "settings.application.language.help": "Wybierz język interfejsu. Zmienia to elementy sterujące i wskazówki Marinary, ale nie polecenia dla modelu ani treść czatów.",
+  "settings.application.language.label": "Język",
+  "settings.application.title": "Działanie aplikacji"
+}

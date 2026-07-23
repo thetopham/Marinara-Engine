@@ -41,7 +41,11 @@ The **General** tab holds six sections. This page owns two of them in full: **Ap
 
 This section is at **Settings** > **General** > **App Behavior**. It controls daily app behavior and a few show/hide toggles.
 
-- **Language**: choose the app language. Only English is available right now. The setting is saved so future translations can add more.
+- **Language**: choose the app interface language. Marinara currently includes Arabic, Simplified Chinese, English,
+  French, German, Hindi, Japanese, Korean, Polish, Brazilian Portuguese, Russian, and Spanish. Arabic uses a
+  right-to-left layout. Interface text that has not been translated yet falls back to English. This setting changes
+  Marinara's controls and guidance, not model prompts or chat content. To improve a translation or contribute another
+  language, see [UI Localization](../development/localization.md).
 - **Confirm before deleting**: on by default. When on, Marinara asks before it permanently deletes a chat, a character, or another item. Keep it on to avoid accidental deletes.
 - **Achievements**: on by default. When on, the Home screen shows the achievements button and unlock notices. When off, tracking stays silent. See [Achievements](../home/achievements.md).
 - **Music Player**: on by default. When on, the compact Music Player is shown. See [Music](../media/music.md).
@@ -145,3 +149,4 @@ If the server is unreachable, the app keeps working from your local settings and
 - [Troubleshooting](../TROUBLESHOOTING.md)
 - [Achievements](../home/achievements.md)
 - [Personal Extensions](../extending/personal-extensions.md)
+- [UI Localization](../development/localization.md)

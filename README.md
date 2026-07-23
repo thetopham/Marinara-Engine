@@ -163,6 +163,10 @@ See the [Downloadable Agents Reference](docs/agents/built-in-agents.md) for mode
 
 Preset system with drag-and-drop prompt ordering, lorebooks with keyword triggers, an AI lorebook maker, world info inspector, regex scripts, and a macro/template system.
 
+### Local Customization
+
+Personal Extensions keep self-authored or Professor Mari-authored CSS and JavaScript local to your Marinara server. They never download or auto-update, every executable change invalidates approval, and only the exact reviewed SHA-256 fingerprint can run. Browser and server extensions are full-trust code; see the [Personal Extensions guide](docs/extending/personal-extensions.md).
+
 ### Connections & Providers
 
 OpenAI, OpenAI ChatGPT subscription login, Anthropic, Claude Subscription through the local Claude Agent SDK, Google Gemini, Google Vertex AI, OpenRouter, NanoGPT, Mistral, Cohere, xAI / Grok, the bundled downloadable Local Model sidecar, Pollinations, Stability AI, Together AI, NovelAI, Venice.ai, ComfyUI image and local video workflows, SD Web UI, Draw Things (Apple Silicon, Metal + Apple Neural Engine), Google AI Studio video models (Gemini Omni and Veo), xAI Imagine video, OpenRouter video, Seedance 2.0 video, and custom OpenAI-compatible endpoints. API keys are encrypted at rest with AES-256. Per-chat connection overrides.

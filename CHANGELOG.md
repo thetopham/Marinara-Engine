@@ -4,6 +4,15 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+### Added
+
+- Reintroduced local-only **Personal Extensions** in **Settings > Addons** for self-authored, locally imported, or Professor Mari-authored browser and server code. New and changed code stays disabled until the user reviews and approves its exact SHA-256 fingerprint; imports, profile transfers, and revision restores cannot carry execution approval, and there is no catalog, URL installer, or automatic updater.
+- Added review-gated public npm dependencies for Professor Mari's workspace changes. She can request a root, client, server, or shared package, but Marinara resolves it to an exact registry version and integrity and waits for the user before installing it with lifecycle scripts disabled.
+
+### Changed
+
+- Confined Professor Mari's raw shell commands to macOS Seatbelt or Linux Bubblewrap with outbound network denied, inherited server secrets removed, environment-secret and Git-internal files unreadable, and filesystem writes limited to ordinary workspace files and a private temporary directory. Dependency manifests, lockfiles, launchers, installers, and CI workflows are read-only in the shell and use an explicit in-chat review; raw package-manager mutations are blocked even when a package is cached. Raw shell now fails closed when no supported sandbox is available, while structured workspace and app-data tools remain available (#3973).
+
 ### Security
 
 - Rejected untrusted HTTP Host names before CORS, loopback authentication bypasses, or privileged reads can process a request, preventing DNS rebinding from exposing chats, galleries, backups, and other local data. Direct LAN, Tailscale, IPv4, IPv6, localhost, and local machine-name access remains available, while intentional public and reverse-proxy names can be added through `TRUSTED_HOSTS`.

@@ -92,6 +92,7 @@ import { SpriteGenerationModal } from "../ui/SpriteGenerationModal";
 import { AvatarGenerationModal } from "../ui/AvatarGenerationModal";
 import { AvatarCropWidget } from "../ui/AvatarCropWidget";
 import { AvatarReplaceActions } from "../ui/AvatarReplaceActions";
+import { EditorAvatarTileActions } from "../ui/EditorAvatarTileActions";
 import { SpriteFrameEditor } from "../ui/SpriteFrameEditor";
 import { SpriteWandCleanupEditor } from "../ui/SpriteWandCleanupEditor";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
@@ -950,7 +951,6 @@ function createCharacterDataFromPersona(formData: PersonaFormData): CharacterDat
 }
 
 export function PersonaEditor() {
-  const { t } = useTranslation();
   const personaId = useUIStore((s) => s.personaDetailId);
   const closeDetail = useUIStore((s) => s.closePersonaDetail);
   const { data: allPersonas, isLoading } = usePersonas();
@@ -1399,23 +1399,10 @@ export function PersonaEditor() {
             ) : (
               <User size="1.375rem" className="text-white" />
             )}
-            <div className="absolute inset-0 flex items-end justify-start bg-black/40 p-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <Camera size="0.875rem" className="text-white" />
-            </div>
-            {imageGenerationAvailable && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setAvatarGeneratorOpen(true);
-                }}
-                className="absolute right-0 top-0 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[var(--card)]/95 text-[var(--primary)] shadow-md ring-1 ring-[var(--border)] transition-colors before:absolute before:-inset-1 hover:bg-[var(--accent)]"
-                title={t("editor.avatar.generate.label")}
-                aria-label={t("editor.avatar.generate.label")}
-              >
-                <Wand2 size="0.375rem" />
-              </button>
-            )}
+            <EditorAvatarTileActions
+              generationAvailable={imageGenerationAvailable}
+              onGenerate={() => setAvatarGeneratorOpen(true)}
+            />
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           </div>
 

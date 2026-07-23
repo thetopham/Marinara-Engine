@@ -53,6 +53,7 @@ import { SpriteGenerationModal } from "../ui/SpriteGenerationModal";
 import { AvatarGenerationModal } from "../ui/AvatarGenerationModal";
 import { AvatarCropWidget } from "../ui/AvatarCropWidget";
 import { AvatarReplaceActions } from "../ui/AvatarReplaceActions";
+import { EditorAvatarTileActions } from "../ui/EditorAvatarTileActions";
 import { CallClipGenerationModal } from "../ui/CallClipGenerationModal";
 import { ImageUploadDropzone } from "../ui/ImageUploadDropzone";
 import { CustomEmojiTagButton } from "../ui/CustomEmojiTagButton";
@@ -255,7 +256,6 @@ function formatCharacterExtensionValue(key: string, value: unknown, formatQuotes
 }
 
 export function CharacterEditor() {
-  const { t } = useTranslation();
   const characterId = useUIStore((s) => s.characterDetailId);
   const closeDetail = useUIStore((s) => s.closeCharacterDetail);
   const { data: rawCharacter, isLoading } = useCharacter(characterId);
@@ -954,23 +954,10 @@ export function CharacterEditor() {
             ) : (
               <User size="1.375rem" className="text-white" />
             )}
-            <div className="absolute inset-0 flex items-end justify-start bg-black/40 p-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <Camera size="0.875rem" className="text-white" />
-            </div>
-            {imageGenerationAvailable && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setAvatarGeneratorOpen(true);
-                }}
-                className="absolute right-0 top-0 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[var(--card)]/95 text-[var(--primary)] shadow-md ring-1 ring-[var(--border)] transition-colors before:absolute before:-inset-1 hover:bg-[var(--accent)]"
-                title={t("editor.avatar.generate.label")}
-                aria-label={t("editor.avatar.generate.label")}
-              >
-                <Wand2 size="0.375rem" />
-              </button>
-            )}
+            <EditorAvatarTileActions
+              generationAvailable={imageGenerationAvailable}
+              onGenerate={() => setAvatarGeneratorOpen(true)}
+            />
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           </div>
 
@@ -1350,6 +1337,7 @@ function MetadataTab({
   onRemoveAvatar: () => void;
   removingAvatar: boolean;
 }) {
+  const { t } = useTranslation();
   // Read existing crop in either current or legacy shape; the widget handles both
   // and writes back the current shape on first interaction.
   const savedCrop = (formData.extensions.avatarCrop as AvatarCrop | LegacyAvatarCrop | undefined) ?? null;
@@ -1364,8 +1352,8 @@ function MetadataTab({
 
       <div className="space-y-1.5">
         <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
-          Avatar
-          <HelpTooltip text="The character image shown in the library and chats. You can replace it at any time without changing the character card." />
+          {t("editor.avatar.label")}
+          <HelpTooltip text={t("editor.avatar.character.help")} />
         </span>
         <AvatarReplaceActions
           hasAvatar={Boolean(avatarPreview)}

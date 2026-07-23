@@ -468,7 +468,6 @@ export function App() {
   const rightPanel = useUIStore((s) => s.rightPanel);
   const settingsTab = useUIStore((s) => s.settingsTab);
   const appearanceSettingsActive = rightPanelOpen && rightPanel === "settings" && settingsTab === "appearance";
-  const pauseChromeEffectsForAppearance = appearanceSettingsActive && !appAccentRgbMode && !appAccentPulseMode;
   const { data: syncedThemes = [] } = useThemes();
   const { data: customNotificationSound } = useCustomNotificationSoundStatus();
   const activeCustomTheme = useMemo(() => syncedThemes.find((themeItem) => themeItem.isActive) ?? null, [syncedThemes]);
@@ -476,6 +475,11 @@ export function App() {
     () => getThemeAccentPulseConfig(activeCustomTheme?.css),
     [activeCustomTheme?.css],
   );
+  const pauseChromeEffectsForAppearance =
+    appearanceSettingsActive &&
+    !appAccentRgbMode &&
+    !appAccentPulseMode &&
+    !themeAccentPulseConfig.enabled;
   useLegacyThemeMigration();
   useSettingsSync();
   const showDownloadModal = useSidecarStore((s) => s.showDownloadModal);

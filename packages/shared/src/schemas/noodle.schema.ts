@@ -140,7 +140,35 @@ export const noodleAccountSocialSettingsSchema = z
   })
   .strict();
 
-export const noodleAccountSchedulerSettingsSchema = z.object({}).strict();
+export const noodleAutoPostingIntensitySchema = z.union([z.literal(1), z.literal(3), z.literal(6)]);
+
+export const noodleAutoPostingSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    intensity: noodleAutoPostingIntensitySchema.default(1),
+    nextRunAt: z.string().datetime().nullable().default(null),
+  })
+  .strict();
+
+/** Full normalized stored shape. */
+export const noodleAccountSchedulerSettingsSchema = z
+  .object({
+    autoPosting: noodleAutoPostingSettingsSchema.optional(),
+  })
+  .strict();
+
+/** Reschedule a creator's next automatic run to an explicit future time. */
+export const noodleAutoPostRescheduleSchema = z.object({ nextRunAt: z.string().datetime() }).strict();
+
+/** Client-editable subset: nextRunAt is server-owned and excluded. */
+export const noodleAccountSchedulerPatchSchema = z
+  .object({
+    autoPosting: noodleAutoPostingSettingsSchema
+      .pick({ enabled: true, intensity: true })
+      .partial()
+      .optional(),
+  })
+  .strict();
 export const noodleAccountAccessSettingsSchema = z
   .object({
     hiddenFromAccountIds: z.array(z.string().min(1)).default([]),
@@ -168,7 +196,7 @@ export const noodleAccountSocialPatchSchema = noodleAccountSocialSettingsSchema.
 
 export const noodleAccountSettingsPatchSchema = z.discriminatedUnion("subtree", [
   z.object({ subtree: z.literal("social"), patch: noodleAccountSocialPatchSchema }).strict(),
-  z.object({ subtree: z.literal("scheduler"), patch: noodleAccountSchedulerSettingsSchema }).strict(),
+  z.object({ subtree: z.literal("scheduler"), patch: noodleAccountSchedulerPatchSchema }).strict(),
   z.object({ subtree: z.literal("privacy"), patch: noodleAccountPrivacyPatchSchema }).strict(),
 ]);
 
@@ -628,6 +656,7 @@ export type NoodlePrivateProjectWork = z.infer<typeof noodlePrivateProjectWorkSc
 export type NoodlePrivateGenerationRequest = z.infer<typeof noodlePrivateGenerationRequestSchema>;
 export type NoodleGenerationRequest = z.infer<typeof noodleGenerationRequestSchema>;
 export type NoodleRescheduleRefreshInput = z.infer<typeof noodleRescheduleRefreshSchema>;
+export type NoodleAutoPostRescheduleInput = z.infer<typeof noodleAutoPostRescheduleSchema>;
 export type NoodleGeneratedRefresh = z.infer<typeof noodleGeneratedRefreshSchema>;
 export type NoodleGeneratedProfiles = z.infer<typeof noodleGeneratedProfilesSchema>;
 export type NoodleGeneratedProfile = z.infer<typeof noodleGeneratedProfileSchema>;

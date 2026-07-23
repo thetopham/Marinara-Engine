@@ -10,6 +10,8 @@ import type {
   NoodleAccountKind,
   NoodleAccountProfileUpdateInput,
   NoodleAccountSettingsPatchInput,
+  NoodleAutoPostingIntensity,
+  NoodleAutoPostRescheduleInput,
   NoodleBootstrap,
   NoodleCreateInteractionInput,
   NoodleCreatePostInput,
@@ -325,6 +327,44 @@ export function useUpdateNoodlerAccess() {
       return Promise.all([
         qc.invalidateQueries({ queryKey: noodleKeys.privateAccounts() }),
         qc.invalidateQueries({ queryKey: noodleKeys.privateViewers() }),
+      ]);
+    },
+  });
+}
+
+export function useUpdateNoodlerAutoPosting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      accountId,
+      ...autoPosting
+    }: {
+      accountId: string;
+      enabled?: boolean;
+      intensity?: NoodleAutoPostingIntensity;
+    }) =>
+      api.patch<NoodleAccount>(`/noodle/accounts/${encodeURIComponent(accountId)}/settings`, {
+        subtree: "scheduler",
+        patch: { autoPosting },
+      } satisfies NoodleAccountSettingsPatchInput),
+    onSuccess: () => {
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: noodleKeys.privateAccounts() }),
+        qc.invalidateQueries({ queryKey: noodleKeys.bootstrap() }),
+      ]);
+    },
+  });
+}
+
+export function useRescheduleNoodlerAutoPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ accountId, ...input }: { accountId: string } & NoodleAutoPostRescheduleInput) =>
+      api.put<NoodleAccount>(`/noodle/noodler/accounts/${encodeURIComponent(accountId)}/auto-post/schedule`, input),
+    onSuccess: () => {
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: noodleKeys.privateAccounts() }),
+        qc.invalidateQueries({ queryKey: noodleKeys.bootstrap() }),
       ]);
     },
   });

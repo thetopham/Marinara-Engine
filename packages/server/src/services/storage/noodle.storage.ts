@@ -7,11 +7,13 @@ import {
   noodleAccountProfileSettingsSchema,
   noodleAccountPrivacySettingsSchema,
   noodleAccountSocialSettingsSchema,
+  noodleAutoPostingSettingsSchema,
   noodleSettingsSchema,
   readNoodlePollFromMetadata,
   type NoodleAccount,
   type NoodleAccountKind,
   type NoodleAccountProfileUpdateInput,
+  type NoodleAccountSchedulerSettings,
   type NoodleAccountSettings,
   type NoodleAccountSettingsPatchInput,
   type NoodleAccountSubscription,
@@ -129,9 +131,19 @@ function emptyNoodleAccountSettings(): NoodleAccountSettings {
   return {
     profile: {},
     social: {},
-    scheduler: {},
+    scheduler: { autoPosting: defaultAutoPostingSettings() },
     privacy: { access: { hiddenFromAccountIds: [], subscriptionIncludesPpv: false } },
   };
+}
+
+function defaultAutoPostingSettings(): NonNullable<NoodleAccountSchedulerSettings["autoPosting"]> {
+  return { enabled: false, intensity: 1, nextRunAt: null };
+}
+
+function normalizeScheduler(value: unknown): NoodleAccountSchedulerSettings {
+  const raw = parseRecord(value);
+  const parsed = noodleAutoPostingSettingsSchema.safeParse(parseRecord(raw.autoPosting));
+  return { autoPosting: parsed.success ? parsed.data : defaultAutoPostingSettings() };
 }
 
 function nestedOrLegacy(nested: Record<string, unknown>, legacy: Record<string, unknown>, key: string) {
@@ -215,7 +227,7 @@ export function normalizeNoodleAccountSettings(value: unknown): NoodleAccountSet
   return {
     profile,
     social,
-    scheduler: {},
+    scheduler: normalizeScheduler(raw.scheduler),
     privacy,
   };
 }
@@ -755,6 +767,7 @@ export function createNoodleStorage(db: DB) {
             disclosureMode,
             stagePersonality: account.settings.privacy.stagePersonality ?? "",
             access: account.settings.privacy.access,
+            autoPosting: account.settings.scheduler.autoPosting ?? defaultAutoPostingSettings(),
             publicIdentity: publicAccount
               ? { displayName: publicAccount.displayName, handle: publicAccount.handle }
               : null,
@@ -953,7 +966,8 @@ export function createNoodleStorage(db: DB) {
         const rows = await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id));
         const row = rows[0];
         if (!row) return null;
-        if (row.visibility === "private" && input.subtree !== "privacy") return null;
+        if (row.visibility === "private" && input.subtree !== "privacy" && input.subtree !== "scheduler") return null;
+        if (row.visibility !== "private" && input.subtree === "scheduler") return null;
         if (row.visibility !== "private" && input.subtree === "privacy" && input.patch.access !== undefined)
           return null;
         if (
@@ -968,7 +982,23 @@ export function createNoodleStorage(db: DB) {
         if (input.subtree === "social") {
           next = { ...current, social: { ...current.social, ...input.patch } };
         } else if (input.subtree === "scheduler") {
-          next = { ...current, scheduler: { ...current.scheduler, ...input.patch } };
+          // Deep-merge autoPosting so the server-owned nextRunAt is never dropped by a
+          // client patch that only carries enabled/intensity. Clear nextRunAt whenever
+          // enable or intensity changes so the scheduler seeds a fresh first run.
+          const currentAuto = current.scheduler.autoPosting ?? defaultAutoPostingSettings();
+          const patchAuto = input.patch.autoPosting;
+          const config = patchAuto
+            ? {
+                enabled: patchAuto.enabled ?? currentAuto.enabled,
+                intensity: patchAuto.intensity ?? currentAuto.intensity,
+                nextRunAt:
+                  (patchAuto.enabled !== undefined && patchAuto.enabled !== currentAuto.enabled) ||
+                  (patchAuto.intensity !== undefined && patchAuto.intensity !== currentAuto.intensity)
+                    ? null
+                    : currentAuto.nextRunAt,
+              }
+            : currentAuto;
+          next = { ...current, scheduler: { autoPosting: config } };
         } else {
           next = {
             ...current,
@@ -985,6 +1015,61 @@ export function createNoodleStorage(db: DB) {
           .where(eq(noodleAccounts.id, id));
         const updatedRows = await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id));
         return updatedRows[0] ? mapAccount(updatedRows[0]) : null;
+      });
+    },
+
+    /** Every private (creator) account with automatic posting enabled, settings attached. */
+    async listAutoPostEnabledAccounts(): Promise<NoodleAccount[]> {
+      const rows = await db.select().from(noodleAccounts).where(eq(noodleAccounts.visibility, "private"));
+      return rows.map(mapAccount).filter((account) => account.settings.scheduler.autoPosting?.enabled === true);
+    },
+
+    /**
+     * Server-owned nextRunAt advance, done in one transaction so a run is claimed before
+     * provider work. Returns "seeded" when a freshly enabled creator had a null run and
+     * gets its first future slot (do not generate), "claimed" when a due run was advanced
+     * (caller should generate), or "skipped" when disabled/not-yet-due/missing.
+     */
+    async advanceAutoPostRun(id: string, nowIso: string, next: string): Promise<"seeded" | "claimed" | "skipped"> {
+      return db.transaction(async (tx) => {
+        const row = (await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id)))[0];
+        if (!row || row.visibility !== "private") return "skipped";
+        const current = normalizeNoodleAccountSettings(row.settings);
+        const auto = current.scheduler.autoPosting;
+        if (!auto?.enabled) return "skipped";
+        let outcome: "seeded" | "claimed";
+        if (auto.nextRunAt === null) outcome = "seeded";
+        else if (Date.parse(auto.nextRunAt) <= Date.parse(nowIso)) outcome = "claimed";
+        else return "skipped";
+        const nextSettings: NoodleAccountSettings = {
+          ...current,
+          scheduler: { autoPosting: { ...auto, nextRunAt: next } },
+        };
+        await tx
+          .update(noodleAccounts)
+          .set({ settings: JSON.stringify(nextSettings), updatedAt: now() })
+          .where(eq(noodleAccounts.id, id));
+        return outcome;
+      });
+    },
+
+    /** Server-owned reschedule of a creator's next automatic run (validated future by the caller). */
+    async rescheduleAutoPostRun(id: string, nextRunAt: string): Promise<NoodleAccount | null> {
+      return db.transaction(async (tx) => {
+        const row = (await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id)))[0];
+        if (!row || row.visibility !== "private") return null;
+        const current = normalizeNoodleAccountSettings(row.settings);
+        const auto = current.scheduler.autoPosting ?? defaultAutoPostingSettings();
+        const nextSettings: NoodleAccountSettings = {
+          ...current,
+          scheduler: { autoPosting: { ...auto, nextRunAt } },
+        };
+        await tx
+          .update(noodleAccounts)
+          .set({ settings: JSON.stringify(nextSettings), updatedAt: now() })
+          .where(eq(noodleAccounts.id, id));
+        const updated = (await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id)))[0];
+        return updated ? mapAccount(updated) : null;
       });
     },
 

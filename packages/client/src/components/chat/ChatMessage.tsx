@@ -2609,7 +2609,7 @@ export const ChatMessage = memo(function ChatMessage({
                         <img
                           src={att.url || att.data}
                           alt={att.filename || att.name || "image"}
-                          className="max-h-80 max-w-full rounded-lg"
+                          className="max-h-[70vh] max-w-full rounded-lg object-contain sm:max-h-[32rem]"
                           loading="lazy"
                           decoding="async"
                         />
@@ -3044,7 +3044,7 @@ export const ChatMessage = memo(function ChatMessage({
                       <img
                         src={att.url || att.data}
                         alt={att.filename || att.name || "image"}
-                        className="max-h-80 max-w-full rounded-lg"
+                        className="max-h-[70vh] max-w-full rounded-lg object-contain sm:max-h-[32rem]"
                         loading="lazy"
                         decoding="async"
                       />

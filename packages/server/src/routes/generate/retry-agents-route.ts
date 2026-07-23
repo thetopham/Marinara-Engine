@@ -75,6 +75,7 @@ import { resolveImageConnectionFallback } from "../../services/generation/media-
 import type { GenerationFallbackNotifier } from "../../services/generation/fallback-notification.js";
 import { createReplyFallbackNotifier } from "./fallback-notification.js";
 import { runImageGenerationRequest } from "../../services/image/image-generation-queue.js";
+import { generateIllustratorImageVariants } from "../../services/image/illustrator-image-variants.js";
 import { resolveImagePromptReviewSize } from "../../services/image/image-prompt-review.js";
 import {
   parseIllustratorPromptReviewOverride,
@@ -3231,79 +3232,93 @@ async function applyRetryResultEffects(args: {
               type: "illustration_queued",
               data: { messageId: retryMessageId },
             });
-            const imageResult = await runImageGenerationRequest({
-              connectionKey: imageConnectionQueueKey,
-              queue: queueImageGenerationRequests,
-              signal: agentContext.signal,
-              task: () =>
-                generateImage(imgModel, imgBaseUrl, imgApiKey, imgServiceHint, {
-                  prompt: promptSubmission.prompt,
-                  negativePrompt: promptSubmission.negativePrompt || undefined,
-                  model: imgModel,
-                  width: imgWidth,
-                  height: imgHeight,
-                  imageEndpointId: imgConnFull.imageEndpointId || undefined,
-                  comfyWorkflow: (imgConnFull as any).comfyuiWorkflow || undefined,
-                  imageDefaults,
-                  referenceImages,
+            const imageResults = await generateIllustratorImageVariants({
+              count: chatMeta.illustratorImagesPerGeneration,
+              generate: () =>
+                runImageGenerationRequest({
+                  connectionKey: imageConnectionQueueKey,
+                  queue: queueImageGenerationRequests,
                   signal: agentContext.signal,
-                  fallback: imageFallback,
-                  onFallback: createReplyFallbackNotifier(reply),
+                  task: () =>
+                    generateImage(imgModel, imgBaseUrl, imgApiKey, imgServiceHint, {
+                      prompt: promptSubmission.prompt,
+                      negativePrompt: promptSubmission.negativePrompt || undefined,
+                      model: imgModel,
+                      width: imgWidth,
+                      height: imgHeight,
+                      imageEndpointId: imgConnFull.imageEndpointId || undefined,
+                      comfyWorkflow: (imgConnFull as any).comfyuiWorkflow || undefined,
+                      imageDefaults,
+                      referenceImages,
+                      signal: agentContext.signal,
+                      fallback: imageFallback,
+                      onFallback: createReplyFallbackNotifier(reply),
+                    }),
                 }),
+              onVariantError: (error, index) =>
+                logger.warn(error, "[retry-agents] Illustrator image variant %d failed", index + 1),
             });
 
-            const filePath = saveImageToDisk(chatId, imageResult.base64, imageResult.ext);
-            const galleryEntry = await galleryStore.create({
-              chatId,
-              filePath,
-              prompt: promptSubmission.prompt,
-              provider: "image_generation",
-              model: imgModel || "unknown",
-              width: imgWidth,
-              height: imgHeight,
-            });
-            await persistGeneratedImageToEntityGalleries({
-              sourceFilePath: filePath,
-              characterIds: referenceResolution.characterIds,
-              personaIds: referenceResolution.personaId ? [referenceResolution.personaId] : [],
-              characterGallery: createCharacterGalleryStorage(app.db),
-              personaGallery: createPersonaGalleryStorage(app.db),
-              prompt: promptSubmission.prompt,
-              provider: imgConnFull.provider ?? "image_generation",
-              model: imgModel || "unknown",
-              width: imgWidth,
-              height: imgHeight,
-            });
-
-            const filename = filePath.split("/").pop()!;
-            const imageUrl = `/api/gallery/file/${chatId}/${encodeURIComponent(filename)}`;
-
-            // Attach to message
-            if (retryMessageId) {
-              const chatsDb = createChatsStorage(app.db);
-              const attachment = {
-                type: "image",
-                url: imageUrl,
-                filename: `illustration.${imageResult.ext}`,
+            for (const [variantIndex, imageResult] of imageResults.entries()) {
+              const filePath = saveImageToDisk(chatId, imageResult.base64, imageResult.ext);
+              // A fallback connection may have rendered this variant; record
+              // the connection that actually produced it.
+              const effectiveImageProvider =
+                imageResult.effectiveConnection?.provider ?? imgConnFull.provider ?? "image_generation";
+              const effectiveImageModel = imageResult.effectiveConnection?.model || imgModel || "unknown";
+              const galleryEntry = await galleryStore.create({
+                chatId,
+                filePath,
                 prompt: promptSubmission.prompt,
-                galleryId: (galleryEntry as any)?.id,
-              };
-              await chatsDb.appendSwipeAttachment(retryMessageId, retrySwipeIndex, attachment);
-              await chatsDb.appendMessageAttachmentForActiveSwipe(retryMessageId, retrySwipeIndex, attachment);
+                provider: effectiveImageProvider,
+                model: effectiveImageModel,
+                width: imgWidth,
+                height: imgHeight,
+              });
+              await persistGeneratedImageToEntityGalleries({
+                sourceFilePath: filePath,
+                characterIds: referenceResolution.characterIds,
+                personaIds: referenceResolution.personaId ? [referenceResolution.personaId] : [],
+                characterGallery: createCharacterGalleryStorage(app.db),
+                personaGallery: createPersonaGalleryStorage(app.db),
+                prompt: promptSubmission.prompt,
+                provider: effectiveImageProvider,
+                model: effectiveImageModel,
+                width: imgWidth,
+                height: imgHeight,
+              });
+
+              const filename = filePath.split("/").pop()!;
+              const imageUrl = `/api/gallery/file/${chatId}/${encodeURIComponent(filename)}`;
+
+              // Attach to message
+              if (retryMessageId) {
+                const chatsDb = createChatsStorage(app.db);
+                const attachment = {
+                  type: "image",
+                  url: imageUrl,
+                  filename: `illustration_${variantIndex + 1}.${imageResult.ext}`,
+                  prompt: promptSubmission.prompt,
+                  galleryId: (galleryEntry as any)?.id,
+                };
+                await chatsDb.appendSwipeAttachment(retryMessageId, retrySwipeIndex, attachment);
+                await chatsDb.appendMessageAttachmentForActiveSwipe(retryMessageId, retrySwipeIndex, attachment);
+              }
+
+              sendSseEvent(reply, {
+                type: "illustration",
+                data: {
+                  messageId: retryMessageId,
+                  imageUrl,
+                  prompt: promptSubmission.prompt,
+                  reason: illData.reason,
+                  galleryId: (galleryEntry as any)?.id,
+                },
+              });
             }
-
-            sendSseEvent(reply, {
-              type: "illustration",
-              data: {
-                messageId: retryMessageId,
-                imageUrl,
-                prompt: promptSubmission.prompt,
-                reason: illData.reason,
-                galleryId: (galleryEntry as any)?.id,
-              },
-            });
             logger.info(
-              "[retry-agents] Illustrator generated: %s...",
+              "[retry-agents] Illustrator generated %d image(s): %s...",
+              imageResults.length,
               (illData.reason as string | undefined)?.slice(0, 80) ?? imagePrompt.slice(0, 80),
             );
             if (retryMessageId) {

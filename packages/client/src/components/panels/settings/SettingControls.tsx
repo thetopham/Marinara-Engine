@@ -1,5 +1,6 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
-import { Bell, BellRing, Volume2 } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { Bell, BellRing, Loader2, Play, Trash2, Upload, Volume2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useUIStore } from "../../../stores/ui.store";
 import {
@@ -11,7 +12,12 @@ import {
   type LocalNotificationPermission,
   type NativeNotificationPermission,
 } from "../../../lib/local-notifications";
-import { playNotificationPing } from "../../../lib/notification-sound";
+import { playNotificationPing, setCustomNotificationSoundUrl } from "../../../lib/notification-sound";
+import {
+  useCustomNotificationSoundStatus,
+  useRemoveCustomNotificationSound,
+  useUploadCustomNotificationSound,
+} from "../../../hooks/use-custom-notification-sound";
 import { cn } from "../../../lib/utils";
 import { HelpTooltip } from "../../ui/HelpTooltip";
 
@@ -239,6 +245,7 @@ export function ConversationSoundSetting() {
         checked={notificationSoundsOnlyWhenUnfocused}
         onChange={setNotificationSoundsOnlyWhenUnfocused}
       />
+      <CustomNotificationSoundSetting />
       <div className="mt-1 flex items-center gap-1.5">
         <Bell size="0.75rem" className="text-[var(--muted-foreground)]" />
         <span className="text-xs font-medium">Background Notifications</span>
@@ -311,6 +318,121 @@ export function ConversationSoundSetting() {
             : "Available in the updated Marinara Android APK. Browser and PWA installations use the Browser toggle above."
         }
       />
+    </div>
+  );
+}
+
+const MAX_CUSTOM_NOTIFICATION_SOUND_BYTES = 10 * 1024 * 1024;
+
+function CustomNotificationSoundSetting() {
+  const { t } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { data: status, isLoading } = useCustomNotificationSoundStatus();
+  const uploadSound = useUploadCustomNotificationSound();
+  const removeSound = useRemoveCustomNotificationSound();
+  const isBusy = uploadSound.isPending || removeSound.isPending;
+
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_CUSTOM_NOTIFICATION_SOUND_BYTES) {
+      toast.error(t("settings.notifications.customSound.toasts.tooLarge"));
+      return;
+    }
+    try {
+      const status = await uploadSound.mutateAsync(file);
+      // Prime the playback state directly — App's sync effect only runs after
+      // the next render, and the preview below must already use the new sound.
+      setCustomNotificationSoundUrl(status.url);
+      toast.success(t("settings.notifications.customSound.toasts.uploaded"));
+      playNotificationPing();
+    } catch {
+      toast.error(t("settings.notifications.customSound.toasts.uploadFailed"));
+    }
+  };
+
+  const handleRemove = async () => {
+    try {
+      await removeSound.mutateAsync();
+      setCustomNotificationSoundUrl(null);
+      toast.success(t("settings.notifications.customSound.toasts.removed"));
+    } catch {
+      toast.error(t("settings.notifications.customSound.toasts.removeFailed"));
+    }
+  };
+
+  return (
+    <div className="rounded-lg bg-[var(--secondary)]/35 p-2.5 ring-1 ring-[var(--border)]/70">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="audio/*,video/mp4,.mp3,.wav,.ogg,.oga,.m4a,.mp4,.webm"
+        onChange={handleUpload}
+        className="sr-only"
+        aria-label={t("settings.notifications.customSound.actions.choose")}
+      />
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[0.6875rem] font-medium">{t("settings.notifications.customSound.label")}</span>
+            <span className="rounded-full bg-[var(--background)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+              {isLoading
+                ? t("settings.notifications.customSound.status.loading")
+                : status?.configured
+                  ? t("settings.notifications.customSound.status.custom")
+                  : t("settings.notifications.customSound.status.default")}
+            </span>
+          </div>
+          <p className="mt-1 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            {t("settings.notifications.customSound.description")}
+          </p>
+          <p className="mt-0.5 text-[0.5625rem] text-[var(--muted-foreground)]/80">
+            {t("settings.notifications.customSound.formats")}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5 max-sm:w-full">
+          <button
+            type="button"
+            onClick={() => playNotificationPing()}
+            disabled={isLoading}
+            className="mari-chrome-control inline-flex min-h-9 items-center gap-1.5 px-2.5 text-[0.625rem] disabled:opacity-50"
+          >
+            <Play size="0.6875rem" />
+            {t("settings.notifications.customSound.actions.preview")}
+          </button>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={isBusy}
+            className="mari-chrome-control inline-flex min-h-9 items-center gap-1.5 px-2.5 text-[0.625rem] disabled:opacity-50"
+          >
+            {uploadSound.isPending ? (
+              <Loader2 size="0.6875rem" className="animate-spin" />
+            ) : (
+              <Upload size="0.6875rem" />
+            )}
+            {status?.configured
+              ? t("settings.notifications.customSound.actions.replace")
+              : t("settings.notifications.customSound.actions.choose")}
+          </button>
+          {status?.configured && (
+            <button
+              type="button"
+              onClick={() => void handleRemove()}
+              disabled={isBusy}
+              className="mari-chrome-control inline-flex min-h-9 items-center gap-1.5 px-2.5 text-[0.625rem] text-[var(--destructive)] disabled:opacity-50"
+            >
+              {removeSound.isPending ? (
+                <Loader2 size="0.6875rem" className="animate-spin" />
+              ) : (
+                <Trash2 size="0.6875rem" />
+              )}
+              {t("settings.notifications.customSound.actions.remove")}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

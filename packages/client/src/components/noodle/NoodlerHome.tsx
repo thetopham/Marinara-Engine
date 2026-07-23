@@ -2188,7 +2188,10 @@ function StageProfileView({
               checked={autoPosting.enabled}
               disabled={updateAutoPosting.isPending}
               onChange={(event) =>
-                updateAutoPosting.mutate({ accountId: profile.id, enabled: event.target.checked })
+                updateAutoPosting.mutate(
+                  { accountId: profile.id, enabled: event.target.checked },
+                  { onError: (error) => toast.error(errorMessage(error, "Could not update automatic posting.")) },
+                )
               }
               className="h-5 w-5 accent-[var(--noodle-blue)]"
             />
@@ -2200,7 +2203,12 @@ function StageProfileView({
                 <button
                   key={value}
                   type="button"
-                  onClick={() => updateAutoPosting.mutate({ accountId: profile.id, intensity: value })}
+                  onClick={() =>
+                    updateAutoPosting.mutate(
+                      { accountId: profile.id, intensity: value },
+                      { onError: (error) => toast.error(errorMessage(error, "Could not update cadence.")) },
+                    )
+                  }
                   className={cn(
                     "h-9 flex-1 rounded-full border px-3 text-xs font-bold",
                     autoPosting.intensity === value
@@ -2213,7 +2221,7 @@ function StageProfileView({
               ))}
             </div>
             <p className="mt-1 text-[0.68rem] text-[var(--muted-foreground)]">
-              At most {autoPosting.intensity} automatic post{autoPosting.intensity === 1 ? "" : "s"} per day.
+              About {autoPosting.intensity} automatic post{autoPosting.intensity === 1 ? "" : "s"} per day.
             </p>
           </fieldset>
           {autoPosting.enabled && (
@@ -2236,10 +2244,16 @@ function StageProfileView({
                   disabled={!rescheduleDraft || rescheduleAutoPost.isPending}
                   onClick={() => {
                     const next = new Date(rescheduleDraft);
-                    if (Number.isNaN(next.getTime()) || next.getTime() <= Date.now()) return;
+                    if (Number.isNaN(next.getTime()) || next.getTime() <= Date.now()) {
+                      toast.error("Pick a future date and time to reschedule.");
+                      return;
+                    }
                     rescheduleAutoPost.mutate(
                       { accountId: profile.id, nextRunAt: next.toISOString() },
-                      { onSuccess: () => setRescheduleDraft("") },
+                      {
+                        onSuccess: () => setRescheduleDraft(""),
+                        onError: (error) => toast.error(errorMessage(error, "Could not reschedule the next post.")),
+                      },
                     );
                   }}
                   className="h-9 rounded-full border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50"

@@ -7,7 +7,6 @@
 import type { FastifyInstance } from "fastify";
 import { logger } from "../../lib/logger.js";
 import { createNoodleStorage } from "../storage/noodle.storage.js";
-import { nextAutoPostRunAt } from "./noodle-autopost-cadence.js";
 import { generateNoodlePrivatePost } from "./noodle-private-post.operation.js";
 
 const AUTOPOST_INITIAL_DELAY_MS = 20_000;
@@ -63,8 +62,8 @@ export function startNoodleAutoPostScheduler(app: FastifyInstance) {
         if (!auto?.enabled) continue;
         // Cheap due-check before any write.
         if (auto.nextRunAt !== null && Date.parse(auto.nextRunAt) > Date.parse(nowIso)) continue;
-        const next = nextAutoPostRunAt(auto.intensity, new Date(nowIso));
-        const outcome = await noodle.advanceAutoPostRun(account.id, nowIso, next);
+        // The next slot is derived inside the claim transaction from the current intensity.
+        const outcome = await noodle.advanceAutoPostRun(account.id, nowIso);
         // "seeded" gives a freshly enabled creator its first future slot without posting;
         // only "claimed" means a due run was consumed and should generate now.
         if (outcome !== "claimed") continue;

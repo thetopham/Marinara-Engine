@@ -48,6 +48,7 @@ import {
 import type { DB } from "../../db/connection.js";
 import { isFileUniqueConstraintError } from "../../db/file-schema.js";
 import { isNoodlerHiddenFromViewer } from "../noodle/noodler-access.js";
+import { nextAutoPostRunAt } from "../noodle/noodle-autopost-cadence.js";
 import {
   noodleAccounts,
   noodleAccountSubscriptions,
@@ -1030,7 +1031,7 @@ export function createNoodleStorage(db: DB) {
      * gets its first future slot (do not generate), "claimed" when a due run was advanced
      * (caller should generate), or "skipped" when disabled/not-yet-due/missing.
      */
-    async advanceAutoPostRun(id: string, nowIso: string, next: string): Promise<"seeded" | "claimed" | "skipped"> {
+    async advanceAutoPostRun(id: string, nowIso: string): Promise<"seeded" | "claimed" | "skipped"> {
       return db.transaction(async (tx) => {
         const row = (await tx.select().from(noodleAccounts).where(eq(noodleAccounts.id, id)))[0];
         if (!row || row.visibility !== "private") return "skipped";
@@ -1041,6 +1042,9 @@ export function createNoodleStorage(db: DB) {
         if (auto.nextRunAt === null) outcome = "seeded";
         else if (Date.parse(auto.nextRunAt) <= Date.parse(nowIso)) outcome = "claimed";
         else return "skipped";
+        // Derive the next slot from the transactionally-current intensity so a concurrent
+        // intensity change can't seed a run using a stale (pre-patch) cadence.
+        const next = nextAutoPostRunAt(auto.intensity, new Date(nowIso));
         const nextSettings: NoodleAccountSettings = {
           ...current,
           scheduler: { autoPosting: { ...auto, nextRunAt: next } },

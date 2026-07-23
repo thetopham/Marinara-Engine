@@ -1,6 +1,6 @@
 // ──────────────────────────────────────────────
 // Pure cadence math for NoodleR per-creator automatic posting.
-// Intensity 1/3/6 = at most that many automatic posts per day.
+// Intensity 1/3/6 = about that many automatic posts per day on average (±25% jitter).
 // ──────────────────────────────────────────────
 import type { NoodleAutoPostingIntensity } from "@marinara-engine/shared";
 

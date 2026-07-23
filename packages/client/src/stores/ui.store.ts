@@ -18,6 +18,7 @@ import { isCssGradient, RAINBOW_GRADIENT_PRESET } from "../lib/css-colors";
 import { announceChatFloatingUiDismiss } from "../lib/chat-floating-ui-events";
 import { detectConversationTimeZone, normalizeConversationTimeZone } from "../lib/conversation-time-zone";
 import { BASIC_PANEL_SORT_OPTIONS, normalizeBasicPanelSort, type BasicPanelSort } from "../lib/panel-sort";
+import { DEFAULT_APP_LANGUAGE, type AppLanguage } from "../localization/locale-types";
 
 type Panel =
   | "chat"
@@ -87,9 +88,6 @@ export interface SummaryPopoverSettings {
   hideSummarisedMessages: boolean;
   collapseHiddenMessages: boolean;
 }
-export const APP_LANGUAGE_OPTIONS = [{ id: "en", label: "English" }] as const;
-export type AppLanguage = (typeof APP_LANGUAGE_OPTIONS)[number]["id"];
-
 export interface PendingSpatialMapDraftReview {
   chatId: string;
   result: GenerateSpatialMapDraftResponse;
@@ -1233,7 +1231,7 @@ export const useUIStore = create<UIState>()(
 
       // Settings defaults
       fontSize: 17 as FontSize,
-      language: "en" as AppLanguage,
+      language: DEFAULT_APP_LANGUAGE as AppLanguage,
       chatFontSize: 16,
       fontFamily: "",
       enableStreaming: true,

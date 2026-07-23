@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "locale": "de",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Zurück zu den Agenten",
+  "capabilities.actions.close": "Schließen",
+  "capabilities.actions.tryAgain": "Erneut versuchen",
+  "capabilities.failure.load.description": "Die heruntergeladene Oberfläche konnte nicht gestartet werden. Deine Chats und gespeicherten Daten bleiben unverändert.",
+  "capabilities.failure.load.error": "Die heruntergeladene Oberfläche konnte nicht geladen werden.",
+  "capabilities.failure.load.retryLabel": "{{name}} erneut laden",
+  "capabilities.failure.load.title": "{{name}} konnte nicht geladen werden",
+  "capabilities.failure.runtime.description": "In der heruntergeladenen Oberfläche ist ein Fehler aufgetreten. Deine Chats und gespeicherten Daten bleiben unverändert.",
+  "capabilities.failure.runtime.error": "Die Client-Laufzeit der Funktion ist fehlgeschlagen",
+  "capabilities.failure.runtime.title": "{{name}} wurde angehalten",
+  "capabilities.loading": "{{name}} wird geladen…",
+  "settings.application.description": "Sprache, Sicherheitsbestätigungen, Erfolge, Musik und spielerische Extras.",
+  "settings.application.intro": "Grundlegendes App-Verhalten, von alltäglichen Einstellungen bis zur modusspezifischen Feinabstimmung.",
+  "settings.application.language.fallback": "Wenn eine Übersetzung fehlt, zeigt Marinara den englischen Text an.",
+  "settings.application.language.help": "Wähle die Sprache der Benutzeroberfläche. Dies ändert die Bedienelemente und Hilfetexte von Marinara, nicht die Modell-Prompts oder Chat-Inhalte.",
+  "settings.application.language.label": "Sprache",
+  "settings.application.title": "App-Verhalten"
+}

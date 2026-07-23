@@ -1,0 +1,83 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type {
+  CreatePersonalExtensionInput,
+  PersonalClientExtensionRuntime,
+  PersonalExtension,
+  UpdatePersonalExtensionInput,
+} from "@marinara-engine/shared";
+import { api } from "../lib/api-client";
+
+export const personalExtensionKeys = {
+  all: ["personal-extensions"] as const,
+  list: () => [...personalExtensionKeys.all, "list"] as const,
+  runtime: () => [...personalExtensionKeys.all, "runtime"] as const,
+};
+
+export function usePersonalExtensions() {
+  return useQuery({
+    queryKey: personalExtensionKeys.list(),
+    queryFn: () => api.get<PersonalExtension[]>("/personal-extensions"),
+    staleTime: 30_000,
+  });
+}
+
+export function usePersonalExtensionRuntime() {
+  return useQuery({
+    queryKey: personalExtensionKeys.runtime(),
+    queryFn: () => api.get<PersonalClientExtensionRuntime[]>("/personal-extensions/runtime/client"),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+}
+
+function useInvalidatePersonalExtensions() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: personalExtensionKeys.all });
+}
+
+export function useCreatePersonalExtension() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: (input: CreatePersonalExtensionInput) =>
+      api.post<PersonalExtension>("/personal-extensions", input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdatePersonalExtension() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & UpdatePersonalExtensionInput) =>
+      api.patch<PersonalExtension>(`/personal-extensions/${id}`, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useApprovePersonalExtension() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: ({ id, contentHash }: { id: string; contentHash: string }) =>
+      api.post<PersonalExtension>(`/personal-extensions/${id}/approve`, {
+        contentHash,
+        acknowledgeFullTrust: true,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRollbackPersonalExtension() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: ({ id, contentHash }: { id: string; contentHash: string }) =>
+      api.post<PersonalExtension>(`/personal-extensions/${id}/rollback`, { contentHash }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeletePersonalExtension() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/personal-extensions/${id}`),
+    onSuccess: invalidate,
+  });
+}

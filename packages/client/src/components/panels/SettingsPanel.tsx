@@ -123,6 +123,7 @@ import {
 import { TrackerCardColorSettings } from "./settings/TrackerCardColorSettings";
 import { PromptOverridesEditor } from "./settings/PromptOverridesEditor";
 import { BackgroundPicker } from "./settings/BackgroundPicker";
+import { PersonalExtensionsSettings } from "./settings/PersonalExtensionsSettings";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../lib/character-import";
@@ -157,7 +158,7 @@ const TABS = [
     icon: WandSparkles,
     description: "Image/video defaults and prompt templates.",
   },
-  { id: "addons", label: "Addons", icon: Puzzle, description: "Custom themes and theme CSS." },
+  { id: "addons", label: "Addons", icon: Puzzle, description: "Personal Extensions and custom themes." },
   { id: "import", label: "Imports", icon: Download, description: "Imports, asset folders, and data transfer." },
   {
     id: "advanced",
@@ -189,6 +190,7 @@ type SettingsSectionId =
   | "conversation-theme"
   | "chat-backgrounds"
   | "prompt-overrides"
+  | "personal-extensions"
   | "theme-library"
   | "profile-marinara"
   | "sillytavern-import"
@@ -384,6 +386,13 @@ const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
     label: "Prompt Overrides",
     description: "Reusable image and video prompt templates.",
     aliases: ["prompt", "template", "override", "video prompt", "image prompt"],
+  },
+  {
+    id: "personal-extensions",
+    tab: "addons",
+    label: "Personal Extensions",
+    description: "Hash-approved local code and Professor Mari drafts.",
+    aliases: ["extensions", "addons", "local code", "browser", "server", "professor mari"],
   },
   {
     id: "theme-library",
@@ -4833,7 +4842,13 @@ function GenerationsSettings() {
 }
 
 function AddonsSettings() {
-  return <ThemesSettings />;
+  return (
+    <div className="flex flex-col gap-3">
+      <SettingsIntro>Private custom behavior and appearance, synced by this Marinara server.</SettingsIntro>
+      <PersonalExtensionsSettings showIntro={false} />
+      <ThemesSettings showIntro={false} />
+    </div>
+  );
 }
 
 function ThemesSettings({ showIntro = true }: { showIntro?: boolean } = {}) {

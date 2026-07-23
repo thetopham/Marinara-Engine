@@ -145,6 +145,8 @@ She also shows quick-reply suggestion chips above the input to guide multi-step 
 
 When she changes your data, a review card appears with **Keep** and **Restore** buttons, so you can undo anything you do not want. She is a helper, not a replacement for these guides when something is version-specific. For the full list of what she can do, see [Professor Mari](home/professor-mari.md).
 
+Professor Mari can still edit ordinary Marinara source files. Dependency files, launchers, installers, and CI workflows wait for an explicit review instead. If her change needs a public npm library, Marinara shows the exact resolved version and registry integrity before installing it with lifecycle scripts disabled.
+
 Note: on an ordinary remote address, Professor Mari's data-changing actions need both Basic Auth and an admin secret. Trusted or allowlisted network routes can use the bypasses described in [Remote Access](REMOTE_ACCESS.md).
 
 ## How do Game Mode storyboard animations work?

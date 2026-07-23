@@ -1005,11 +1005,72 @@ test("retired extension records disappear from local state and Settings", async 
 
   await page.locator('[data-tour="panel-settings"]').click();
   await page.getByRole("tab", { name: "Addons" }).click();
+  await expect(page.getByText("Personal Extensions", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "New Draft" })).toBeVisible();
   await expect(page.getByText("Theme Library", { exact: true })).toBeVisible();
   await expect(page.getByText("Legacy Extension Cleanup", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Extensions have been removed/i)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import CSS Extension/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Export extension/i })).toHaveCount(0);
+});
+
+test("Personal Extensions require exact-code approval on desktop and mobile", async ({ page, request }, testInfo) => {
+  const suffix = testInfo.project.name.replace(/\W+/g, "-");
+  const extensionName = `Personal Extension Smoke ${suffix} ${Date.now()}`;
+  const marker = `__marinaraPersonalExtensionSmoke_${suffix.replace(/-/g, "_")}`;
+  const firstSource = `globalThis[${JSON.stringify(marker)}] = "running"; marinara.onCleanup(() => { delete globalThis[${JSON.stringify(marker)}]; });`;
+  let extensionId: string | null = null;
+
+  try {
+    await page.goto("/");
+    await page.locator('[data-tour="panel-settings"]').click();
+    await page.getByRole("tab", { name: "Addons" }).click();
+    await expect(page.getByText("Personal Extensions", { exact: true }).first()).toBeVisible();
+    await page.getByRole("button", { name: "New Draft" }).click();
+
+    await page.getByLabel("Name").fill(extensionName);
+    await page.getByLabel("Browser JavaScript").fill(firstSource);
+    await page.getByRole("button", { name: "Save Draft" }).click();
+    await expect(page.getByText("Disabled pending approval", { exact: true })).toBeVisible();
+    await expect
+      .poll(async () => {
+        const extensions = (await (await request.get("/api/personal-extensions")).json()) as Array<{
+          id: string;
+          name: string;
+        }>;
+        const extension = extensions.find((candidate) => candidate.name === extensionName);
+        extensionId = extension?.id ?? null;
+        return Boolean(extension);
+      })
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Review and Run" }).click();
+    const approvalDialog = page.getByRole("dialog", { name: "Run Personal Browser Code?" });
+    await expect(approvalDialog.getByText(/Marinara's origin and can read or change data/i)).toBeVisible();
+    await approvalDialog.getByRole("button", { name: "Run Exact Code" }).click();
+    await expect(page.getByText("Running approved code", { exact: true })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate((key) => (globalThis as unknown as Record<string, unknown>)[key], marker))
+      .toBe("running");
+
+    await page
+      .getByLabel("Browser JavaScript")
+      .fill(`globalThis[${JSON.stringify(marker)}] = "changed code must wait";`);
+    await page.getByRole("button", { name: "Save Draft" }).click();
+    await expect(page.getByText("Disabled pending approval", { exact: true })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate((key) => (globalThis as unknown as Record<string, unknown>)[key], marker))
+      .toBeUndefined();
+  } finally {
+    if (!extensionId) {
+      const response = await request.get("/api/personal-extensions");
+      if (response.ok()) {
+        const extensions = (await response.json()) as Array<{ id: string; name: string }>;
+        extensionId = extensions.find((candidate) => candidate.name === extensionName)?.id ?? null;
+      }
+    }
+    if (extensionId) await request.delete(`/api/personal-extensions/${extensionId}`);
+  }
 });
 
 test("Roleplay Active Context shows rich lorebook activation provenance", async ({ page, request }, testInfo) => {
@@ -3725,6 +3786,81 @@ test("Professor Mari chat fills the mobile home viewport and keeps its composer 
         composerBox.y + composerBox.height <= viewport.height + 1
       );
     })
+    .toBe(true);
+});
+
+test("Professor Mari dependency and sensitive-file reviews stay explicit across viewports", async ({ page }) => {
+  await page.route("**/api/professor-mari/workspace/status*", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        enabled: true,
+        piAvailable: false,
+        workspace: "/tmp/marinara",
+        dataDir: "/tmp/marinara/data",
+        tools: ["read", "grep", "find", "ls", "edit", "write", "bash", "dependency", "app_data"],
+        shellSandbox: { available: true, backend: "macos-seatbelt" },
+        dbAccess: "server-managed",
+        connection: null,
+        skills: [],
+        skillDiagnostics: [],
+        active: false,
+        pendingApprovals: [
+          {
+            kind: "dependency_install",
+            id: "dependency-review-e2e",
+            sessionId: "e2e",
+            packageName: "nanoid",
+            version: "5.1.11",
+            target: "server",
+            dependencyType: "dependency",
+            integrity: "sha512-regression-integrity",
+            tarballUrl: "https://registry.npmjs.org/nanoid/-/nanoid-5.1.11.tgz",
+            directDependencies: [],
+            reason: "Generate stable local IDs.",
+            requestedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          },
+          {
+            kind: "sensitive_file",
+            id: "file-review-e2e",
+            sessionId: "e2e",
+            path: "package.json",
+            changeType: "update",
+            beforeHash: "sha256:before",
+            afterHash: "sha256:after",
+            preview: 'Before:\\n{"private":true}\\n\\nAfter:\\n{"private":true,"scripts":{"safe":"node safe.mjs"}}',
+            previewTruncated: false,
+            reason: "Add a reviewed launcher command.",
+            requestedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          },
+        ],
+        history: [],
+        error: null,
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page
+    .locator('[data-component="HomeProfessorMariChat.MariPanel"]')
+    .getByRole("button", { name: "Ask Professor Mari" })
+    .click();
+
+  const window = page.locator('[data-component="HomeProfessorMariChat.Window"]');
+  await expect(window.getByText("Install this dependency?")).toBeVisible();
+  await expect(window.getByText("nanoid@5.1.11")).toBeVisible();
+  await expect(window.getByRole("button", { name: "Install" })).toBeVisible();
+  await expect(window.getByRole("button", { name: "Not now" })).toBeVisible();
+  await expect(window.getByText("Apply sensitive file change?")).toBeVisible();
+  await expect(window.getByText("package.json", { exact: true })).toBeVisible();
+  await expect(window.getByRole("button", { name: "Apply change" })).toBeVisible();
+  await expect(window.getByRole("button", { name: "Discard" })).toBeVisible();
+  await expect
+    .poll(() =>
+      window.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    )
     .toBe(true);
 });
 

@@ -140,6 +140,53 @@ test("turning off the custom mouse pointer persists immediately and after reload
     .toBeNull();
 });
 
+test("Android status bar setting reads and updates the native bridge", async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeWindow = window as Window & {
+      MarinaraAndroid?: {
+        isStatusBarVisible: () => boolean;
+        setStatusBarVisible: (visible: boolean) => void;
+      };
+      __androidStatusBarChanges?: boolean[];
+    };
+    let visible = true;
+    nativeWindow.__androidStatusBarChanges = [];
+    nativeWindow.MarinaraAndroid = {
+      isStatusBarVisible: () => visible,
+      setStatusBarVisible: (nextVisible) => {
+        visible = nextVisible;
+        nativeWindow.__androidStatusBarChanges?.push(nextVisible);
+      },
+    };
+  });
+
+  await page.goto("/");
+  await page.locator('[data-tour="panel-settings"]').click();
+
+  const statusBarToggle = page.getByLabel("Show Android status bar");
+  await expect(statusBarToggle).toBeChecked();
+
+  await page.getByText("Show Android status bar", { exact: true }).click();
+  await expect(statusBarToggle).not.toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as Window & { __androidStatusBarChanges?: boolean[] }).__androidStatusBarChanges,
+      ),
+    )
+    .toEqual([false]);
+
+  await page.getByText("Show Android status bar", { exact: true }).click();
+  await expect(statusBarToggle).toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as Window & { __androidStatusBarChanges?: boolean[] }).__androidStatusBarChanges,
+      ),
+    )
+    .toEqual([false, true]);
+});
+
 test("default dialogue color fills only cards without their own dialogue color", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Dialogue color precedence is covered on desktop.");
 

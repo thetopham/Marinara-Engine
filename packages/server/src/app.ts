@@ -48,6 +48,7 @@ import { capabilityPackageManager } from "./services/capability-packages/package
 import { capabilityModuleRuntime } from "./services/capability-packages/capability-module-runtime.service.js";
 import { migrateLegacyCapabilities } from "./services/capability-packages/legacy-capability-migration.js";
 import { createClientStaticOptions } from "./config/client-static-config.js";
+import { hostValidationHook } from "./middleware/host-validation.js";
 
 const isLite = process.env.MARINARA_LITE === "true" || process.env.MARINARA_LITE === "1";
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
@@ -63,6 +64,10 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
     bodyLimit: MAX_UPLOAD_BYTES, // Large profile imports can include many base64 avatars.
     ...(https && { https }),
   });
+
+  // Reject attacker-controlled DNS names before CORS or loopback trust can
+  // treat a rebound browser request as same-origin local traffic.
+  app.addHook("onRequest", hostValidationHook);
 
   // ── Plugins ──
   // CORS uses a per-request delegator so the trusted set is re-read each
@@ -98,43 +103,17 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
     }
   });
 
-  // Existing installations retain their selected capabilities and receive compatible package updates.
-  // Fresh installs stay empty.
-  let migratedLegacyCapabilities = false;
+  // Existing installations retain their selected capabilities. Downloadable
+  // package updates are offered in the client and never applied at startup.
   if (getNodeEnv() !== "test") {
     try {
       const removedCorePackages = await capabilityPackageManager.pruneNonDownloadableCorePackages();
       if (removedCorePackages.length > 0) {
         app.log.info("Removed obsolete downloadable copies of core features: %s", removedCorePackages.join(", "));
       }
-      const migration = await migrateLegacyCapabilities(db, hadUserStateBeforeStartup);
-      migratedLegacyCapabilities = migration.migrated && migration.complete;
+      await migrateLegacyCapabilities(db, hadUserStateBeforeStartup);
     } catch (error) {
       app.log.warn(error, "Optional package availability migration did not complete; it will retry next startup");
-    }
-    if (!migratedLegacyCapabilities) {
-      try {
-        const packageUpdates = await capabilityPackageManager.updateInstalledPackagesToLatest();
-        for (const update of packageUpdates.updated) {
-          app.log.info(
-            "Automatically updated capability package %s from %s to %s",
-            update.id,
-            update.previousVersion,
-            update.version,
-          );
-        }
-        for (const failure of packageUpdates.failures) {
-          app.log.warn(
-            failure.error,
-            "Could not automatically update capability package %s from %s to %s; keeping the installed version",
-            failure.id,
-            failure.previousVersion,
-            failure.version,
-          );
-        }
-      } catch (error) {
-        app.log.warn(error, "Automatic capability package update check failed; installed versions remain available");
-      }
     }
   }
   resetTurnGameRegistry();

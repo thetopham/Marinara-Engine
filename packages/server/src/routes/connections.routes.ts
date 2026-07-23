@@ -156,6 +156,21 @@ function resolveVideoGenerationSource(conn: Record<string, unknown>, baseUrl: st
   return inferVideoSource(explicitSource || serviceHint || model, baseUrl);
 }
 
+// Returns the model-name options a ComfyUI loader node exposes through
+// object_info, or null when the response does not carry that node's schema —
+// a valid empty list and missing metadata must stay distinguishable so the
+// route can keep its 502 contract for malformed checkpoint responses.
+export function parseComfyLoaderModelNames(info: unknown, nodeName: string, inputName: string): string[] | null {
+  if (!isRecord(info)) return null;
+  const node = info[nodeName];
+  if (!isRecord(node) || !isRecord(node.input) || !isRecord(node.input.required)) return null;
+  const input = node.input.required[inputName];
+  if (!Array.isArray(input)) return null;
+  const options = input[0];
+  if (!Array.isArray(options)) return null;
+  return options.filter((option): option is string => typeof option === "string");
+}
+
 function localUrlPolicyForProvider(provider: string, imageSource: string) {
   const isLocalImageBackend =
     provider === "image_generation" && (imageSource === "comfyui" || imageSource === "automatic1111");
@@ -751,21 +766,21 @@ export async function connectionsRoutes(app: FastifyInstance) {
             maxResponseBytes: 5 * 1024 * 1024,
             decodeCompressedResponse: true,
           });
-          if (!res.ok) return { status: res.status, names: null };
-          const info = (await res.json()) as Record<
-            string,
-            { input?: { required?: Record<string, [unknown] | undefined> } } | undefined
-          >;
-          const options = info[nodeName]?.input?.required?.[inputName]?.[0];
-          const names = Array.isArray(options)
-            ? options.filter((option): option is string => typeof option === "string")
-            : [];
-          return { status: res.status, names };
+          if (!res.ok) return { ok: false, status: res.status, names: null };
+          return {
+            ok: true,
+            status: res.status,
+            names: parseComfyLoaderModelNames(await res.json(), nodeName, inputName),
+          };
         };
 
         const checkpoints = await fetchComfyLoaderModelNames("CheckpointLoaderSimple", "ckpt_name");
         if (!checkpoints.names) {
-          return reply.status(502).send({ error: `ComfyUI returned ${checkpoints.status}` });
+          return reply.status(502).send({
+            error: checkpoints.ok
+              ? "ComfyUI did not return checkpoint model metadata"
+              : `ComfyUI returned ${checkpoints.status}`,
+          });
         }
         // Models in ComfyUI's diffusion_models folder (e.g. Anima, zImage) load
         // through UNETLoader, not CheckpointLoaderSimple. Listing failures here

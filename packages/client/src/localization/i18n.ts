@@ -11,6 +11,13 @@ import { DEFAULT_APP_LANGUAGE, type AppLanguage, type LocaleMetadata } from "./l
 
 const english = normalizeLocaleResource(DEFAULT_APP_LANGUAGE, englishLocale);
 const loadedMetadata = new Map<string, LocaleMetadata>([[DEFAULT_APP_LANGUAGE, english.metadata]]);
+const englishMessageKeys = new Map<string, string>();
+
+for (const [key, message] of Object.entries(english.messages)) {
+  if (!englishMessageKeys.has(message)) {
+    englishMessageKeys.set(message, key);
+  }
+}
 
 export const i18n = createInstance();
 
@@ -82,4 +89,14 @@ export async function initializeLocalization(requestedLocale: unknown): Promise<
 
 export function translate(key: string, options?: TOptions): string {
   return String(i18n.t(key, options));
+}
+
+/**
+ * Finds the semantic catalog key for an exact canonical-English UI message.
+ *
+ * This is a migration bridge for shared primitives that still receive legacy
+ * English labels as props. New UI should call t("semantic.key") directly.
+ */
+export function findEnglishMessageKey(message: string): string | undefined {
+  return englishMessageKeys.get(message);
 }

@@ -150,6 +150,11 @@ Translate visible text, including labels, placeholders, tooltips, accessibility 
 empty states, toasts, confirmations, and static tutorials. Do not route prompts or authored content through the UI
 translator.
 
+Shared legacy primitives such as Settings controls, help tooltips, and modal titles also recognize exact
+canonical-English catalog values while older call sites are being migrated. This is a compatibility bridge, not the
+preferred API: new and substantially edited components must still use semantic `t("area.control.label")` keys
+directly. An English sentence that is not present in `en.json` is not translatable.
+
 ## Downloadable Agent interfaces
 
 Engine-owned Agent screens use the Engine locale files. Downloadable capability clients own their translated copy in

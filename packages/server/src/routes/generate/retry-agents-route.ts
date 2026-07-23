@@ -159,6 +159,7 @@ import {
   illustratorTrackerLocationChanged,
 } from "../../services/generation/illustrator-background-generation.js";
 import {
+  isExclusiveIllustratorRetryTarget,
   parseIllustratorRetryTargets,
   shouldRetryIllustratorTarget,
   type IllustratorRetryTarget,
@@ -545,6 +546,7 @@ async function buildRetryAgentContext(args: {
   streaming: boolean;
   wrapFormat: WrapFormat;
   forceIllustratorBackgroundGeneration: boolean;
+  forceIllustratorImageGeneration: boolean;
   /**
    * When retrying agents for a specific assistant message (e.g. refreshing cached prompt injections),
    * use the game-state snapshot committed for that message+swipe — not the latest chat snapshot.
@@ -570,6 +572,7 @@ async function buildRetryAgentContext(args: {
     streaming,
     wrapFormat,
     forceIllustratorBackgroundGeneration,
+    forceIllustratorImageGeneration,
     historicalGameStateAnchor,
     useLatestGameStateFallback = true,
   } = args;
@@ -954,6 +957,10 @@ async function buildRetryAgentContext(args: {
     agentContext.memory._currentBackground = currentBackground;
   }
 
+  if (resolvedAgentTypes.has("illustrator") && forceIllustratorImageGeneration) {
+    agentContext.memory._forceIllustratorImageGeneration = true;
+  }
+
   const spotifyRetryConfig = enabledConfigs.find((config) => config.type === "spotify");
   const spotifyMusicSettings = parseSettingsRecord(spotifyRetryConfig?.settings);
   const spotifyMusicUsesYoutube = musicAgentUsesYoutube(spotifyMusicSettings);
@@ -1197,8 +1204,9 @@ async function resolveRetryAgents(args: {
   const resolvedAgents: ResolvedRetryAgent[] = [];
   const skippedLocalSidecarAgents: string[] = [];
   const defaultAgentConnectionAgents: string[] = [];
-  const localSidecarAvailableForTrackers =
-    sidecarModelService.getConfig().useForTrackers && sidecarModelService.getConfiguredModelRef() !== null;
+  // Explicit per-agent sidecar selection is valid independently of the global
+  // tracker default; the provider starts the configured model on demand.
+  const localSidecarAvailableForTrackers = sidecarModelService.getConfiguredModelRef() !== null;
   const unavailableConnectionWarnings = new Map<
     string,
     { reason: string; connectionName?: string; agentNames: string[] }
@@ -2516,8 +2524,11 @@ async function applyRetryResultEffects(args: {
   const chats = createChatsStorage(app.db);
   const agentsStore = createAgentsStorage(app.db);
   const chatMeta = parseExtra(chat.metadata) as Record<string, unknown>;
-  const isManualIllustratorBackgroundRequest =
-    illustratorRetryTargets?.length === 1 && illustratorRetryTargets[0] === "background";
+  const isManualIllustratorBackgroundRequest = isExclusiveIllustratorRetryTarget(
+    illustratorRetryTargets,
+    "background",
+  );
+  const isManualIllustratorImageRequest = isExclusiveIllustratorRetryTarget(illustratorRetryTargets, "illustration");
   let currentResponseForRewrite = agentContext.mainResponse;
   const retryOwnerSpatialProjection =
     (retryMessageId
@@ -3022,7 +3033,7 @@ async function applyRetryResultEffects(args: {
         "Illustrator";
       try {
         const illData = result.data as Record<string, unknown>;
-        const shouldGenerate = illData.shouldGenerate === true;
+        const shouldGenerate = isManualIllustratorImageRequest || illData.shouldGenerate === true;
         const imagePrompt = ((illData.prompt as string) ?? "").trim();
         const negativePrompt = ((illData.negativePrompt as string) ?? "").trim();
         const style = ((illData.style as string) ?? "").trim();
@@ -3585,8 +3596,14 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
     if (illustratorRetryTargets && !agentTypes.includes("illustrator")) {
       return reply.status(400).send({ error: "Illustrator retry targets require an Illustrator retry" });
     }
-    const isManualIllustratorBackgroundRequest =
-      illustratorRetryTargets?.length === 1 && illustratorRetryTargets[0] === "background";
+    const isManualIllustratorBackgroundRequest = isExclusiveIllustratorRetryTarget(
+      illustratorRetryTargets,
+      "background",
+    );
+    const isManualIllustratorImageRequest = isExclusiveIllustratorRetryTarget(
+      illustratorRetryTargets,
+      "illustration",
+    );
 
     startSseReply(reply, { "X-Accel-Buffering": "no" });
     const onFallback = createReplyFallbackNotifier(reply);
@@ -3744,6 +3761,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
         streaming,
         wrapFormat: retryWrapFormat,
         forceIllustratorBackgroundGeneration: isManualIllustratorBackgroundRequest,
+        forceIllustratorImageGeneration: isManualIllustratorImageRequest,
         historicalGameStateAnchor,
       });
       agentContext.signal = abortController.signal;
@@ -3767,6 +3785,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
               streaming,
               wrapFormat: retryWrapFormat,
               forceIllustratorBackgroundGeneration: isManualIllustratorBackgroundRequest,
+              forceIllustratorImageGeneration: isManualIllustratorImageRequest,
               historicalGameStateAnchor: preGenerationGameStateAnchor,
               useLatestGameStateFallback: false,
             })

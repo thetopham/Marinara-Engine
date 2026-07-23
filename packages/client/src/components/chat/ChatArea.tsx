@@ -3074,7 +3074,11 @@ export function ChatArea() {
             onCloseSettings={handleCloseSettingsPanel}
             onCloseGallery={handleCloseGalleryPanel}
             onOpenScheduleEditor={handleOpenScheduleEditor}
-            onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
+            onIllustrate={() =>
+              retryAgents(activeChatId, ["illustrator"], {
+                illustratorRetryTargets: ["illustration"],
+              })
+            }
             onWizardFinish={() => {
               setWizardOpen(false);
               handleOpenSettingsPanel();
@@ -3285,7 +3289,11 @@ export function ChatArea() {
           onCloseSettings={handleCloseSettingsPanel}
           onCloseGallery={handleCloseGalleryPanel}
           onOpenScheduleEditor={handleOpenScheduleEditor}
-          onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
+          onIllustrate={() =>
+            retryAgents(activeChatId, ["illustrator"], {
+              illustratorRetryTargets: ["illustration"],
+            })
+          }
           onGenerateBackground={handleGenerateRoleplayBackground}
           onGenerateVideo={() => handleGenerateRoleplaySceneVideo()}
           onAnimateImage={(image) => handleGenerateRoleplaySceneVideo({ galleryImageId: image.id })}

@@ -681,7 +681,8 @@ export function ConnectionEditor() {
       payload.apiKey = "";
     }
     try {
-      await updateConnection.mutateAsync(payload as { id: string } & Record<string, unknown>);
+      // Persist media/default parameters first. The main connection save runs
+      // last so its query refresh cannot race in an older defaults snapshot.
       if (!isMediaProvider) {
         await saveConnectionDefaults.mutateAsync({
           id: connectionDetailId,
@@ -711,6 +712,7 @@ export function ConnectionEditor() {
           ),
         });
       }
+      await updateConnection.mutateAsync(payload as { id: string } & Record<string, unknown>);
       if (isLocalAuthProvider && localBaseUrl) {
         setLocalBaseUrl("");
       } else if (baseUrlValidation.value !== localBaseUrl.trim()) {

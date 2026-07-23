@@ -1201,7 +1201,10 @@ export function ConversationView({
                   return {
                     ...msg,
                     content: streamBuffer || (thinkingBuffer ? "Thinking..." : msg.content),
-                    extra: { ...parsed, attachments: null, thinking: thinkingBuffer || parsed.thinking },
+                    // Only the live buffer belongs here: falling back to the
+                    // previous swipe's thinking would show stale thoughts in
+                    // the viewer while the replacement is still streaming.
+                    extra: { ...parsed, attachments: null, thinking: thinkingBuffer || null },
                   };
                 })()
               : msg;
@@ -1235,6 +1238,7 @@ export function ConversationView({
                 key={msg.id}
                 message={displayMsg as any}
                 isStreaming={hasStreamContent}
+                showStreamingThinkingAction={hasStreamContent}
                 isGrouped={isGrouped}
                 onDelete={onDelete}
                 onRegenerate={onRegenerate}
@@ -1269,6 +1273,7 @@ export function ConversationView({
                   isStreaming
                   isGrouped={false}
                   hideActions
+                  showStreamingThinkingAction
                   onDelete={onDelete}
                   onRegenerate={onRegenerate}
                   onEdit={onEdit}
@@ -1299,6 +1304,7 @@ export function ConversationView({
             isStreaming
             isGrouped={false}
             hideActions
+            showStreamingThinkingAction
             onDelete={onDelete}
             onRegenerate={onRegenerate}
             onEdit={onEdit}

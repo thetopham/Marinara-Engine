@@ -74,7 +74,7 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
   return (
     <>
       {/* Inner row: avatar + body — swipes live outside so avatar never drifts */}
-      <div className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start")}>
+      <div className={cn("flex w-full min-w-0 max-w-full items-end gap-2", isUser ? "justify-end" : "justify-start")}>
         {/* Multi-select checkbox */}
         {multiSelectMode && (
           <div className="flex items-center flex-shrink-0">
@@ -161,7 +161,7 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
         {/* Body column — header + bubble + attachments (no swipes) */}
         <div
           className={cn(
-            "mari-message-body min-w-0 flex max-w-[72%] flex-none flex-col",
+            "mari-message-body min-w-0 flex max-w-[72%] flex-initial flex-col",
             isUser ? "items-end" : "items-start",
           )}
         >

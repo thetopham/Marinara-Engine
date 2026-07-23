@@ -22,6 +22,7 @@ import { useTranslate } from "../../hooks/use-translate";
 import { api } from "../../lib/api-client";
 import { chatKeys } from "../../hooks/use-chats";
 import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
+import { MESSAGE_SELECTION_SURFACE_CLASS } from "./message-selection-styles";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
 import {
   HiddenFromAIConversationButton,
@@ -890,7 +891,7 @@ export const ConversationMessage = memo(function ConversationMessage({
           ref={msgRef}
           className={cn(
             "group flex justify-center px-4 py-2",
-            multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/10",
+            multiSelectMode && isSelected && cn("rounded-lg", MESSAGE_SELECTION_SURFACE_CLASS),
           )}
           onClick={handleMobileTap}
         >
@@ -927,7 +928,7 @@ export const ConversationMessage = memo(function ConversationMessage({
         ref={msgRef}
         className={cn(
           "group flex justify-center py-1",
-          multiSelectMode && isSelected && "rounded-lg bg-[var(--destructive)]/10",
+          multiSelectMode && isSelected && cn("rounded-lg", MESSAGE_SELECTION_SURFACE_CLASS),
         )}
         onClick={handleMobileTap}
       >
@@ -984,7 +985,7 @@ export const ConversationMessage = memo(function ConversationMessage({
               ),
           isConversationStart && cn("rounded-lg ring-1", CONVERSATION_MESSAGE_CHROME_RING_CLASS),
           isHiddenFromAI && cn("rounded-lg ring-1 saturate-75", CONVERSATION_MESSAGE_CHROME_RING_CLASS),
-          multiSelectMode && isSelected && "bg-[var(--destructive)]/10 ring-[var(--destructive)]/50",
+          multiSelectMode && isSelected && MESSAGE_SELECTION_SURFACE_CLASS,
         )}
         data-message-id={message.id}
         data-message-role={message.role}

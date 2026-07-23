@@ -30,6 +30,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Refreshed single- and multi-message deletion with the shared modal and control styling, including chroma-driven buttons, selection bars, checkboxes, and selected-message highlights instead of fixed destructive pink or red treatments.
 - Restored the immediate **Thinking…** placeholder in Roleplay and made Conversation and Roleplay expose one reasoning control as soon as the first reasoning chunk arrives. The existing Model Thoughts viewer now stays open and updates with the live reasoning stream, while completed messages retain their saved reasoning control (#3963).
 - Fixed Web Search (and other tools) returning empty or malformed parameters with GPT-5.6/5.5/5.4 and Codex models on the OpenAI Responses API. Streamed function-call arguments are keyed by the response item id rather than the call id, so the tool query is no longer dropped mid-stream (#4010).
 - Kept gradient **Accent Pulse** animating while the Appearance tab is open, so color changes can be previewed where the setting is configured.

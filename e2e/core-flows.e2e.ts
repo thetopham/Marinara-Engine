@@ -342,6 +342,171 @@ test("default dialogue color fills only cards without their own dialogue color",
   }
 });
 
+test("message deletion uses unified chroma controls and selection states", async ({ page }, testInfo) => {
+  const chatResponse = await page.request.post("/api/chats", {
+    data: { name: "Message Delete Chroma Smoke", mode: "roleplay", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  try {
+    const messageResponses = await Promise.all(
+      ["Keep this turn.", "Start selecting here.", "Keep the final turn."].map((content) =>
+        page.request.post(`/api/chats/${chat.id}/messages`, {
+          data: { role: "user", content },
+        }),
+      ),
+    );
+    for (const response of messageResponses) expect(response.ok()).toBeTruthy();
+    const messages = (await Promise.all(messageResponses.map((response) => response.json()))) as Array<{
+      id: string;
+    }>;
+    const targetMessage = messages[1];
+    const assistantMessageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+      data: { role: "assistant", content: "First assistant swipe." },
+    });
+    expect(assistantMessageResponse.ok()).toBeTruthy();
+    const assistantMessage = (await assistantMessageResponse.json()) as { id: string };
+    const assistantSwipeResponse = await page.request.post(
+      `/api/chats/${chat.id}/messages/${assistantMessage.id}/swipes`,
+      { data: { content: "Alternate assistant swipe." } },
+    );
+    expect(assistantSwipeResponse.ok()).toBeTruthy();
+
+    await page.addInitScript((chatId) => localStorage.setItem("marinara-active-chat-id", chatId), chat.id);
+    await page.goto("/");
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--marinara-app-accent-solid", "rgb(20, 184, 166)");
+    });
+
+    const messageRow = page.locator(`[data-message-id="${targetMessage.id}"]`);
+    await expect(messageRow).toBeVisible();
+    if (testInfo.project.name.includes("mobile")) {
+      await messageRow.click({ position: { x: 80, y: 24 } });
+    } else {
+      await messageRow.hover();
+    }
+
+    const openDeleteButton = messageRow.getByRole("button", { name: "Delete" });
+    await expect(openDeleteButton).toBeVisible();
+    await openDeleteButton.click();
+
+    const dialog = page.getByRole("dialog", { name: "Delete message" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Choose what you want to remove from this message.")).toBeVisible();
+
+    const dialogActions = dialog.locator('[data-component="MessageDeleteActions"] > button');
+    await expect(dialogActions).toHaveCount(3);
+    await expect(dialog.getByRole("button", { name: "Delete this message" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Delete more" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
+
+    const readChromeStyles = (locator: typeof dialogActions) =>
+      locator.evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const style = getComputedStyle(button);
+          return {
+            backgroundColor: style.backgroundColor,
+            borderColor: style.borderColor,
+            color: style.color,
+            className: button.className,
+          };
+        }),
+      );
+    const tealStyles = await readChromeStyles(dialogActions);
+    expect(new Set(tealStyles.map(({ backgroundColor }) => backgroundColor)).size).toBe(1);
+    expect(new Set(tealStyles.map(({ borderColor }) => borderColor)).size).toBe(1);
+    expect(new Set(tealStyles.map(({ color }) => color)).size).toBe(1);
+    for (const { className } of tealStyles) {
+      expect(className).not.toMatch(/destructive|pink|red|rose/iu);
+    }
+
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--marinara-app-accent-solid", "rgb(59, 130, 246)");
+    });
+    await expect
+      .poll(async () => (await readChromeStyles(dialogActions))[0]?.color)
+      .not.toBe(tealStyles[0]?.color);
+    const blueStyles = await readChromeStyles(dialogActions);
+    expect(new Set(blueStyles.map(({ backgroundColor }) => backgroundColor)).size).toBe(1);
+    expect(new Set(blueStyles.map(({ borderColor }) => borderColor)).size).toBe(1);
+    expect(new Set(blueStyles.map(({ color }) => color)).size).toBe(1);
+
+    await testInfo.attach(`message-delete-dialog-${testInfo.project.name}.png`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+
+    await dialog.getByRole("button", { name: "Delete more" }).click();
+    const selectionBar = page.locator('[data-component="MessageMultiSelectBar"]');
+    await expect(selectionBar).toBeVisible();
+    await expect(selectionBar).toContainText(/\d+ selected/);
+
+    const deleteSelected = selectionBar.getByRole("button", { name: "Delete selected" });
+    const cancelSelection = selectionBar.getByRole("button", { name: "Cancel" });
+    const selectionActions = selectionBar.locator("button").filter({ hasText: /Delete selected|Cancel/ });
+    await expect(deleteSelected).toBeEnabled();
+    await expect(cancelSelection).toBeVisible();
+    const selectionActionStyles = await readChromeStyles(selectionActions);
+    expect(selectionActionStyles).toHaveLength(2);
+    expect(selectionActionStyles[0]).toEqual(selectionActionStyles[1]);
+
+    const selectedCheckbox = messageRow.getByRole("checkbox", { name: "Deselect message" });
+    await expect(selectedCheckbox).toBeVisible();
+    await expect(selectedCheckbox).toHaveCSS("background-color", "rgb(59, 130, 246)");
+    const selectionClassNames = await page
+      .locator('[aria-checked="true"], [data-component="MessageMultiSelectBar"]')
+      .evaluateAll((elements) => elements.map((element) => element.className));
+    for (const className of selectionClassNames) {
+      expect(className).not.toMatch(/destructive|pink|red|rose/iu);
+    }
+
+    await testInfo.attach(`message-delete-${testInfo.project.name}.png`, {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: "image/png",
+    });
+
+    await cancelSelection.click();
+    await expect(selectionBar).toBeHidden();
+
+    const assistantRow = page.locator(`[data-message-id="${assistantMessage.id}"]`);
+    await expect(assistantRow).toContainText("Alternate assistant swipe.");
+    if (testInfo.project.name.includes("mobile")) {
+      await assistantRow.click({ position: { x: 80, y: 24 } });
+    } else {
+      await assistantRow.hover();
+    }
+    await assistantRow.getByRole("button", { name: "Delete" }).click();
+    await expect(dialog).toBeVisible();
+
+    const assistantDialogActions = dialog.locator('[data-component="MessageDeleteActions"] > button');
+    await expect(assistantDialogActions).toHaveCount(4);
+    const deleteSwipe = dialog.getByRole("button", { name: "Delete only this swipe (2/2)" });
+    await expect(deleteSwipe).toBeVisible();
+    const swipeStyles = await readChromeStyles(deleteSwipe);
+    const deleteMessageStyles = await readChromeStyles(
+      dialog.getByRole("button", { name: "Delete this message" }),
+    );
+    expect(swipeStyles).toHaveLength(1);
+    expect(swipeStyles[0]).toEqual(deleteMessageStyles[0]);
+    expect(swipeStyles[0]?.color).not.toBe(tealStyles[0]?.color);
+    expect(swipeStyles[0]?.className).not.toMatch(/destructive|pink|red|rose/iu);
+
+    await deleteSwipe.click();
+    await expect(dialog).toBeHidden();
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(`/api/chats/${chat.id}/messages/${assistantMessage.id}/swipes`);
+        if (!response.ok()) return -1;
+        return ((await response.json()) as unknown[]).length;
+      })
+      .toBe(1);
+    await expect(assistantRow).toContainText("First assistant swipe.");
+  } finally {
+    await page.request.delete(`/api/chats/${chat.id}`).catch(() => undefined);
+  }
+});
+
 test("Character and Persona avatar actions stay separated and visually balanced", async ({ page }) => {
   const suffix = Date.now().toString(36);
   const connectionResponse = await page.request.post("/api/connections", {

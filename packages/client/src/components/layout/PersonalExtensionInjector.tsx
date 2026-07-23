@@ -10,7 +10,7 @@ type ActiveClientExtension = {
 
 type SandboxMessage = {
   channel?: string;
-  type?: "ready" | "error" | "log" | "storage";
+  type?: "ready" | "error" | "log" | "storage" | "ui-window-open" | "ui-window-close";
   contentHash?: string;
   requestId?: string;
   action?: "get" | "patch" | "delete";
@@ -19,6 +19,30 @@ type SandboxMessage = {
   args?: unknown[];
   message?: string;
 };
+
+// A hidden sandbox iframe becomes a centered, full-viewport overlay only while
+// the extension has an open window; the iframe draws its own backdrop and card.
+function setSandboxIframeVisible(iframe: HTMLIFrameElement, visible: boolean) {
+  if (visible) {
+    iframe.hidden = false;
+    iframe.removeAttribute("aria-hidden");
+    iframe.tabIndex = 0;
+    Object.assign(iframe.style, {
+      position: "fixed",
+      inset: "0",
+      width: "100%",
+      height: "100%",
+      border: "0",
+      zIndex: "2147483000",
+      colorScheme: "normal",
+    });
+  } else {
+    iframe.hidden = true;
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.removeAttribute("style");
+  }
+}
 
 const activeExtensions = new Map<string, ActiveClientExtension>();
 
@@ -115,6 +139,14 @@ export function PersonalExtensionInjector() {
       if (!message || message.channel !== "marinara-personal-extension") return;
       if (message.type === "storage") {
         void handleStorage(active, message);
+        return;
+      }
+      if (message.type === "ui-window-open") {
+        setSandboxIframeVisible(active.iframe, true);
+        return;
+      }
+      if (message.type === "ui-window-close") {
+        setSandboxIframeVisible(active.iframe, false);
         return;
       }
       if (message.type === "log" && LOG_LEVELS.has(message.level as NonNullable<SandboxMessage["level"]>)) {

@@ -16,7 +16,7 @@ Sandboxing reduces authority; it does not make arbitrary code trustworthy. A mal
 
 ## Runtime isolation
 
-A Browser Extension runs in a dedicated Worker inside an opaque-origin sandboxed iframe. It cannot access Marinara's page, DOM, cookies, browser storage, origin APIs, or network. Its only capabilities are private extension storage, logging, managed timers, and cleanup registration.
+A Browser Extension runs in a dedicated Worker inside an opaque-origin sandboxed iframe. It cannot access Marinara's page, DOM, cookies, browser storage, origin APIs, or network. Its capabilities are private extension storage, logging, managed timers, cleanup registration, and a constrained window UI. The extension never touches Marinara's DOM or writes HTML: it describes a window as a small set of elements (headings, text, preformatted blocks, buttons, and inputs), and the trusted sandbox renders them as text. Buttons report clicks — with the current input values — back to the extension, so it can show output, drive small tools, or add controls. This is enough for a closable info window, an extra button that does something, or a simple input-and-result tool.
 
 A Server Extension runs in a separate permission-restricted Node process inside macOS Seatbelt or Linux Bubblewrap. It cannot access Marinara files, user files, inherited server secrets, the network, child processes, workers, or native addons. If Marinara cannot establish a supported OS sandbox, Server Extensions remain disabled.
 

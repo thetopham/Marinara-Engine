@@ -34,7 +34,19 @@ export interface NoodleAccountSocialSettings {
   notificationsReadAt?: string;
 }
 
-export type NoodleAccountSchedulerSettings = Record<string, never>;
+export type NoodleAutoPostingIntensity = 1 | 3 | 6;
+
+export interface NoodleAutoPostingSettings {
+  enabled: boolean;
+  /** Low/Medium/High = at most 1/3/6 automatic posts per day. */
+  intensity: NoodleAutoPostingIntensity;
+  /** Server-owned; excluded from client-editable patches. */
+  nextRunAt: string | null;
+}
+
+export interface NoodleAccountSchedulerSettings {
+  autoPosting?: NoodleAutoPostingSettings;
+}
 export interface NoodleAccountPrivacySettings {
   identityDisclosure?: NoodleIdentityDisclosure;
   stagePersonality?: string;
@@ -125,6 +137,7 @@ export interface NoodlerStageProfile {
 
 export interface NoodlerManagedStageProfile extends NoodlerStageProfile {
   access: NoodleAccountAccessSettings;
+  autoPosting: NoodleAutoPostingSettings;
 }
 
 export interface NoodlerProfileSource {

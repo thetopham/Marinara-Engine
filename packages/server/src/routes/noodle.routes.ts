@@ -9,6 +9,7 @@ import {
   noodleAccountFollowUpdateSchema,
   noodleAccountProfileUpdateSchema,
   noodleAccountSettingsPatchSchema,
+  noodleAutoPostRescheduleSchema,
   noodleAccountUpdateSchema,
   noodleBulkInviteSchema,
   noodleCreateInteractionSchema,
@@ -596,6 +597,20 @@ export async function noodleRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
     const updated = await noodle.patchAccountSettings(id, parsed.data);
     if (!updated) return reply.code(404).send({ error: "Noodle account not found" });
+    return updated;
+  });
+
+  app.put("/noodler/accounts/:id/auto-post/schedule", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const { id } = req.params as { id: string };
+    const parsed = noodleAutoPostRescheduleSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    if (Date.parse(parsed.data.nextRunAt) <= Date.now()) {
+      return reply.code(400).send({ error: "Choose a future time for the next automatic post." });
+    }
+    const updated = await noodle.rescheduleAutoPostRun(id, parsed.data.nextRunAt);
+    if (!updated) return reply.code(404).send({ error: "NoodleR stage profile not found" });
     return updated;
   });
 

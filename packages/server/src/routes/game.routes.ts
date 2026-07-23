@@ -4632,7 +4632,6 @@ type PlannedStoryboardKeyframe = {
 type PlannedStoryboard = {
   title: string;
   summary: string;
-  referenceSheetPrompt: string;
   warnings: string[];
   keyframes: PlannedStoryboardKeyframe[];
 };
@@ -4662,49 +4661,6 @@ const STORYBOARD_KEYFRAME_STATUSES = new Set<GameStoryboardKeyframeStatus>([
   "complete",
   "failed",
 ]);
-const STORYBOARD_REFERENCE_SHEET_PREVIEW_ID = "storyboard:reference-sheet";
-const STORYBOARD_REFERENCE_SHEET_SIZE: ImageGenerationSize = { width: 1024, height: 576 };
-const STORYBOARD_REFERENCE_SHEET_NEGATIVE_PROMPT = [
-  "watermark",
-  "logo",
-  "long paragraphs of text",
-  "unreadable labels",
-  "scenery",
-  "story action",
-  "alternate costume",
-  "duplicate subject",
-  "extra limbs",
-  "extra fingers",
-  "extra tails",
-  "extra weapons",
-  "merged panels",
-  "cropped turnaround",
-  "blurry",
-  "low quality",
-].join(", ");
-
-export function buildStoryboardReferenceSheetProviderPrompt(args: {
-  referenceSheetPrompt: string;
-  characterDescriptions?: string[];
-  artStyle?: string;
-  imagePromptInstructions?: string;
-}): string {
-  const appearanceLines = Array.from(
-    new Set((args.characterDescriptions ?? []).map(compactIllustratorAppearanceLine).filter(Boolean)),
-  ).slice(0, 8);
-  const prompt = [
-    compactStoryboardText(args.referenceSheetPrompt, 8000),
-    appearanceLines.length ? `Canonical appearance notes:\n${appearanceLines.join("\n")}` : "",
-    args.artStyle?.trim() ? `Art direction: ${compactStoryboardText(args.artStyle, 1000)}` : "",
-    args.imagePromptInstructions?.trim()
-      ? `User image instructions: ${compactStoryboardText(args.imagePromptInstructions, 1200)}`
-      : "",
-    "Reference-sheet output only: one clean 16:9 composite sheet on a plain neutral background. Keep panels separated and every repeated view anatomically identical.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return prompt.length > 12_000 ? `${prompt.slice(0, 11_997).trimEnd()}...` : prompt;
-}
 const STORYBOARD_ANCHOR_KINDS = new Set<StoryboardAnchorKind>(["narration", "dialogue", "readable", "system"]);
 
 function chatGalleryImageUrl(image: ChatGalleryImageRow, fallbackChatId: string): string {
@@ -5210,7 +5166,6 @@ function fallbackStoryboardPlan(args: {
   allowedCharacterNames?: string[];
   maxVisibleCharacters?: number;
   includeVideoPrompts?: boolean;
-  includeReferenceSheetPrompt?: boolean;
 }): PlannedStoryboard {
   const cleanNarration = compactStoryboardText(args.sourceNarration, 2000);
   const frameCount = normalizeStoryboardKeyframeCount(args.keyframeCount);
@@ -5235,7 +5190,6 @@ function fallbackStoryboardPlan(args: {
   return {
     title: compactStoryboardText(sentences[0] ?? "Turn storyboard", 120) || "Turn storyboard",
     summary: cleanNarration,
-    referenceSheetPrompt: "",
     warnings: [],
     keyframes: chunks.map((chunk, index) => {
       const firstSection = chunk.sections[0] ?? null;
@@ -5288,7 +5242,6 @@ export function sanitizeStoryboardPlan(
     allowedCharacterNames?: string[];
     maxVisibleCharacters?: number;
     includeVideoPrompts?: boolean;
-    includeReferenceSheetPrompt?: boolean;
   },
 ): PlannedStoryboard {
   const root = asStoryboardRecord(raw);
@@ -5382,10 +5335,7 @@ export function sanitizeStoryboardPlan(
   return {
     title: compactStoryboardText(root.title, 160) || fallback.title,
     summary: compactStoryboardText(root.summary, 2000) || fallback.summary,
-    referenceSheetPrompt: args.includeReferenceSheetPrompt
-      ? compactStoryboardText(root.referenceSheetPrompt, 8000)
-      : "",
-    warnings: args.includeReferenceSheetPrompt ? sanitizeStoryboardWarnings(root.warnings) : [],
+    warnings: args.includeVideoPrompts ? sanitizeStoryboardWarnings(root.warnings) : [],
     keyframes: frames.slice(0, 6),
   };
 }
@@ -10421,7 +10371,7 @@ export async function gameRoutes(app: FastifyInstance) {
         normalizeStoryboardKeyframeCount(meta.gameStoryboardKeyframeCount),
       );
       const generateStoryboardVideos = input.generateVideos ?? meta.gameStoryboardAutoGenerationEnabled === true;
-      const generateStoryboardReferenceSheet =
+      const useStoryboardPromptDirector =
         generateStoryboardVideos &&
         readTrimmedString(meta.gameStoryboardAnimationPromptTemplateId) === GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE_ID;
       const enableGen = !!meta.enableSpriteGeneration;
@@ -10539,7 +10489,6 @@ export async function gameRoutes(app: FastifyInstance) {
         allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
         maxVisibleCharacters: storyboardMaxVisibleCharacters,
         includeVideoPrompts: generateStoryboardVideos,
-        includeReferenceSheetPrompt: generateStoryboardReferenceSheet,
       } as const;
       if (input.plannedStoryboard !== undefined) {
         plan = sanitizeStoryboardPlan(input.plannedStoryboard, storyboardPlanSanitizerOptions);
@@ -10584,7 +10533,6 @@ export async function gameRoutes(app: FastifyInstance) {
             allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
             maxVisibleCharacters: storyboardMaxVisibleCharacters,
             includeVideoPrompts: generateStoryboardVideos,
-            includeReferenceSheetPrompt: generateStoryboardReferenceSheet,
           });
         }
       }
@@ -10620,39 +10568,7 @@ export async function gameRoutes(app: FastifyInstance) {
           { prompt: item.prompt.trim(), negativePrompt: item.negativePrompt?.trim() || undefined },
         ]),
       );
-      let storyboardReferenceSheetBase64: string | null = null;
-      let storyboardReferenceSheetVideoImage: VideoReferenceImage | null = null;
       const storyboardVideoWarnings: string[] = [];
-
-      const buildStoryboardReferenceSheetIllustration = () => {
-        if (!plan.referenceSheetPrompt) return null;
-        const illustration: SceneIllustrationRequest = {
-          title: "Storyboard reference sheet",
-          prompt: plan.referenceSheetPrompt,
-          reason: "Canonical storyboard character, creature, equipment, and prop reference sheet",
-          characters: storyboardAppearanceCharacterNames,
-          slug: storyboardSlug(`storyboard-reference-sheet-${plan.title}`, "storyboard-reference-sheet"),
-        };
-        const illustrationAssets = collectIllustrationCharacterAssets({
-          illustration,
-          characterNames: storyboardAppearanceCharacterNames,
-          trackedNpcs: storyboardCharacterContext.trackedNpcs,
-          gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
-          charReferenceByName,
-          charAvatarByName,
-          charDescriptionByName,
-          includeReferenceImages: useAvatarReferences,
-          includeCharacterDescriptions: includeCharacterAppearance,
-          maxReferenceImages: storyboardReferenceImageLimit,
-        });
-        const providerPrompt = buildStoryboardReferenceSheetProviderPrompt({
-          referenceSheetPrompt: illustration.prompt,
-          characterDescriptions: illustrationAssets.characterDescriptions,
-          artStyle,
-          imagePromptInstructions,
-        });
-        return { illustration, illustrationAssets, providerPrompt };
-      };
 
       const buildStoryboardFrameIllustration = (frameIndex: number, slugPrefix: string) => {
         const plannedFrame = reconcileStoryboardFrameForRendering({
@@ -10677,10 +10593,7 @@ export async function gameRoutes(app: FastifyInstance) {
           characterPrompts,
           slug: storyboardSlug(`${slugPrefix}-${frameIndex + 1}-${plannedFrame.title}`, `storyboard-${frameIndex + 1}`),
         };
-        const directReferenceLimit = storyboardReferenceSheetBase64
-          ? Math.max(0, storyboardReferenceImageLimit - 1)
-          : storyboardReferenceImageLimit;
-        const directIllustrationAssets = collectIllustrationCharacterAssets({
+        const illustrationAssets = collectIllustrationCharacterAssets({
           illustration,
           characterNames: plannedFrame.characters,
           trackedNpcs: storyboardCharacterContext.trackedNpcs,
@@ -10690,72 +10603,12 @@ export async function gameRoutes(app: FastifyInstance) {
           charDescriptionByName,
           includeReferenceImages: useAvatarReferences,
           includeCharacterDescriptions: includeCharacterAppearance,
-          maxReferenceImages: directReferenceLimit,
+          maxReferenceImages: storyboardReferenceImageLimit,
         });
-        const illustrationAssets: IllustrationCharacterAssets = storyboardReferenceSheetBase64
-          ? {
-              ...directIllustrationAssets,
-              referenceImages: [storyboardReferenceSheetBase64, ...directIllustrationAssets.referenceImages].slice(
-                0,
-                storyboardReferenceImageLimit,
-              ),
-              maxReferenceImages: storyboardReferenceImageLimit,
-            }
-          : directIllustrationAssets;
         return { plannedFrame, characterPrompts, illustration, illustrationAssets };
       };
 
       if (input.previewOnly) {
-        const referenceSheet = buildStoryboardReferenceSheetIllustration();
-        const referenceSheetItem = referenceSheet
-          ? await (async () => {
-              const override = storyboardPromptOverrideById.get(STORYBOARD_REFERENCE_SHEET_PREVIEW_ID);
-              const compiled = await buildSceneIllustrationProviderPrompt({
-                chatId: input.chatId,
-                ...referenceSheet.illustration,
-                characterDescriptions: referenceSheet.illustrationAssets.characterDescriptions,
-                referenceImages: referenceSheet.illustrationAssets.referenceImages,
-                imgSource,
-                imgModel,
-                imgBaseUrl,
-                imgApiKey,
-                imgService: imgServiceHint,
-                imgEndpointId,
-                imgComfyWorkflow,
-                imgDefaults,
-                styleProfiles,
-                styleProfileId,
-                promptOverridesStorage,
-                size: STORYBOARD_REFERENCE_SHEET_SIZE,
-                promptOverride: override?.prompt ?? referenceSheet.providerPrompt,
-                negativePromptOverride: override?.negativePrompt ?? STORYBOARD_REFERENCE_SHEET_NEGATIVE_PROMPT,
-                useGamePromptTemplate: false,
-              });
-              if (debugLogsEnabled) {
-                debugLog(
-                  "[debug/game/storyboard-reference-sheet-preview] prompt:\n%s\nnegativePrompt:\n%s",
-                  compiled.prompt,
-                  compiled.negativePrompt,
-                );
-              }
-              const previewSize = resolveImagePromptReviewSize({
-                connection: imgConn,
-                prompt: compiled.prompt,
-                width: STORYBOARD_REFERENCE_SHEET_SIZE.width,
-                height: STORYBOARD_REFERENCE_SHEET_SIZE.height,
-                imageDefaults: imgDefaults,
-              });
-              return {
-                id: STORYBOARD_REFERENCE_SHEET_PREVIEW_ID,
-                kind: "illustration" as const,
-                title: "Storyboard reference sheet",
-                prompt: compiled.prompt,
-                negativePrompt: compiled.negativePrompt,
-                width: previewSize.width,
-                height: previewSize.height,
-              };
-            })()
-          : null;
         const keyframeItems = await Promise.all(
           plan.keyframes.map(async (_frame, frameIndex) => {
             const { plannedFrame, illustration, illustrationAssets } = buildStoryboardFrameIllustration(
@@ -10820,7 +10673,7 @@ export async function gameRoutes(app: FastifyInstance) {
           }),
         );
         return {
-          items: referenceSheetItem ? [referenceSheetItem, ...keyframeItems] : keyframeItems,
+          items: keyframeItems,
           plannedStoryboard: plan,
         };
       }
@@ -10993,13 +10846,9 @@ export async function gameRoutes(app: FastifyInstance) {
                 sourceGalleryImagePathForMetadata(galleryImage),
               );
               const durationSeconds = Math.min(videoRuntime.maxDurationSeconds, plannedFrame.durationSeconds);
-              const useSeedanceDirectorReferences =
-                generateStoryboardReferenceSheet &&
-                storyboardReferenceSheetVideoImage !== null &&
-                gameVideoRuntimeUsesService(videoRuntime, "seedance");
               const useLtxDirector =
-                generateStoryboardReferenceSheet && gameVideoRuntimeUsesService(videoRuntime, "comfyui");
-              const basePrompt = await buildStoryboardGalleryAnimatePrompt({
+                useStoryboardPromptDirector && gameVideoRuntimeUsesService(videoRuntime, "comfyui");
+              const prompt = await buildStoryboardGalleryAnimatePrompt({
                 promptOverridesStorage,
                 galleryImage,
                 plannedFrame,
@@ -11012,15 +10861,6 @@ export async function gameRoutes(app: FastifyInstance) {
                 promptLimits: videoRuntime.promptLimits,
                 debugMode: requestDebug,
               });
-              const prompt = useSeedanceDirectorReferences
-                ? limitSceneVideoPromptForProvider(
-                    [
-                      "Reference order: image 1 is the canonical production reference sheet; image 2 is the exact first frame. Preserve image 1 identity, costume, equipment, anatomy, and scale, while beginning the action from image 2.",
-                      basePrompt,
-                    ].join("\n\n"),
-                    videoRuntime.promptLimits.finalPrompt,
-                  )
-                : basePrompt;
               await storyboards.updateKeyframe(frame.id, { videoPrompt: prompt });
               if (debugLogsEnabled) {
                 debugLog("[debug/game/storyboard-video] frame=%d prompt:\n%s", frame.index + 1, prompt);
@@ -11038,11 +10878,6 @@ export async function gameRoutes(app: FastifyInstance) {
                   resolution: videoRuntime.resolution,
                   comfyWorkflow: videoRuntime.comfyWorkflow,
                   referenceImage,
-                  referenceImages: useSeedanceDirectorReferences && storyboardReferenceSheetVideoImage
-                    ? [storyboardReferenceSheetVideoImage, referenceImage]
-                    : undefined,
-                  referenceMode: useSeedanceDirectorReferences ? "reference" : undefined,
-                  generateAudio: useSeedanceDirectorReferences ? true : undefined,
                   ltxDirector: useLtxDirector
                     ? {
                         globalPrompt: prompt,
@@ -11145,78 +10980,7 @@ export async function gameRoutes(app: FastifyInstance) {
         }, GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS);
         backgroundTimeout.unref?.();
 
-        let referenceSheetFailure = false;
         try {
-          const referenceSheet = buildStoryboardReferenceSheetIllustration();
-          if (referenceSheet) {
-            const override = storyboardPromptOverrideById.get(STORYBOARD_REFERENCE_SHEET_PREVIEW_ID);
-            try {
-              let sentReferenceSheetPrompt: string | null = null;
-              const tag = await generateSceneIllustration({
-                chatId: input.chatId,
-                ...referenceSheet.illustration,
-                characterDescriptions: referenceSheet.illustrationAssets.characterDescriptions,
-                referenceImages: referenceSheet.illustrationAssets.referenceImages,
-                imgSource,
-                imgModel,
-                imgBaseUrl,
-                imgApiKey,
-                imgService: imgServiceHint,
-                imgEndpointId,
-                imgComfyWorkflow,
-                imgDefaults,
-                imgFallback,
-                styleProfiles,
-                styleProfileId,
-                debugLog: debugLogsEnabled ? debugLog : undefined,
-                promptOverridesStorage,
-                size: STORYBOARD_REFERENCE_SHEET_SIZE,
-                promptOverride: override?.prompt ?? referenceSheet.providerPrompt,
-                negativePromptOverride: override?.negativePrompt ?? STORYBOARD_REFERENCE_SHEET_NEGATIVE_PROMPT,
-                useGamePromptTemplate: false,
-                onCompiledPrompt: (compiled) => {
-                  sentReferenceSheetPrompt = compiled.prompt;
-                },
-                signal: backgroundSignal,
-              });
-              if (!tag) throw new Error("Image provider did not return a storyboard reference sheet.");
-              const galleryImage = await addGeneratedIllustrationToGallery({
-                app,
-                chatId: input.chatId,
-                tag,
-                illustration: referenceSheet.illustration,
-                model: imgModel,
-                prompt: sentReferenceSheetPrompt,
-              });
-              if (!galleryImage) throw new Error("Storyboard reference sheet could not be saved to gallery.");
-              const galleryImagePath = resolveGalleryImagePath(galleryImage);
-              if (!galleryImagePath) throw new Error("Storyboard reference sheet file could not be found.");
-              storyboardReferenceSheetVideoImage = readOmniReferenceImage(
-                galleryImagePath,
-                sourceGalleryImagePathForMetadata(galleryImage),
-              );
-              storyboardReferenceSheetBase64 = storyboardReferenceSheetVideoImage.base64;
-              await storyboards.update(storyboardRow.id, { referenceSheetImageId: galleryImage.id });
-              if (debugLogsEnabled) {
-                debugLog(
-                  "[debug/game/storyboard-reference-sheet] saved galleryImageId=%s attachedToKeyframes=%s",
-                  galleryImage.id,
-                  storyboardReferenceImageLimit > 0,
-                );
-              }
-            } catch (err) {
-              referenceSheetFailure = true;
-              const message = err instanceof Error ? err.message : "Storyboard reference sheet generation failed";
-              logger.warn(
-                err,
-                "[game/storyboard] reference sheet generation failed for storyboard %s",
-                storyboardRow.id,
-              );
-              await storyboards.update(storyboardRow.id, {
-                error: [illustratorErrorMessage, `Reference sheet: ${message}`].filter(Boolean).join(" "),
-              });
-            }
-          }
           await Promise.all(Array.from({ length: frameWorkerCount }, () => runFrameWorker()));
           const imageFailures = frameResults.filter((result) => result.imageFailure).length;
           const generatedImages = frameResults.filter((result) => result.generatedImage).length;
@@ -11227,7 +10991,6 @@ export async function gameRoutes(app: FastifyInstance) {
             generatedImages === 0
               ? "failed"
               : imageFailures > 0 ||
-                  referenceSheetFailure ||
                   generatedImages < plan.keyframes.length ||
                   videoFailures > 0 ||
                   (videoRuntime && generatedVideos < plan.keyframes.length)

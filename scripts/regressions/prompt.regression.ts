@@ -468,7 +468,6 @@ import {
   buildDynamicGameImagePromptMessages,
   buildIllustrationNarrationSummaryMessages,
   buildStoryboardIllustratorMessages,
-  buildStoryboardReferenceSheetProviderPrompt,
   dynamicGameImagePromptRequestOptions,
   extractCharacterAppearanceText,
   resolveDynamicGameImagePromptConnection,
@@ -2021,10 +2020,7 @@ const cases: RegressionCase[] = [
       );
       assert.match(storyboardHookSource, /previewOnly: true/);
       assert.match(gameRouteSource, /if \(input\.previewOnly\)/);
-      assert.match(
-        gameRouteSource,
-        /referenceSheetItem \? \[referenceSheetItem, \.\.\.keyframeItems\] : keyframeItems/,
-      );
+      assert.match(gameRouteSource, /items: keyframeItems/);
       assert.match(gameRouteSource, /storyboardPromptOverrideById\.get\(`storyboard:\$\{frame\.index\}`\)/);
       assert.match(gameRouteSource, /\[debug\/game\/storyboard-image-preview\]/);
     },
@@ -2168,9 +2164,10 @@ const cases: RegressionCase[] = [
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"continuityNotes": string/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"cameraMotion": string/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"transitionHint": string/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /"referenceSheetPrompt": string/);
+      assert.doesNotMatch(promptDirectorPreset?.promptTemplate ?? "", /"referenceSheetPrompt": string/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"warnings": string\[\]/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /standalone 16:9 production reference-sheet prompt/);
+      assert.doesNotMatch(promptDirectorPreset?.promptTemplate ?? "", /production reference-sheet prompt/);
+      assert.match(promptDirectorPreset?.promptTemplate ?? "", /canonical appearance context as authoritative/);
       assert.match(stillAnimationPreset?.promptTemplate ?? "", /style-neutral/);
       assert.match(illustrationPreset?.promptTemplate ?? "", /2-6 panels per illustration/);
       assert.doesNotMatch(illustrationPreset?.promptTemplate ?? "", /\$\{durationSeconds\}-second/);
@@ -2248,8 +2245,6 @@ const cases: RegressionCase[] = [
       const rawPlan = {
         title: "Storm gate",
         summary: sourceNarration,
-        referenceSheetPrompt:
-          "Clean 16:9 production reference sheet for Lyra with front, side, and back views, one sword, one scabbard, a torn silver cloak, and a restrained storm palette.",
         warnings: ["The narration does not identify the sword material."],
         keyframes: [
           {
@@ -2284,15 +2279,12 @@ const cases: RegressionCase[] = [
       const animationPlan = sanitizeStoryboardPlan(rawPlan, {
         ...common,
         includeVideoPrompts: true,
-        includeReferenceSheetPrompt: true,
       });
       const illustrationPlan = sanitizeStoryboardPlan(rawPlan, {
         ...common,
         includeVideoPrompts: false,
-        includeReferenceSheetPrompt: false,
       });
 
-      assert.equal(animationPlan.referenceSheetPrompt, rawPlan.referenceSheetPrompt);
       assert.deepEqual(animationPlan.warnings, rawPlan.warnings);
       assert.equal(animationPlan.keyframes[0]?.videoPrompt, rawPlan.keyframes[0]?.videoPrompt);
       assert.equal(animationPlan.keyframes[0]?.continuityNotes, rawPlan.keyframes[0]?.continuityNotes);
@@ -2302,21 +2294,7 @@ const cases: RegressionCase[] = [
       assert.equal(illustrationPlan.keyframes[0]?.continuityNotes, "");
       assert.equal(illustrationPlan.keyframes[0]?.cameraMotion, "");
       assert.equal(illustrationPlan.keyframes[0]?.transitionHint, "");
-      assert.equal(illustrationPlan.referenceSheetPrompt, "");
       assert.deepEqual(illustrationPlan.warnings, []);
-
-      const referenceSheetProviderPrompt = buildStoryboardReferenceSheetProviderPrompt({
-        referenceSheetPrompt: rawPlan.referenceSheetPrompt,
-        characterDescriptions: [
-          "Lyra's Appearance: black braided hair, amber eyes, torn silver cloak, one sword, one scabbard",
-        ],
-        artStyle: "painterly eastern dark fantasy",
-        imagePromptInstructions: "Keep metal and fabric materials production-readable.",
-      });
-      assert.match(referenceSheetProviderPrompt, /Canonical appearance notes:/);
-      assert.match(referenceSheetProviderPrompt, /black braided hair/);
-      assert.match(referenceSheetProviderPrompt, /Art direction: painterly eastern dark fantasy/);
-      assert.match(referenceSheetProviderPrompt, /one clean 16:9 composite sheet/);
 
       const animationMessages = await buildStoryboardIllustratorMessages({
         promptOverridesStorage: {} as never,
@@ -2335,7 +2313,7 @@ const cases: RegressionCase[] = [
       const animationTask = animationMessages.messages[1]?.content ?? "";
       assert.match(animationMessages.systemPrompt, /Storyboard Prompt Director/);
       assert.match(animationMessages.systemPrompt, /"videoPrompt": string/);
-      assert.match(animationMessages.systemPrompt, /"referenceSheetPrompt": string/);
+      assert.doesNotMatch(animationMessages.systemPrompt, /"referenceSheetPrompt": string/);
       assert.match(animationTask, /Include videoPrompt, cameraMotion, transitionHint, and continuityNotes/);
       assert.doesNotMatch(animationTask, /^Do not include videoPrompt/m);
 
@@ -2351,16 +2329,14 @@ const cases: RegressionCase[] = [
         new URL("../../packages/server/src/db/file-backed-store.ts", import.meta.url),
         "utf8",
       );
-      assert.match(gameRouteSource, /STORYBOARD_REFERENCE_SHEET_PREVIEW_ID = "storyboard:reference-sheet"/);
-      assert.match(gameRouteSource, /referenceSheetImageId: galleryImage\.id/);
-      assert.ok(
-        gameRouteSource.indexOf("buildStoryboardReferenceSheetIllustration();") <
-          gameRouteSource.indexOf("await Promise.all(Array.from({ length: frameWorkerCount }"),
+      assert.doesNotMatch(gameRouteSource, /STORYBOARD_REFERENCE_SHEET_PREVIEW_ID/);
+      assert.doesNotMatch(gameRouteSource, /buildStoryboardReferenceSheetIllustration/);
+      assert.doesNotMatch(gameRouteSource, /referenceSheetImageId: galleryImage\.id/);
+      assert.match(gameRouteSource, /const useStoryboardPromptDirector =/);
+      assert.match(
+        gameRouteSource,
+        /useStoryboardPromptDirector && gameVideoRuntimeUsesService\(videoRuntime, "comfyui"\)/,
       );
-      assert.match(gameRouteSource, /referenceImages: \[\s*storyboardReferenceSheetBase64,/);
-      assert.match(gameRouteSource, /referenceMode: useSeedanceDirectorReferences \? "reference" : undefined/);
-      assert.match(gameRouteSource, /generateAudio: useSeedanceDirectorReferences \? true : undefined/);
-      assert.match(gameRouteSource, /referenceImages: useSeedanceDirectorReferences/);
       assert.match(gameRouteSource, /ltxDirector: useLtxDirector/);
       assert.match(gameRouteSource, /segmentLengths: "%length%"/);
       assert.match(storyboardSchemaSource, /referenceSheetImageId: text\("reference_sheet_image_id"\)/);
@@ -2931,7 +2907,7 @@ const cases: RegressionCase[] = [
       assert.match(gameRouteSource, /characterAppearanceContextBlock:\s*storyboardAppearanceContextBlock/u);
       assert.equal(gameRouteSource.match(/^\s+characterAppearanceContextBlock,\s*$/gmu)?.length, 2);
       assert.equal(gameRouteSource.match(/includeCharacterDescriptions:\s*true,/gu)?.length, 1);
-      assert.equal(gameRouteSource.match(/includeCharacterDescriptions:\s*includeCharacterAppearance,/gu)?.length, 6);
+      assert.equal(gameRouteSource.match(/includeCharacterDescriptions:\s*includeCharacterAppearance,/gu)?.length, 5);
       assert.doesNotMatch(
         gameRouteSource,
         /const storyboardAppearanceCharacterNames\s*=\s*includeCharacterAppearance/gu,

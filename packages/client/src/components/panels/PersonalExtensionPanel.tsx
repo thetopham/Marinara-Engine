@@ -7,6 +7,8 @@ import {
   usePersonalExtensionContributions,
 } from "../../lib/personal-extension-contributions";
 
+type InteractiveElement = Extract<PersonalExtensionUiElement, { id: string }>;
+
 function inputDefaults(elements: readonly PersonalExtensionUiElement[]) {
   return Object.fromEntries(
     elements.flatMap((element) => {
@@ -20,7 +22,7 @@ function inputDefaults(elements: readonly PersonalExtensionUiElement[]) {
   );
 }
 
-function isInteractiveElement(element: PersonalExtensionUiElement) {
+function isInteractiveElement(element: PersonalExtensionUiElement): element is InteractiveElement {
   return (
     element.kind === "button" ||
     element.kind === "input" ||
@@ -201,16 +203,19 @@ export function PersonalExtensionPanel() {
               </label>
             );
           }
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => dispatchPersonalExtensionContributionEvent(contribution.key, element.id, values)}
-              className="min-h-10 self-start rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)] active:scale-[0.98]"
-            >
-              {element.label}
-            </button>
-          );
+          if (element.kind === "button") {
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => dispatchPersonalExtensionContributionEvent(contribution.key, element.id, values)}
+                className="min-h-10 self-start rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)] active:scale-[0.98]"
+              >
+                {element.label}
+              </button>
+            );
+          }
+          return null;
         })}
       </div>
       <p className="mt-auto border-t border-[var(--border)] pt-3 text-[0.6875rem] text-[var(--muted-foreground)]">

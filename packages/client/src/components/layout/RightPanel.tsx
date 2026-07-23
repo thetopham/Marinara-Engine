@@ -87,7 +87,7 @@ export function RightPanel() {
   const activeExtensionPanel = contributions.find(
     (contribution) => contribution.key === activePanelKey && contribution.kind === "panel",
   );
-  const config =
+  const config: { title: string; icon: ReactNode; gradient?: string; gradientClass?: string } =
     panel === "extensions" && activeExtensionPanel
       ? {
           title: activeExtensionPanel.label,

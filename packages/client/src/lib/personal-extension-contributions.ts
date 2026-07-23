@@ -6,6 +6,7 @@ import {
   PERSONAL_EXTENSION_UI_LIMITS,
   type PersonalClientExtensionRuntime,
   type PersonalExtensionContributionDescriptor,
+  type PersonalExtensionContributionIcon,
   type PersonalExtensionHostContribution,
   type PersonalExtensionUiElement,
 } from "@marinara-engine/shared";
@@ -182,9 +183,15 @@ function uiElementTextLength(element: PersonalExtensionUiElement) {
   if (element.kind === "slider" || element.kind === "color") {
     return element.id.length + (element.label?.length ?? 0);
   }
-  return (
-    element.id.length + (element.label?.length ?? 0) + (element.placeholder?.length ?? 0) + (element.value?.length ?? 0)
-  );
+  if (element.kind === "input") {
+    return (
+      element.id.length +
+      (element.label?.length ?? 0) +
+      (element.placeholder?.length ?? 0) +
+      (element.value?.length ?? 0)
+    );
+  }
+  return 0;
 }
 
 export function normalizePersonalExtensionContribution(value: unknown): PersonalExtensionContributionDescriptor | null {
@@ -200,7 +207,7 @@ export function normalizePersonalExtensionContribution(value: unknown): Personal
     value.icon === undefined
       ? undefined
       : typeof value.icon === "string" && contributionIcons.has(value.icon)
-        ? value.icon
+        ? (value.icon as PersonalExtensionContributionIcon)
         : null;
   if (!id || !kind || !label || description === null || icon === null) return null;
 

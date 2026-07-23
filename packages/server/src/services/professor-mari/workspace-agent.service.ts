@@ -19,10 +19,7 @@ import { parseTextualToolCalls } from "../llm/textual-tool-call-parser.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
 import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../llm/local-sidecar.js";
 import { createChatsStorage } from "../storage/chats.storage.js";
-import {
-  mergeCustomParameters,
-  normalizeServiceTier,
-} from "../../routes/generate/generate-route-utils.js";
+import { mergeCustomParameters, normalizeServiceTier } from "../../routes/generate/generate-route-utils.js";
 import {
   appendReadableAttachmentsToContent,
   extractFileAttachmentInputs,
@@ -64,10 +61,7 @@ import type {
 import { getMariDbService } from "../mari-db/mari-db.service.js";
 import { getProfessorMariWorkspaceSkillsService } from "./workspace-skills.service.js";
 import { sidecarModelService } from "../sidecar/sidecar-model.service.js";
-import {
-  getWorkspaceShellSandboxStatus,
-  spawnWorkspaceSandboxedShell,
-} from "./workspace-shell-sandbox.js";
+import { getWorkspaceShellSandboxStatus, spawnWorkspaceSandboxedShell } from "./workspace-shell-sandbox.js";
 import { personalServerExtensionRuntime } from "../extensions/personal-server-extension-runtime.js";
 import {
   isPackageManagerMutationCommand,
@@ -434,6 +428,7 @@ Workspace defaults:
 - Use the structured \`app_data\` workspace command, not shell, for character/persona/lorebook/lorebook-entry/theme/Personal Extension/agent/preset reads, creation, and updates.
 - Use Mari CLI commands for images, wiki reads, code/workspace tasks, agents, tools, raw DB work, or anything \`app_data\` does not cover. Only write raw files when no CLI/helper path fits.
 - You may create and update Personal Extension drafts with \`personal_extension.create\` and \`personal_extension.update\`. These actions always disable changed code and clear its approval. Never claim to approve, enable, or run an extension: only the user can review the exact code hash and choose **Review and Run** in **Settings → Addons → Personal Extensions**.
+- For user-facing Browser Extension UI, use \`marinara.ui.registerContribution(...)\`. It can add a trusted Marinara-rendered top-bar button, Extensions menu item, or right-side panel. Panels may contain headings, text, preformatted output, buttons, text inputs, selects, toggles, sliders, color controls, and spacers. Use \`onActivate\` and \`onEvent\` for behavior and update the returned handle when the view changes. Never write extension code that expects \`document\`, \`window\`, \`innerHTML\`, host CSS selectors, React internals, unrestricted \`fetch\`, or direct Marinara API access; those capabilities are deliberately absent.
 - Raw \`bash\` commands run in an OS sandbox with network access denied, inherited secrets removed, and filesystem writes confined to the workspace. If the sandbox is unavailable, raw shell fails closed; use structured workspace tools.
 - Use the \`dependency\` tool when a source change needs a public npm package. Raw package-manager installs are blocked. The tool resolves an exact version and integrity, then waits for the user to approve installation with lifecycle scripts disabled.
 - Ordinary source files can still be edited directly. Dependency manifests, lockfiles, launchers, installers, and CI workflows are staged for a separate user review instead of being changed silently. Never bypass that review through \`bash\`.
@@ -520,7 +515,7 @@ ${MARI_GUIDED_SEQUENCES}
 - Lorebook generation: put the complete \`entries\` array inside \`data\` on \`lorebook.create\`. Marinara saves the lorebook and its entries together, so do not create an empty lorebook and promise to fill it later.
 - For \`preset.create\`, put prompt sections in \`data.sections\` and preset variables in \`data.choiceBlocks\`. Each choice block needs \`variableName\`, \`question\`, and \`options\` with \`label\`/\`value\` pairs.
 - Existing-data changes: use \`apply:true\` for requested \`*.update\`, \`lorebook.updateEntry\`, and \`theme.setActive\`. Marinara will save first and show the user an in-chat Keep/Restore review card for reversible changes.
-- Personal Extensions: create or update the complete draft with \`apply:true\`, verify it with \`personal_extension.get\`, then tell the user the draft remains disabled until they review and run the exact hash in Settings → Addons. Do not offer or invent an approval action.
+- Personal Extensions: create or update the complete draft with \`apply:true\`, verify it with \`personal_extension.get\`, then tell the user the draft remains disabled until they review and run the exact hash in Settings → Addons. Browser UI should use \`marinara.ui.registerContribution\` for \`button\`, \`menu-item\`, or \`panel\` slots; panel controls are host-rendered and return values through \`onEvent\`. Do not offer or invent an approval action, DOM access, direct app-data access, or network access.
 - Use \`apply:false\` only for explicit preview/dry-run requests or when you need to inspect validation before making a risky change.
 - Do not say "preview" unless you show the concrete fields/content in \`say\` or the UI has returned an explicit preview artifact.
 
@@ -897,12 +892,7 @@ function tryParseJsonPayload(raw: string): Record<string, unknown> | null {
   } catch {
     // Fall through to the conservative container-closing recovery.
   }
-  const candidates = [
-    raw,
-    repaired,
-    closeOpenJsonContainers(raw),
-    repaired && closeOpenJsonContainers(repaired),
-  ];
+  const candidates = [raw, repaired, closeOpenJsonContainers(raw), repaired && closeOpenJsonContainers(repaired)];
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
@@ -1865,7 +1855,8 @@ export class ProfessorMariWorkspaceService {
           if (finalAction.visibleText) {
             assistantText = appendVisibleText(assistantText, finalAction.visibleText);
             appendTraceText(workspaceTrace, finalAction.visibleText);
-            if (finalAction.suggestions.length > 0) args.onEvent({ type: "suggestions", data: finalAction.suggestions });
+            if (finalAction.suggestions.length > 0)
+              args.onEvent({ type: "suggestions", data: finalAction.suggestions });
             if (finalAction.plan.length > 0) args.onEvent({ type: "plan", data: finalAction.plan });
           } else if (finalAction.commands.length > 0) {
             const content =

@@ -3,7 +3,7 @@ import type { ChangeEvent, ReactNode, RefObject } from "react";
 import { cn } from "../../lib/utils";
 import { Avatar, NoodleLogo } from "./NoodleShell";
 
-export type NoodleProfileTab = "posts" | "likes" | "media";
+type NoodleProfileTab = "posts" | "likes" | "media";
 
 const fieldClass =
   "mari-chrome-field h-9 w-full min-w-0 rounded-md border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] px-3 text-xs text-[var(--foreground)] outline-none transition-colors focus:border-[var(--noodle-blue)]";
@@ -16,10 +16,11 @@ const profileTabs: Array<{ id: NoodleProfileTab; label: string }> = [
   { id: "media", label: "Media" },
 ];
 
-export interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTab> {
+interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTab> {
   mobileHeader: ReactNode;
   account: Parameters<typeof Avatar>[0]["account"];
   displayHandle: string;
+  handleMeta?: ReactNode;
   banner?: {
     url: string;
     canEdit: boolean;
@@ -56,6 +57,7 @@ export interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTa
   touchActions?: boolean;
   location?: string;
   bioContent: ReactNode;
+  contentActions?: ReactNode;
   connections?: { followingCount: number; followerCount: number; onOpenFollowing: () => void; onOpenFollowers: () => void };
   tabs?: Array<{ id: TTab; label: ReactNode; ariaLabel?: string }>;
   activeTab: TTab;
@@ -68,6 +70,7 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
   mobileHeader,
   account,
   displayHandle,
+  handleMeta,
   banner,
   avatarUpload,
   editor,
@@ -79,6 +82,7 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
   touchActions = false,
   location,
   bioContent,
+  contentActions,
   connections,
   tabs,
   activeTab,
@@ -130,8 +134,13 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
         />
       )}
 
-      <div className="px-4 pb-5">
-        <div className={cn("flex items-end justify-between gap-3", hasBanner ? "-mt-10" : "pt-5")}>
+      <div className={decorativeBanner ? "px-6 pb-3" : "px-4 pb-5"}>
+        <div
+          className={cn(
+            "flex items-end justify-between gap-3",
+            hasBanner ? "-mt-10" : "pt-5",
+          )}
+        >
           {avatarUpload ? <button
             type="button"
             onClick={() => {
@@ -150,7 +159,13 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
                 Uploading
               </span>
             )}
-          </button> : <Avatar account={account} size="lg" />}
+          </button> : decorativeBanner ? (
+            <div className="shrink-0 rounded-full ring-4 ring-[var(--background)]">
+              <Avatar account={account} size="lg" solid />
+            </div>
+          ) : (
+            <Avatar account={account} size="lg" />
+          )}
           {avatarUpload && <input
             ref={avatarUpload.fileRef}
             type="file"
@@ -240,8 +255,12 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
         ) : (
           <div className="mt-3">
             <h3 className="text-xl font-bold leading-tight">{account.displayName}</h3>
-            <p className="text-sm text-[var(--muted-foreground)]">@{displayHandle || "noodle"}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--muted-foreground)]">
+              <span>@{displayHandle || "noodle"}</span>
+              {handleMeta}
+            </div>
             {bioContent}
+            {contentActions}
             {location && (
               <p className="mt-3 flex items-center gap-1.5 text-sm text-[var(--muted-foreground)]">
                 <MapPin size={15} className="text-[var(--noodle-blue)]" />

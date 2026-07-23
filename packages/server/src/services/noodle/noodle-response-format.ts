@@ -1,4 +1,8 @@
-import { isOpenAIGpt56Model, NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH } from "@marinara-engine/shared";
+import {
+  isOpenAIGpt56Model,
+  NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH,
+  NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH,
+} from "@marinara-engine/shared";
 
 export const NOODLE_JSON_OUTPUT_HEADING = "# JSON Output Format";
 
@@ -108,7 +112,7 @@ const privatePostSchema = {
   type: "object",
   properties: {
     title: { type: ["string", "null"], maxLength: NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH },
-    content: { type: "string" },
+    content: { type: "string", maxLength: NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH },
   },
   required: ["title", "content"],
   additionalProperties: false,

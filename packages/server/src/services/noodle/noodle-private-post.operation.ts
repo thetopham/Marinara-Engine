@@ -36,17 +36,16 @@ export async function generateNoodlePrivatePost(
   if (!settings.enableNoodler) return { status: "disabled" };
 
   const locked = await tryNoodlePrivateAccountOperation(request.targetAccountId, async () => {
-    if (!(await noodle.getPrivateAccountById(request.targetAccountId))) {
+    const account = await noodle.getPrivateAccountById(request.targetAccountId);
+    if (!account) {
       return { status: "private_account_not_found" } as const;
     }
     const connectionId = request.connectionId ?? settings.generationConnectionId;
     if (!connectionId) return { status: "connection_required" } as const;
     const connection = await createConnectionsStorage(db).getWithKey(connectionId);
     if (!connection) return { status: "connection_not_found" } as const;
-    const generated = await generatePrivatePost(db, { request, connection });
-    return generated.ok
-      ? ({ status: "generated", post: generated.post } as const)
-      : ({ status: "private_account_not_found" } as const);
+    const post = await generatePrivatePost(db, { account, request, connection });
+    return { status: "generated", post } as const;
   });
   return locked.acquired ? locked.value : { status: "busy" };
 }

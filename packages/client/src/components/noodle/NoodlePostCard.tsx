@@ -594,7 +594,7 @@ interface NoodlePostCardCtx {
   appendToReply: (text: string) => void;
   reactionPendingFor: (postId: string, type: "like" | "repost", parentInteractionId?: string | null) => boolean;
   createInteractionPendingFor: (postId: string, type: NoodleInteractionType, parentInteractionId?: string | null) => boolean;
-  updatePost: { isPending: boolean };
+  updatePostPending: boolean;
   /** Human controller edit/delete capability. Viewer-only projections set this false. */
   postManagement: boolean;
   /** Private-title editing. Public Noodle omits this capability and remains titleless. */
@@ -746,7 +746,7 @@ export function useNoodlePostCardController(options: NoodlePostCardControllerOpt
     appendToReply,
     reactionPendingFor: options.reactionPendingFor,
     createInteractionPendingFor: options.createInteractionPendingFor,
-    updatePost: { isPending: options.updatePostPending },
+    updatePostPending: options.updatePostPending,
     openAuthorProfile: options.openAuthorProfile,
     titleEditing: options.titleMaxLength
       ? {
@@ -799,7 +799,7 @@ export function NoodlePostCard({
     appendToReply,
     reactionPendingFor,
     createInteractionPendingFor,
-    updatePost,
+    updatePostPending,
     titleEditing,
     media,
     replyManagement,
@@ -1166,10 +1166,10 @@ export function NoodlePostCard({
                   <button
                     type="button"
                     onClick={() => saveEditedPost(post)}
-                    disabled={!editingPostContent.trim() || updatePost.isPending}
+                    disabled={!editingPostContent.trim() || updatePostPending}
                     className="h-8 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {updatePost.isPending ? "Saving" : "Save"}
+                    {updatePostPending ? "Saving" : "Save"}
                   </button>
                 </div>
               </div>

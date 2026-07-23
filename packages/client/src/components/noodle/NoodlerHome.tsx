@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Coins,
   Eye,
   Link,
   Loader2,
@@ -67,13 +68,20 @@ import { cn } from "../../lib/utils";
 import { useUIStore } from "../../stores/ui.store";
 import { BrowserChrome, formatTime } from "./NoodleBrowserChrome";
 import {
+  NoodleAnchoredPopover,
   NoodleComposerShell,
+  NoodleComposerToolRow,
   NoodlePostCard,
+  NoodleToolButton,
   type NoodlePostCardModel,
   useNoodlePostCardController,
 } from "./NoodlePostCard";
 import { Avatar, NoodleShell, NOODLE_PERSONA_SWITCHER_PAGE_SIZE, NOODLE_PINK, useNoodleAccent } from "./NoodleShell";
-import { NoodleProfileSurface, type NoodleProfileTab } from "./NoodleProfileSurface";
+import { NoodleProfileSurface } from "./NoodleProfileSurface";
+import {
+  ConversationMediaPickerPanel,
+  type ConversationMediaPickerTabId,
+} from "../chat/ConversationMediaPickerPanel";
 import { Modal } from "../ui/Modal";
 import type { NoodleNavigationState } from "./noodle-navigation.types";
 
@@ -90,7 +98,7 @@ interface PrivatePostSubmission {
   ppvPrice: number | null;
 }
 
-type NoodlerProfileTab = NoodleProfileTab | "subscribers";
+type NoodlerProfileTab = "posts" | "media" | "subscribers";
 
 function toNoodlePostCardModel(view: NoodlerPostView, profile: NoodlerStageProfile): NoodlePostCardModel {
   return {
@@ -588,6 +596,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     : null;
 
   const shellProps = {
+    appMode: "noodler" as const,
     activeView:
       navigation.mode === "private" && navigation.view === "profile"
         ? "profile" as const
@@ -774,13 +783,11 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
       <NoodleShell {...shellProps} rightRail={emptyRightRail}>
       <NoodlerFrame onBack={() => onNavigate({ mode: "private", view: "profiles" })} title={selectedProfile.displayName}>
         <StageProfileView
+          key={`${selectedProfile.id}:${shellPersonaAccount?.id ?? "no-viewer"}`}
           profile={selectedProfile}
           posts={postsQuery.data ?? []}
           viewerCreator={selectedViewerCreator}
           viewerAccount={shellPersonaAccount}
-          viewerLoading={viewerQuery.isLoading}
-          viewerError={viewerQuery.isError}
-          onRetryViewer={() => void viewerQuery.refetch()}
           postCardCtx={postCardCtx}
           viewerAccounts={viewerAccounts}
           isLoading={postsQuery.isLoading}
@@ -1698,9 +1705,6 @@ function StageProfileView({
   posts,
   viewerCreator,
   viewerAccount,
-  viewerLoading,
-  viewerError,
-  onRetryViewer,
   postCardCtx,
   viewerAccounts,
   isLoading,
@@ -1724,9 +1728,6 @@ function StageProfileView({
   posts: NoodlerManagedPost[];
   viewerCreator: NonNullable<ReturnType<typeof useNoodlerViewer>["data"]>["creators"][number] | null;
   viewerAccount: NoodleAccount | null;
-  viewerLoading: boolean;
-  viewerError: boolean;
-  onRetryViewer: () => void;
   postCardCtx: ReturnType<typeof useNoodlePostCardController>["ctx"];
   viewerAccounts: NoodleAccount[];
   isLoading: boolean;
@@ -1752,22 +1753,43 @@ function StageProfileView({
   const subscribersQuery = useNoodlerSubscribers(profile.id);
   const accent = useNoodleAccent();
   const viewingOwnCreator = Boolean(viewerAccount && profile.publicAccountId === viewerAccount.id);
-  const managedPostById = new Map(posts.map((post) => [post.id, post]));
+  const viewerPostById = new Map((viewerCreator?.posts ?? []).map((post) => [post.id, post]));
   const projectedPosts = viewingOwnCreator
     ? posts.map((post) => ({ kind: "card" as const, model: toManagedPostCardModel(post, profile) }))
-    : (viewerCreator?.posts ?? []).map((post) =>
-        post.locked && revealedManagedPostIds.has(post.id) && managedPostById.has(post.id)
-          ? {
-              kind: "managed-reveal" as const,
-              model: toManagedPostCardModel(managedPostById.get(post.id)!, profile),
-            }
-          : post.locked
-            ? { kind: "locked" as const, post }
-          : { kind: "card" as const, model: toNoodlePostCardModel(post, viewerCreator!.profile) },
-      );
+    : posts.map((managedPost) => {
+        const viewerPost = viewerPostById.get(managedPost.id);
+        if (revealedManagedPostIds.has(managedPost.id)) {
+          return {
+            kind: "managed-reveal" as const,
+            model: toManagedPostCardModel(managedPost, profile),
+          };
+        }
+        if (!viewerPost) {
+          return {
+            kind: "controller-locked" as const,
+            post: {
+              id: managedPost.id,
+              authorAccountId: managedPost.authorAccountId,
+              access: managedPost.access,
+              ppvPrice: managedPost.ppvPrice,
+              locked: true,
+              title: null,
+              content: null,
+              imageUrl: null,
+              imagePrompt: null,
+              metadata: null,
+              createdAt: managedPost.createdAt,
+              interactions: [],
+            } satisfies NoodlerPostView,
+          };
+        }
+        return viewerPost.locked
+          ? { kind: "locked" as const, post: viewerPost }
+          : { kind: "card" as const, model: toNoodlePostCardModel(viewerPost, profile) };
+      });
   const visiblePosts = projectedPosts.filter((item) => {
     if (activeTab === "posts") return true;
-    if (item.kind === "locked") return false;
+    if (item.kind === "locked" || item.kind === "controller-locked") return false;
     if (activeTab === "media") return Boolean(item.model.imageUrl);
     return false;
   });
@@ -1811,20 +1833,21 @@ function StageProfileView({
             detail="When a viewer subscribes to this creator, they will appear here."
           />
         )
-      ) : (viewingOwnCreator ? isLoading : viewerLoading) ? (
+      ) : isLoading ? (
         <div className="flex justify-center py-12"><Loader2 size={22} className="animate-spin text-[var(--noodle-blue)]" /></div>
-      ) : (viewingOwnCreator ? isError : viewerError) ? (
+      ) : isError ? (
         <EmptyState
           title="Private posts could not be loaded."
           action="Try again"
-          onAction={viewingOwnCreator ? onRetry : onRetryViewer}
+          onAction={onRetry}
         />
       ) : visiblePosts.length > 0 ? visiblePosts.map((item) =>
-          item.kind === "locked" ? (
+          item.kind === "locked" || item.kind === "controller-locked" ? (
             <LockedPrivatePostCard
               key={item.post.id}
               post={item.post}
               profile={profile}
+              controllerOnly={item.kind === "controller-locked"}
               subscribed={viewerCreator?.subscribed ?? false}
               unlockPending={unlockPending}
               subscriptionPending={subscriptionPending}
@@ -1837,7 +1860,6 @@ function StageProfileView({
                   next.add(item.post.id);
                   return next;
                 });
-                if (!managedPostById.has(item.post.id)) void onRetry();
               }}
             />
           ) : item.kind === "managed-reveal" ? (
@@ -1887,53 +1909,65 @@ function StageProfileView({
         mobileHeader={<div className="border-b border-[var(--noodle-divider)] px-4 py-3 text-sm font-bold lg:hidden">Creator profile</div>}
         account={profile}
         displayHandle={profile.handle}
+        handleMeta={<>
+          <DisclosureBadge mode={profile.disclosureMode} />
+          {profile.publicIdentity && (
+            <span className="text-xs text-[var(--muted-foreground)]">
+              Openly linked to {profile.publicIdentity.displayName} (@{profile.publicIdentity.handle})
+            </span>
+          )}
+        </>}
         decorativeBanner
         touchActions
-        leadingActions={viewerCreator && !viewingOwnCreator ? (
-          <button
-            type="button"
-            disabled={subscriptionPending}
-            onClick={() => onToggleSubscription(profile.id, viewerCreator.subscribed)}
-            className={cn(
-              "min-h-11 rounded-full px-4 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50",
-              viewerCreator.subscribed
-                ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
-                : "bg-[var(--foreground)] text-[var(--background)]",
-            )}
-          >
-            {viewerCreator.subscribed ? "Subscribed" : "Subscribe"}
-          </button>
-        ) : undefined}
-        editAction={{ onEdit, label: "Edit Profile" }}
-        secondaryActions={<>
-          <button
-            type="button"
-            onClick={() => setAccessSettingsOpen(true)}
-            className="min-h-11 rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold hover:bg-[var(--accent)]"
-          >
-            Access
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={deletePending}
-            aria-label={`Delete ${profile.displayName} profile`}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--destructive)]/45 text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:cursor-wait disabled:opacity-50"
-          >
-            {deletePending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-          </button>
-        </>}
-        bioContent={<>
-          {profile.bio && <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{profile.bio}</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <DisclosureBadge mode={profile.disclosureMode} />
-            {profile.publicIdentity && (
-              <span className="text-xs text-[var(--muted-foreground)]">
-                Openly linked to {profile.publicIdentity.displayName} (@{profile.publicIdentity.handle})
-              </span>
-            )}
+        leadingActions={
+          viewingOwnCreator ? (
+            <span className="inline-flex h-9 items-center rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold text-[var(--muted-foreground)]">
+              Your Profile
+            </span>
+          ) : viewerCreator ? (
+            <button
+              type="button"
+              disabled={subscriptionPending}
+              onClick={() => onToggleSubscription(profile.id, viewerCreator.subscribed)}
+              className={cn(
+                "h-9 rounded-full px-4 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50",
+                viewerCreator.subscribed
+                  ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
+                  : "bg-[var(--foreground)] text-[var(--background)]",
+              )}
+            >
+              {viewerCreator.subscribed ? "Subscribed" : "Subscribe"}
+            </button>
+          ) : undefined
+        }
+        bioContent={profile.bio && <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{profile.bio}</p>}
+        contentActions={
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="h-9 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90"
+            >
+              Edit Profile
+            </button>
+            <button
+              type="button"
+              onClick={() => setAccessSettingsOpen(true)}
+              className="h-9 rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold hover:bg-[var(--accent)]"
+            >
+              Access
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deletePending}
+              aria-label={`Delete ${profile.displayName} profile`}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--destructive)]/45 text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:cursor-wait disabled:opacity-50"
+            >
+              {deletePending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            </button>
           </div>
-        </>}
+        }
         tabs={[
           { id: "posts", label: "Posts" },
           { id: "media", label: "Media" },
@@ -2229,6 +2263,7 @@ function ViewerHub({
 function LockedPrivatePostCard({
   post,
   profile,
+  controllerOnly = false,
   subscribed,
   unlockPending,
   subscriptionPending,
@@ -2239,6 +2274,7 @@ function LockedPrivatePostCard({
 }: {
   post: NoodlerPostView;
   profile: NoodlerStageProfile;
+  controllerOnly?: boolean;
   subscribed: boolean;
   unlockPending: boolean;
   subscriptionPending: boolean;
@@ -2258,30 +2294,41 @@ function LockedPrivatePostCard({
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-[var(--noodle-divider)] p-3">
           <Lock size={18} className="shrink-0 text-[var(--noodle-blue)]" />
           <div className="min-w-40 flex-1">
-            <p className="text-xs font-bold">{post.access === "ppv" ? "PPV post" : "Subscriber-only post"}</p>
+            <p className="text-xs font-bold">
+              {controllerOnly
+                ? "Not visible to this viewer"
+                : post.access === "ppv"
+                  ? "PPV post"
+                  : "Subscriber-only post"}
+            </p>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              {post.access === "ppv" ? `${post.ppvPrice ?? 0} credits to unlock` : "Subscribe to reveal this post."}
+              {controllerOnly
+                ? "Open the controller tools to manage this post."
+                : post.access === "ppv"
+                  ? `${post.ppvPrice ?? 0} credits to unlock`
+                  : "Subscribe to reveal this post."}
             </p>
           </div>
-          {post.access === "ppv" ? (
-            <button
-              type="button"
-              disabled={unlockPending}
-              onClick={() => onUnlock(post.id)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:!text-zinc-950"
-            >
-              <Eye size={14} /> Unlock
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={subscriptionPending}
-              onClick={() => onToggleSubscription(profile.id, subscribed)}
-              className="min-h-10 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Subscribe
-            </button>
-          )}
+          {!controllerOnly &&
+            (post.access === "ppv" ? (
+              <button
+                type="button"
+                disabled={unlockPending}
+                onClick={() => onUnlock(post.id)}
+                className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:!text-zinc-950"
+              >
+                <Eye size={14} /> Unlock
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={subscriptionPending}
+                onClick={() => onToggleSubscription(profile.id, subscribed)}
+                className="min-h-10 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Subscribe
+              </button>
+            ))}
           {onManage && (
             <button
               type="button"
@@ -2298,6 +2345,8 @@ function LockedPrivatePostCard({
     </article>
   );
 }
+
+type PrivateComposerTool = "media" | "coin";
 
 function PrivatePostComposer({
   profile,
@@ -2319,6 +2368,10 @@ function PrivatePostComposer({
   const [ppvPrice, setPpvPrice] = useState("5");
   const [postError, setPostError] = useState<string | null>(null);
   const [guideError, setGuideError] = useState<string | null>(null);
+  const [activeTool, setActiveTool] = useState<PrivateComposerTool | null>(null);
+  const [mediaPickerTab, setMediaPickerTab] = useState<ConversationMediaPickerTabId>("emoji");
+  const mediaToolRef = useRef<HTMLDivElement | null>(null);
+  const coinToolRef = useRef<HTMLDivElement | null>(null);
   const parsedPrice = Number(ppvPrice);
   const pending = manualPending || guidePending;
   const guide = serializePrivatePostGuide(title, body);
@@ -2330,8 +2383,12 @@ function PrivatePostComposer({
     setPpvPrice("5");
     setPostError(null);
     setGuideError(null);
+    setActiveTool(null);
     setExpanded(false);
   };
+
+  const toggleTool = (tool: PrivateComposerTool) =>
+    setActiveTool((current) => (current === tool ? null : tool));
 
   const submission = (): PrivatePostSubmission => ({
     profileId: profile.id,
@@ -2402,7 +2459,10 @@ function PrivatePostComposer({
       header={
         <button
           type="button"
-          onClick={() => setExpanded(false)}
+          onClick={() => {
+            setActiveTool(null);
+            setExpanded(false);
+          }}
           disabled={pending}
           aria-expanded="true"
           className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs font-bold text-[var(--noodle-blue)] hover:bg-[var(--accent)] disabled:opacity-50"
@@ -2413,37 +2473,28 @@ function PrivatePostComposer({
       }
       avatar={<ProfileInitial profile={profile} />}
       tools={
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs font-semibold">
-            <span>Access</span>
-            <select
-              value={access}
-              onChange={(event) => setAccess(event.target.value as NoodlePostAccess)}
-              disabled={pending}
-              className="h-8 rounded-md border border-[var(--noodle-divider)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)]"
-            >
-              <option value="public">Public</option>
-              <option value="subscriber">Subscribers</option>
-              <option value="ppv">PPV</option>
-            </select>
-          </label>
-          {access === "ppv" && (
-            <label className="flex items-center gap-2 text-xs font-semibold">
-              <span>Price</span>
-              <input
-                type="number"
-                min="0"
-                max="999999"
-                step="0.01"
-                value={ppvPrice}
-                onChange={(event) => setPpvPrice(event.target.value)}
+        <NoodleComposerToolRow
+          image={{ disabled: true }}
+          poll={{ disabled: true }}
+          media={{
+            ref: mediaToolRef,
+            active: activeTool === "media",
+            disabled: pending,
+            onClick: () => toggleTool("media"),
+          }}
+          trailing={
+            <div ref={coinToolRef} className="relative">
+              <NoodleToolButton
+                title="Post visibility and price"
+                active={activeTool === "coin" || access !== "public"}
                 disabled={pending}
-                aria-label="PPV price in credits"
-                className="h-8 w-24 rounded-md border border-[var(--noodle-divider)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)]"
-              />
-            </label>
-          )}
-        </div>
+                onClick={() => toggleTool("coin")}
+              >
+                <Coins size={18} />
+              </NoodleToolButton>
+            </div>
+          }
+        />
       }
       action={
         <div className="flex flex-wrap justify-end gap-2">
@@ -2460,14 +2511,74 @@ function PrivatePostComposer({
             type="button"
             onClick={() => void publish()}
             disabled={pending || !body.trim()}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 [&_svg]:!text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {manualPending
-              ? <Loader2 size={13} className="animate-spin text-zinc-950" />
-              : <Send size={13} className="text-zinc-950" />}
+              ? <Loader2 size={13} className="animate-spin" />
+              : <Send size={13} />}
             {manualPending ? "Posting…" : "Post"}
           </button>
         </div>
+      }
+      popovers={
+        <>
+          {activeTool === "media" && (
+            <NoodleAnchoredPopover anchorRef={mediaToolRef} wide>
+              <ConversationMediaPickerPanel
+                tabs={[{ id: "emoji", label: "Emoji" }]}
+                activeTab={mediaPickerTab}
+                onActiveTabChange={setMediaPickerTab}
+                onClose={() => setActiveTool(null)}
+                onEmojiSelect={(emoji) => setBody((current) => current + emoji)}
+                onGifSelect={() => {}}
+                onStickerSelect={(name) => setBody((current) => `${current}sticker:${name}:`)}
+                className="w-full !border-[var(--marinara-chat-chrome-panel-border)] !bg-[var(--background)] !text-[var(--foreground)] shadow-2xl shadow-black/35"
+              />
+            </NoodleAnchoredPopover>
+          )}
+          {activeTool === "coin" && (
+            <NoodleAnchoredPopover anchorRef={coinToolRef}>
+              <div className="marinara-chat-popover space-y-3 rounded-xl border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] p-3 text-[var(--foreground)] shadow-2xl shadow-black/35">
+                <p className="text-xs font-bold">Who can see this post</p>
+                <div className="grid grid-cols-3 gap-1 rounded-md bg-[var(--accent)] p-1">
+                  {(["public", "subscriber", "ppv"] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={access === option}
+                      onClick={() => setAccess(option)}
+                      className={cn(
+                        "min-h-8 rounded px-2 text-xs font-bold capitalize",
+                        access === option
+                          ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                          : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+                      )}
+                    >
+                      {option === "subscriber" ? "Subscribers" : option.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                {access === "ppv" && (
+                  <label className="block space-y-1">
+                    <span className="text-[0.68rem] font-semibold uppercase tracking-normal text-[var(--marinara-chat-chrome-panel-muted)]">
+                      Unlock price (credits)
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="999999"
+                      step="0.01"
+                      value={ppvPrice}
+                      onChange={(event) => setPpvPrice(event.target.value)}
+                      aria-label="PPV price"
+                      className="mari-chrome-field h-9 w-full rounded-md border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--noodle-blue)]"
+                    />
+                  </label>
+                )}
+              </div>
+            </NoodleAnchoredPopover>
+          )}
+        </>
       }
       footer={(postError || guideError) && (
         <div className="mt-2 space-y-1 pl-14 text-xs text-[var(--destructive)]" role="alert">

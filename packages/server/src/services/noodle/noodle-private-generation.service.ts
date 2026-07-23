@@ -1,4 +1,6 @@
 import {
+  NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH,
+  NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH,
   noodleGeneratedPrivatePostSchema,
   type APIProvider,
   type NoodleAccount,
@@ -25,13 +27,10 @@ import { noodleResponseFormat } from "./noodle-response-format.js";
 type GenerationConnection = NonNullable<Awaited<ReturnType<ReturnType<typeof createConnectionsStorage>["getWithKey"]>>>;
 
 export type PrivatePostGenerationInput = {
+  account: NoodleAccount;
   request: NoodlePrivateGenerationRequest;
   connection: GenerationConnection;
 };
-
-export type PrivatePostGenerationResult =
-  | { ok: true; post: NoodlerManagedPost }
-  | { ok: false; error: "private_account_not_found"; message: string };
 
 const PRIVATE_POST_MAX_TOKENS = 2048;
 
@@ -91,6 +90,19 @@ export function protectPrivateGeneratedIdentity(
     .trim();
 }
 
+function protectBoundedPrivateGeneratedText(
+  value: string | null | undefined,
+  mode: NoodleIdentityDisclosure,
+  publicIdentity: PublicIdentity | null,
+  maxLength: number,
+): string | null {
+  const protectedValue = protectPrivateGeneratedIdentity(value, mode, publicIdentity);
+  if (!protectedValue || protectedValue.length <= maxLength) return protectedValue;
+  const lastCodeUnit = protectedValue.charCodeAt(maxLength - 1);
+  const safeEnd = lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff ? maxLength - 1 : maxLength;
+  return protectedValue.slice(0, safeEnd).trimEnd();
+}
+
 function formatPrivatePostHistory(posts: NoodlerManagedPost[], protect: (value: string) => string): string {
   if (posts.length === 0) return "No previous posts on this private page.";
   return posts
@@ -146,16 +158,9 @@ function parsePrivatePost(content: string) {
 export async function generatePrivatePost(
   db: DB,
   input: PrivatePostGenerationInput,
-): Promise<PrivatePostGenerationResult> {
+): Promise<NoodlerManagedPost> {
   const noodle = createNoodleStorage(db);
-  const account = await noodle.getPrivateAccountById(input.request.targetAccountId);
-  if (!account) {
-    return {
-      ok: false,
-      error: "private_account_not_found",
-      message: "NoodleR account not found.",
-    };
-  }
+  const { account } = input;
 
   const connections = createConnectionsStorage(db);
   const fallbackConnection = await connections.getFallbackForMain();
@@ -240,8 +245,18 @@ export async function generatePrivatePost(
   }
 
   const protectedGenerated = {
-    title: protectPrivateGeneratedIdentity(generated.title, disclosureMode, publicIdentity),
-    content: protectPrivateGeneratedIdentity(generated.content, disclosureMode, publicIdentity),
+    title: protectBoundedPrivateGeneratedText(
+      generated.title,
+      disclosureMode,
+      publicIdentity,
+      NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH,
+    ),
+    content: protectBoundedPrivateGeneratedText(
+      generated.content,
+      disclosureMode,
+      publicIdentity,
+      NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH,
+    ),
   };
   if (!protectedGenerated.content) throw new Error("Private generation returned no usable post content.");
   const validatedGenerated = noodleGeneratedPrivatePostSchema.parse(protectedGenerated);
@@ -257,5 +272,5 @@ export async function generatePrivatePost(
     metadata: {},
   });
   if (!post) throw new Error("Failed to persist the generated private NoodleR post.");
-  return { ok: true, post };
+  return post;
 }

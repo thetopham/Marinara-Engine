@@ -3135,7 +3135,7 @@ export function NoodleHome({ navigation, onNavigate }: NoodleHomeProps) {
         appendToReply,
         reactionPendingFor,
         createInteractionPendingFor,
-        updatePost,
+        updatePostPending: updatePost.isPending,
         media: {
           setImageLightbox,
           replyImageUrl,
@@ -3608,6 +3608,7 @@ export function NoodleHome({ navigation, onNavigate }: NoodleHomeProps) {
 
   return (
     <NoodleShell
+      appMode="noodle"
       activeView={
         activeNoodleView === "home" ||
         activeNoodleView === "search" ||

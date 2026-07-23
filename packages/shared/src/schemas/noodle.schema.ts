@@ -12,6 +12,7 @@ export const noodleCarryoverTargetSchema = z.enum(["conversation", "roleplay", "
 export const noodleThemeSchema = z.enum(["system", "light", "dark"]);
 export const noodleIdentityDisclosureSchema = z.enum(["open", "hinted", "secret"]);
 export const NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH = 200;
+export const NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH = 4000;
 export const NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH = 2000;
 
 export const DEFAULT_NOODLE_SETTINGS = {
@@ -327,7 +328,7 @@ const noodlePrivatePostTitleUpdateSchema = noodlePrivatePostTitleValueSchema
 const noodlePrivatePostCreateShape = {
   targetAccountId: z.string().min(1),
   title: noodlePrivatePostTitleSchema,
-  content: z.string().trim().min(1).max(4000),
+  content: z.string().trim().min(1).max(NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH),
 };
 
 export const noodlePrivatePostCreateSchema = z.union([
@@ -345,7 +346,7 @@ export const noodlePrivatePostCreateSchema = z.union([
 export const noodlePrivatePostUpdateSchema = z
   .object({
     title: noodlePrivatePostTitleUpdateSchema,
-    content: z.string().trim().min(1).max(4000).optional(),
+    content: z.string().trim().min(1).max(NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH).optional(),
     imageUrl: z.string().max(2000).nullable().optional(),
     imagePrompt: z.string().max(2000).nullable().optional(),
   })
@@ -492,7 +493,7 @@ export const noodleGeneratedPostSchema = z.object({
 export const noodleGeneratedPrivatePostSchema = z
   .object({
     title: noodlePrivatePostTitleSchema,
-    content: z.string().trim().min(1).max(4000),
+    content: z.string().trim().min(1).max(NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH),
     imagePrompt: z.string().max(2000).nullable().optional(),
     poll: noodlePollInputSchema.nullable().optional(),
   })

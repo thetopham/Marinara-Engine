@@ -1892,7 +1892,7 @@ export function ConversationInput({
           )}
           aria-label={t("chat.input.show")}
         >
-          <span className="truncate">Message… /cmds</span>
+          <span className="truncate">{t("chat.input.mobile.message")}</span>
         </button>
       </div>
     );
@@ -2088,7 +2088,7 @@ export function ConversationInput({
               ? "bg-foreground/10 text-foreground/75 ring-1 ring-foreground/20"
               : "text-foreground/40 hover:bg-foreground/10 hover:text-foreground/70",
           )}
-          title={t("chat.input.attachFile")}
+          title={t("chat.input.attachFiles")}
         >
           <Paperclip size="1rem" />
         </button>
@@ -2137,17 +2137,17 @@ export function ConversationInput({
             )}
             title={
               mobilePickerOpen
-                ? "Show keyboard"
+                ? t("chat.input.showKeyboard")
                 : showMobileToolsTab
-                  ? "Emoji, GIFs, stickers & tools"
-                  : "Emoji, GIFs & stickers"
+                  ? t("chat.input.mediaAndTools")
+                  : t("chat.input.media")
             }
             aria-label={
               mobilePickerOpen
-                ? "Show keyboard"
+                ? t("chat.input.showKeyboard")
                 : showMobileToolsTab
-                  ? "Emoji, GIFs, stickers, and tools"
-                  : "Emoji, GIFs and stickers"
+                  ? t("chat.input.mediaAndTools")
+                  : t("chat.input.media")
             }
           >
             {mobilePickerOpen ? <Keyboard size="1.25rem" /> : <Smile size="1.25rem" />}

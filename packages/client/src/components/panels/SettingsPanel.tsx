@@ -2651,7 +2651,7 @@ function QuickRepliesSetting() {
 }
 
 function GeneralSettings() {
-  const { t } = useTranslation();
+  const { t, i18n: localization } = useTranslation();
   const localize = useLocalizedUiText();
   const language = useUIStore((s) => s.language);
   const setLanguage = useUIStore((s) => s.setLanguage);
@@ -3075,7 +3075,12 @@ function GeneralSettings() {
             <div className="flex items-center gap-2">
               <span className="text-xs">{localize("Game auto-play segment delay")}</span>
               <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
-                {(gameAutoPlayDelay / 1000).toFixed(1)}s
+                {t("settings.units.secondsShort", {
+                  value: new Intl.NumberFormat(localization.resolvedLanguage ?? localization.language, {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                  }).format(gameAutoPlayDelay / 1000),
+                })}
               </span>
               <HelpTooltip
                 text={localize(
@@ -3093,8 +3098,8 @@ function GeneralSettings() {
               className="w-full accent-[var(--primary)]"
             />
             <div className="flex justify-between text-[0.625rem] text-[var(--muted-foreground)]">
-              <span>Short</span>
-              <span>Long</span>
+              <span>{t("settings.common.short")}</span>
+              <span>{t("settings.common.long")}</span>
             </div>
           </label>
         </div>

@@ -551,6 +551,7 @@ function getFaqSearchText(item: HomeFaqItem, localize: (englishText: string) => 
 /** Only mounted while the docs FAQ entry is open, so the index fetch stays lazy. */
 function FaqDocsAccess({ compact }: { compact?: boolean }) {
   const { data: index } = useDocsIndex();
+  const localize = useLocalizedUiText();
 
   return (
     <div className="mt-2 space-y-2">
@@ -560,9 +561,9 @@ function FaqDocsAccess({ compact }: { compact?: boolean }) {
           compact ? "text-[0.625rem]" : "text-[0.65625rem]",
         )}
       >
-        <p className="text-[var(--muted-foreground)]/70">On disk at:</p>
+        <p className="text-[var(--muted-foreground)]/70">{localize("On disk at:")}</p>
         <code className="block break-all text-[var(--foreground)]/85">
-          {index ? index.root : "the docs folder inside your Marinara install folder"}
+          {index ? index.root : localize("the docs folder inside your Marinara install folder")}
         </code>
       </div>
       <button
@@ -574,7 +575,7 @@ function FaqDocsAccess({ compact }: { compact?: boolean }) {
         )}
       >
         <BookOpen size={compact ? "0.6875rem" : "0.75rem"} />
-        Open Documentation
+        {localize("Open Documentation")}
       </button>
     </div>
   );

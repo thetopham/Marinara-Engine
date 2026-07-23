@@ -1879,6 +1879,7 @@ function ProfessorMariSkillsMenu({
   onToggle: (skill: MariWorkspaceSkillDetail) => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const enabledCount = skills.filter((skill) => skill.enabled).length;
   const hasSkills = skills.length > 0;
 
@@ -1905,8 +1906,8 @@ function ProfessorMariSkillsMenu({
           type="button"
           onClick={onClose}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          aria-label="Close skills"
-          title="Close"
+          aria-label={t("home.professorMari.skills.close")}
+          title={t("home.professorMari.skills.close")}
         >
           <X size="0.95rem" />
         </button>
@@ -3428,7 +3429,7 @@ export function HomeProfessorMariChat({
               canSubmitMessage && !isBusy ? "hover:text-white active:scale-90" : "cursor-not-allowed opacity-40",
             )}
             aria-label={t("home.professorMari.send")}
-            title="Send"
+            title={t("home.professorMari.send")}
           >
             <Send size="0.9375rem" className={cn(canSubmitMessage && "translate-x-[1px]")} />
           </button>
@@ -3470,7 +3471,7 @@ export function HomeProfessorMariChat({
             onClick={onFloatingDismiss}
             className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] shadow-lg"
             aria-label={t("home.professorMari.dismiss")}
-            title="Dismiss"
+            title={t("home.professorMari.dismiss")}
           >
             <X size="0.65rem" />
           </button>
@@ -3494,7 +3495,7 @@ export function HomeProfessorMariChat({
               onClick={closeChatWindow}
               className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-8 w-8 items-center justify-center rounded-md p-0"
               aria-label={t("home.professorMari.close")}
-              title="Close"
+              title={t("home.professorMari.close")}
             >
               <X size="0.9rem" />
             </button>
@@ -3529,7 +3530,7 @@ export function HomeProfessorMariChat({
             onClick={onFloatingDismiss}
             className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-7 w-7 items-center justify-center rounded-md p-0"
             aria-label={t("home.professorMari.dismiss")}
-            title="Dismiss"
+            title={t("home.professorMari.dismiss")}
           >
             <X size="0.85rem" />
           </button>
@@ -3642,8 +3643,8 @@ export function HomeProfessorMariChat({
                           type="button"
                           onClick={() => setChatHistoryOpen(false)}
                           className="mari-chrome-control mari-chrome-control--small h-8 w-8 p-0"
-                          aria-label="Close chats"
-                          title="Close"
+                          aria-label={t("home.professorMari.closeChats")}
+                          title={t("home.professorMari.closeChats")}
                         >
                           <X size="0.85rem" />
                         </button>
@@ -3844,7 +3845,7 @@ export function HomeProfessorMariChat({
                             onClick={closeChatWindow}
                             className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-8 w-8 items-center justify-center rounded-md p-0"
                             aria-label={t("home.professorMari.close")}
-                            title="Close"
+                            title={t("home.professorMari.close")}
                           >
                             <X size="0.9rem" />
                           </button>
@@ -4054,7 +4055,7 @@ export function HomeProfessorMariChat({
                                 : "cursor-not-allowed opacity-40",
                             )}
                             aria-label={t("home.professorMari.send")}
-                            title="Send"
+                            title={t("home.professorMari.send")}
                           >
                             <Send size="0.9375rem" className={cn(canSubmitMessage && "translate-x-[1px]")} />
                           </button>

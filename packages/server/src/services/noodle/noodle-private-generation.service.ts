@@ -1,5 +1,4 @@
 import {
-  createNoodlePoll,
   noodleGeneratedPrivatePostSchema,
   type APIProvider,
   type NoodleAccount,
@@ -20,7 +19,6 @@ import type { ChatMessage } from "../llm/base-provider.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
 import { createConnectionsStorage } from "../storage/connections.storage.js";
 import { createNoodleStorage } from "../storage/noodle.storage.js";
-import { normalizeNoodleImagePrompt } from "./noodle-image-prompt.js";
 import { formatNoodleMessagesForLog } from "./noodle-generation-log.js";
 import { noodleResponseFormat } from "./noodle-response-format.js";
 
@@ -117,8 +115,8 @@ export function buildPrivatePostMessages(input: {
     "Write only as the supplied private account. Do not create other accounts, interactions, follows, or public timeline activity.",
     "Use the private stage profile as supplied.",
     identityInstruction(input.disclosureMode, input.publicIdentity),
-    "An optional imagePrompt must be a concrete visual description for this post, or null when no image fits.",
-    "Return one JSON object with title, content, imagePrompt, and poll. Use null for title when a heading would not improve the post. Set poll to null unless a two-to-four-option poll naturally fits.",
+    "Write a concise title and a body for the post.",
+    "Return one JSON object with title and content only. Do not create a poll or image prompt.",
     "Return JSON only. No prose outside the JSON object.",
   ].join("\n");
   const user = [
@@ -227,7 +225,7 @@ export async function generatePrivatePost(
       {
         role: "user",
         content:
-          "The response was not one valid private-post JSON object. Return exactly one object with title, content, imagePrompt, and poll. Return JSON only.",
+          "The response was not one valid private-post JSON object. Return exactly one object with title and content only. Do not include a poll or image prompt. Return JSON only.",
       },
     ];
     logDebugOverride(
@@ -244,22 +242,19 @@ export async function generatePrivatePost(
   const protectedGenerated = {
     title: protectPrivateGeneratedIdentity(generated.title, disclosureMode, publicIdentity),
     content: protectPrivateGeneratedIdentity(generated.content, disclosureMode, publicIdentity),
-    imagePrompt: protectPrivateGeneratedIdentity(generated.imagePrompt, disclosureMode, publicIdentity),
-    poll: generated.poll,
   };
   if (!protectedGenerated.content) throw new Error("Private generation returned no usable post content.");
   const validatedGenerated = noodleGeneratedPrivatePostSchema.parse(protectedGenerated);
-  const poll = validatedGenerated.poll ? createNoodlePoll(validatedGenerated.poll) : null;
   const post = await noodle.createPrivatePost({
     authorAccountId: account.id,
     title: validatedGenerated.title,
     content: validatedGenerated.content,
     imageUrl: null,
-    imagePrompt: normalizeNoodleImagePrompt(validatedGenerated.imagePrompt),
+    imagePrompt: null,
     source: "generated",
     access: input.request.access,
     ppvPrice: input.request.access === "ppv" ? (input.request.ppvPrice ?? null) : null,
-    metadata: { ...(poll ? { poll } : {}) },
+    metadata: {},
   });
   if (!post) throw new Error("Failed to persist the generated private NoodleR post.");
   return { ok: true, post };

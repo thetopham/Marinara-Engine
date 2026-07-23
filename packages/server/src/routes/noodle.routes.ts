@@ -33,6 +33,7 @@ import {
   noodleStageProfileDraftRequestSchema,
   readNoodlePollFromMetadata,
   type NoodleAccount,
+  type NoodlerSubscriber,
   type NoodlerPostView,
 } from "@marinara-engine/shared";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
@@ -326,6 +327,33 @@ export async function noodleRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await noodle.unsubscribe(viewer.id, id);
     return { ok: true };
+  });
+
+  app.get("/noodler/accounts/:id/subscribers", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const { id } = req.params as { id: string };
+    if (!(await noodle.getPrivateAccountById(id))) {
+      return reply.code(404).send({ error: "NoodleR stage profile not found" });
+    }
+    const subscriptions = await noodle.listSubscriptionsForCreator(id);
+    const subscribers = (
+      await Promise.all(
+        subscriptions.map(async (subscription): Promise<NoodlerSubscriber | null> => {
+          const account = await noodle.getAccountById(subscription.viewerAccountId);
+          if (!account || account.visibility !== "public" || account.kind !== "persona") return null;
+          return {
+            id: account.id,
+            displayName: account.displayName,
+            handle: account.handle,
+            avatarUrl: account.avatarUrl,
+            avatarCrop: account.avatarCrop,
+            subscribedAt: subscription.createdAt,
+          };
+        }),
+      )
+    ).filter((subscriber): subscriber is NoodlerSubscriber => subscriber !== null);
+    return subscribers;
   });
 
   app.post("/noodler/posts/:id/unlock", async (req, reply) => {

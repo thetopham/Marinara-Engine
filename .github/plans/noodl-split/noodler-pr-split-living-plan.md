@@ -43,8 +43,8 @@ The product experience therefore needs both agency and life:
 
 | Order | Work | Status | Dependency |
 | --- | --- | --- | --- |
-| 0 | Slice 6b stabilization and browser proof | Required manual proof remains | Merged 1A–6b |
-| 1 | Slice 7 — roleplay authoring and creator-profile parity | Implemented on fork branch; not merged | 4, 5, 6, 6b |
+| 0 | Slice 6b stabilization and browser proof | Integrated Playwright proof passed with a Guided-output coverage gap; bare staging proof not isolated | Merged 1A–6b |
+| 1 | Slice 7 — roleplay authoring and creator-profile parity | Local branch contains the text-only Guided correction and unified profile implementation; focused validation and seeded browser proof pass; real-provider smoke remains; not merged | 4, 5, 6, 6b |
 | 2 | Slice 8 — toggleable text-only automatic creator posting and control plane | **Release-candidate requirement** | 7 authoring operation and stabilization gate |
 | 3 | Slice 8b — access-protected generated creator images | High-priority visual follow-up | 7 and 8 posting paths |
 | 4 | Slice 9a — quiet synthetic fan engagement | Planned after auto-posting | 6, 6b, 8 |
@@ -104,6 +104,35 @@ Required proof:
   actionable error states.
 - Confirm hinted/secret generated content and prompt data do not expose the linked
   public name/handle.
+
+**Proof receipt (2026-07-23):** seeded desktop and mobile Playwright Chromium runs
+passed on `noodl-split-7-roleplay-authoring` at `b2b9adc6`. They covered disabled
+route/surface hiding; stage-profile create/edit/delete; public/subscriber/PPV guided
+generation; viewer switching and hidden/subscriber/PPV access; subscribe, unlock,
+like, reply, repost, and reload persistence; loading, empty, disabled, forced-error
+retry, dark/light themes, and responsive bounds. A local OpenAI-compatible stub drove
+the real server generation path, verified that hinted/secret provider requests did
+not contain the linked public name/handle, deliberately returned those identifiers,
+and confirmed stored title/body/image-prompt output removed them. Screenshots were
+inspected after animations settled. No functional blocker was reproduced. Temporary
+specs, data, screenshots, traces, and the local server were removed.
+
+This is integrated branch proof, not an isolated run of bare `origin/staging`.
+Therefore it strengthens Slice 7 readiness but does not, by itself, close the
+historical claim that 6b alone passed before Slice 7 was applied. A real external
+provider smoke remains separate from the deterministic local-provider proof.
+
+**Follow-up gap (2026-07-23):** the proof exercised identity redaction with a
+non-null `imagePrompt`, while its stub returned `poll: null`. It therefore did not
+assert Slice 7's text-only output constraint. A real Guided run subsequently
+reproduced one composite post containing a title, body, poll, and image prompt.
+Static tracing confirms that the inherited private generator asks for, validates,
+persists, and displays those fields together. This does not invalidate the access,
+persistence, responsive-layout, or identity-redaction results above, but it blocks
+Slice 7 readiness until the output policy conforms to the slice boundary. A local
+correction now requests only title/body and defensively persists neither poll nor
+image-prompt output; server typechecking and build pass, while provider/browser
+regression proof remains required.
 
 Passing this gate proves the merged foundation and unblocks Slice 7. It does **not**
 make 6b a release candidate.
@@ -227,10 +256,27 @@ follows the user's selected persona instead of a second local picker.
 **Depends on:** merged Slices 4, 5, 6, and 6b plus the stabilization proof. The old fan
 branch is unrelated prior art. The reference branch is behavior reference only.
 
-**Current implementation status (2026-07-23):** implemented and pushed on branch
-`noodl-split-7-roleplay-authoring`; not yet merged. Automated type, build, and
-Noodle regression checks pass. Desktop/mobile browser verification and a successful
-real-provider guided-generation pass remain required before readiness is claimed.
+**Current implementation status (2026-07-23):** implemented on branch
+`noodl-split-7-roleplay-authoring`; not yet merged. The current local diff adds the
+title/body-only Guided correction and the unified creator-profile layout described
+below. Shared/server/client focused lint or type checks, the client production build,
+`regression:noodle`, and `regression:prompt` pass. Seeded desktop/mobile Playwright
+verification passes for the unified layout and subscriber-list contract. The earlier
+provider/browser coverage gap for a real Guided request remains: a successful
+real-external-provider title/body-only generation smoke and human usability pass are
+still required before readiness is claimed.
+
+**Unified-profile proof receipt (2026-07-23):** a seeded Playwright Chromium pass
+opened a managed profile as its linked persona and as a different viewer persona.
+It confirmed one profile/feed surface; the decorative fallback banner; coexisting
+Subscribe, Edit Profile, Access, and Delete controls; the collapsed per-profile
+composer above Posts/Media/Subscribers; subscriber empty and populated states; and
+desktop/mobile responsive bounds with no horizontal overflow. A subscribe action
+updated the count and list immediately, survived a page reload through the new
+subscriber endpoint, and was then undone so seeded state was restored. The Access
+dialog opened without changing policy. The mobile empty-state spacing was tightened
+after visual inspection so its primary message clears the fixed bottom navigation.
+No temporary browser artifacts remain.
 
 ### Commit 1 — Private post contracts, operations, and deterministic author identity
 
@@ -274,6 +320,35 @@ real-provider guided-generation pass remain required before readiness is claimed
   existing access filtering.
 - Add a collapsed, unobtrusive composer on the page. It always authors as the viewed
   managed stage profile and expands to the full NoodleR composer.
+- Use one unified profile surface, not separate viewer and management modes. The
+  selected viewer persona still determines subscribe, unlock, like, reply, repost,
+  and access-filtered post presentation, while human-controller actions for the
+  managed creator coexist visibly in the same header and post list.
+- Show Subscribe/Subscribed for the selected viewer alongside Edit Profile, Access,
+  and Delete for the human-controlled creator. Keep the axes distinct in behavior
+  even though they share one page: creator controls must not grant the selected
+  viewer access or interaction rights.
+- Render one post list only. Accessible posts may expose both viewer interactions
+  and creator edit/delete actions. Inaccessible posts remain locked for the selected
+  viewer, while an explicit controller edit/delete action may reveal the owned
+  content only inside that management action. Do not duplicate the feed or render an
+  unexplained “Creator controls” accordion.
+- Keep the selected persona's linked stage profile reachable through the shared
+  Profile navigation even though self-interaction rules exclude that creator from
+  the viewer feed. When the feed has no other visible creators, link its empty state
+  directly to the owned profile instead of implying that the profile disappeared.
+- Keep the collapsed “Post as this creator” composer directly below the profile
+  header. The collapsed row is text-first without an avatar; the expanded composer
+  retains the creator avatar, optional title, and body, with its collapse control in
+  the top-left header and a clearly icon-labeled Post action. It always targets the
+  viewed stage profile without changing the selected viewer persona.
+- Use Posts, Media, and Subscribers tabs. Subscribers shows the current subscriber
+  count and opens the subscriber list; no additional audience-privacy model is
+  required for this slice.
+- Give the profile header a plain solid-color fallback banner now. Persisted
+  user-selected cover media is desired but belongs with later media/upload plumbing.
+- Treat reference/mockup post authors and content as illustrative only; a creator
+  profile lists that creator's posts, not unrelated mockup authors.
 - Default to generation without forcing a separate guided mode. Guidance is an
   explicit button/action that uses the composer's current draft as input; it is not a
   required gate before every post. Existing access/PPV controls remain available.
@@ -281,7 +356,8 @@ real-provider guided-generation pass remain required before readiness is claimed
   literally; **Guide** transforms the current draft through the private generator.
   Labels, loading state, and failure copy must keep those outcomes unambiguous.
 - Image generation/selection, user attachments, and polls belong to later slices.
-  Keep their controls disabled/absent and do not activate existing backend scaffolding.
+  Their parity icons may remain visibly disabled before the capabilities land, but
+  must not activate existing backend scaffolding or silently generate output.
 
 ### Commit 3 — Create from an eligible public Noodle profile
 
@@ -305,10 +381,19 @@ real-provider guided-generation pass remain required before readiness is claimed
   rules for the selected viewer persona.
 - Do not add automatic posting, fan activity, image generation/selection, user
   attachments, or polls.
-- The confirmed future Guide output choices are title, text, image, and poll. Slice 7
-  remains text-only and must not add inactive image/poll switches. Assign the
-  title/text switch UI and the later image/poll switches explicitly before changing
-  this slice's implementation.
+- **Provisional output contract pending maintainer confirmation:** title and body are
+  the default core of every generated post. Poll and generated-image output are
+  optional enrichments and must be explicitly enabled for that individual Guide
+  request; absent an enabled request capability, both outputs must be `null` and
+  must not be persisted. Do not introduce persistent defaults or infer whether these
+  request-scoped toggles land in Slice 7 until the maintainer confirms their timing.
+- **Reproduced blocker and local remedy (2026-07-23):** the inherited private-generation contract
+  currently permits a single Guided post to contain title, body, poll, and image
+  prompt together without explicit selection. The minimum safe correction is to
+  generate title/body only by default and suppress poll/image output unless the
+  request explicitly opts into those capabilities. The current local fix narrows
+  both the prompt and strict response format to title/body and writes `imagePrompt:
+  null` with empty metadata even if a non-strict provider returns extra fields.
 
 ## Slice 8 — Text-only automatic creator posting
 

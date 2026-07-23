@@ -175,6 +175,15 @@ export interface NoodleAccountSubscription {
   createdAt: string;
 }
 
+export interface NoodlerSubscriber {
+  id: string;
+  displayName: string;
+  handle: string;
+  avatarUrl: string | null;
+  avatarCrop: NoodleAvatarCrop | null;
+  subscribedAt: string;
+}
+
 export interface NoodlePostUnlock {
   id: string;
   viewerAccountId: string;

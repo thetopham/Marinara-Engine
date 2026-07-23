@@ -2,8 +2,10 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronRight,
   Eye,
+  Link,
   Loader2,
   Lock,
   Minus,
@@ -11,11 +13,13 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
   Sparkles,
   Trash2,
   UserRound,
   X,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -46,6 +50,7 @@ import {
   useNoodlerAccounts,
   useNoodlerEligibleAccounts,
   useNoodlerPosts,
+  useNoodlerSubscribers,
   useNoodlerViewer,
   useRemoveNoodlerInteraction,
   useToggleNoodlerSubscription,
@@ -67,7 +72,7 @@ import {
   type NoodlePostCardModel,
   useNoodlePostCardController,
 } from "./NoodlePostCard";
-import { NoodleShell, NOODLE_PERSONA_SWITCHER_PAGE_SIZE, NOODLE_PINK, useNoodleAccent } from "./NoodleShell";
+import { Avatar, NoodleShell, NOODLE_PERSONA_SWITCHER_PAGE_SIZE, NOODLE_PINK, useNoodleAccent } from "./NoodleShell";
 import { NoodleProfileSurface, type NoodleProfileTab } from "./NoodleProfileSurface";
 import { Modal } from "../ui/Modal";
 import type { NoodleNavigationState } from "./noodle-navigation.types";
@@ -84,6 +89,8 @@ interface PrivatePostSubmission {
   access: NoodlePostAccess;
   ppvPrice: number | null;
 }
+
+type NoodlerProfileTab = NoodleProfileTab | "subscribers";
 
 function toNoodlePostCardModel(view: NoodlerPostView, profile: NoodlerStageProfile): NoodlePostCardModel {
   return {
@@ -136,7 +143,7 @@ const DISCLOSURE_OPTIONS: Array<{
 }> = [
   {
     value: "open",
-    label: "Publicly connected",
+    label: "Linked identity",
     shortLabel: "Open",
     detail: "This stage identity can openly be the same person.",
     guidance: "Names, handles, recognizable details, and continuity may carry over.",
@@ -576,8 +583,15 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     );
   };
 
+  const mainAuthorProfile = shellPersonaAccount
+    ? accountsQuery.data?.find((profile) => profile.publicAccountId === shellPersonaAccount.id) ?? null
+    : null;
+
   const shellProps = {
-    activeView: "noodler" as const,
+    activeView:
+      navigation.mode === "private" && navigation.view === "profile"
+        ? "profile" as const
+        : "noodler" as const,
     homeActive: navigation.mode === "private" && navigation.view === "hub",
     accent: NOODLE_PINK,
     enableNoodler: enabled,
@@ -599,6 +613,9 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     onOpenHome: exitToPublic,
     onOpenMobileHome: exitToPublic,
     onOpenNoodler: goToHub,
+    onOpenProfile: mainAuthorProfile
+      ? () => onNavigate({ mode: "private", view: "profile", accountId: mainAuthorProfile.id })
+      : undefined,
     onOpenSettings: () => onNavigate({ mode: "settings" }),
     overlays: (
       <BrowserChrome
@@ -847,10 +864,6 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     </aside>
   );
 
-  const mainAuthorProfile = shellPersonaAccount
-    ? accountsQuery.data?.find((profile) => profile.publicAccountId === shellPersonaAccount.id) ?? null
-    : null;
-
   if (navigation.mode === "private" && navigation.view === "profiles") {
     return (
       <NoodleShell {...shellProps} rightRail={emptyRightRail}>
@@ -963,6 +976,11 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
                 })
             : undefined
         }
+        onOpenAuthorProfile={
+          mainAuthorProfile
+            ? () => onNavigate({ mode: "private", view: "profile", accountId: mainAuthorProfile.id })
+            : undefined
+        }
         onManualPost={submitManualPost}
         onGuidedPost={submitGuidedPost}
         manualPending={createPost.isPending}
@@ -1015,10 +1033,120 @@ function StageProfileForm({
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const [connectionPickerOpen, setConnectionPickerOpen] = useState(false);
+  const [relationshipPickerOpen, setRelationshipPickerOpen] = useState(false);
+  const [relationshipPickerPosition, setRelationshipPickerPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const connectionPickerRef = useRef<HTMLDivElement>(null);
+  const relationshipPickerRef = useRef<HTMLDivElement>(null);
+  const relationshipPickerMenuRef = useRef<HTMLDivElement>(null);
   const canSave =
     Boolean((isEditing || publicAccountId) && draft.displayName.trim() && draft.handle.trim()) &&
     !isPending &&
     !isGenerating;
+  const selectedConnection = connections.find((connection) => connection.id === connectionId) ?? null;
+  const selectedDisclosure =
+    DISCLOSURE_OPTIONS.find((option) => option.value === disclosureMode) ?? DISCLOSURE_OPTIONS[0];
+
+  useEffect(() => {
+    if (!connectionPickerOpen) return;
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (!connectionPickerRef.current?.contains(event.target as Node)) {
+        setConnectionPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, [connectionPickerOpen]);
+
+  useEffect(() => {
+    if (!relationshipPickerOpen) return;
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (
+        !relationshipPickerRef.current?.contains(event.target as Node) &&
+        !relationshipPickerMenuRef.current?.contains(event.target as Node)
+      ) {
+        setRelationshipPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, [relationshipPickerOpen]);
+
+  useEffect(() => {
+    if (!relationshipPickerOpen || !relationshipPickerRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const anchor = relationshipPickerRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const menuWidth = relationshipPickerMenuRef.current?.offsetWidth ?? 288;
+      const menuHeight = relationshipPickerMenuRef.current?.offsetHeight ?? 224;
+      const left = Math.min(Math.max(8, anchor.left), window.innerWidth - menuWidth - 8);
+      const roomBelow = window.innerHeight - anchor.bottom;
+      const top =
+        roomBelow >= menuHeight + 8
+          ? anchor.bottom + 4
+          : Math.max(8, anchor.top - menuHeight - 4);
+      setRelationshipPickerPosition({ left, top });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [relationshipPickerOpen]);
+
+  const relationshipPickerMenu =
+    relationshipPickerOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={relationshipPickerMenuRef}
+            role="listbox"
+            aria-label="Identity relationship"
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setRelationshipPickerOpen(false);
+                relationshipPickerRef.current?.querySelector("button")?.focus();
+              }
+            }}
+            className="fixed z-[9999] w-72 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] p-1 shadow-2xl"
+            style={
+              relationshipPickerPosition
+                ? { left: relationshipPickerPosition.left, top: relationshipPickerPosition.top }
+                : { visibility: "hidden" }
+            }
+          >
+            {DISCLOSURE_OPTIONS.map((option) => {
+              const isSelected = option.value === disclosureMode;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onClick={() => {
+                    onDisclosureChange(option.value);
+                    setRelationshipPickerOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-foreground/10",
+                    isSelected && "bg-foreground/5",
+                  )}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-[var(--foreground)]">{option.label}</span>
+                    <span className="mt-0.5 block text-[0.6875rem] leading-4 text-[var(--muted-foreground)]">
+                      {option.detail}
+                    </span>
+                  </span>
+                  {isSelected && <Check size={14} className="mt-0.5 shrink-0 text-[var(--noodle-blue)]" />}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col">
       <div className="px-4 py-5 sm:px-6 lg:py-6">
@@ -1027,91 +1155,41 @@ function StageProfileForm({
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--noodle-blue)]/15 text-[var(--noodle-blue)]">
               <Sparkles size={16} />
             </span>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-bold">
                 {isEditing ? "Refine this stage identity" : "Create the stage identity"}
               </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)]">
-                {source
-                  ? `Built from ${source.displayName} (@${source.handle})`
-                  : "Your source identity is kept separate from this stage profile."}{" "}
-                Relationship:{" "}
-                <span className="font-bold">
-                  {DISCLOSURE_OPTIONS.find((option) => option.value === disclosureMode)?.label}
+              <div className="mt-1 flex flex-wrap items-center gap-x-1 text-xs leading-5 text-[var(--muted-foreground)]">
+                <span>
+                  {source
+                    ? `Built from ${source.displayName} (@${source.handle}).`
+                    : "Your source identity is kept separate from this stage profile."}
                 </span>
-                .
-              </p>
+                <span>Relationship:</span>
+                <div ref={relationshipPickerRef} className="relative">
+                  <button
+                    type="button"
+                    disabled={isGenerating || isPending}
+                    onClick={() => setRelationshipPickerOpen((open) => !open)}
+                    aria-haspopup="listbox"
+                    aria-expanded={relationshipPickerOpen}
+                    className="inline-flex items-center gap-1 rounded px-1 py-0.5 font-bold text-[var(--foreground)] transition-colors hover:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--noodle-blue)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {selectedDisclosure.label}
+                    <ChevronDown
+                      size={13}
+                      className={cn("transition-transform", relationshipPickerOpen && "rotate-180")}
+                    />
+                  </button>
+                  {relationshipPickerMenu}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div className="mt-5 grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
-          <div className="order-2 rounded-lg border border-[var(--noodle-divider)] p-4 lg:order-1 lg:sticky lg:top-4">
-            <p className="flex items-center gap-2 text-sm font-bold">
-              <Sparkles size={15} /> AI assist
-            </p>
-            <p className="mt-1 text-xs leading-5 text-[var(--muted-foreground)]">
-              Generate an editable starting point or rewrite the current fields.
-            </p>
-            <label className="mt-4 block space-y-2">
-              <span className="text-xs font-semibold">Optional direction for AI</span>
-              <textarea
-                value={guidance}
-                maxLength={2000}
-                disabled={isGenerating || isPending}
-                onChange={(event) => onGuidanceChange(event.target.value)}
-                placeholder="A mysterious late-night photographer with a warm but guarded voice"
-                className={`${textareaClass} min-h-20`}
-              />
-            </label>
-            {connections.length > 0 && (
-              <label className="mt-3 block space-y-2">
-                <span className="text-xs font-semibold">Model</span>
-                <select
-                  value={connectionId}
-                  disabled={isGenerating || isPending}
-                  onChange={(event) => onConnectionChange(event.target.value)}
-                  className={fieldClass}
-                >
-                  <option value="">Default connection</option>
-                  {connections.map((connection) => (
-                    <option key={connection.id} value={connection.id}>
-                      {connection.model ? `${connection.name} — ${connection.model}` : connection.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {connections.length === 0 && (
-              <p className="mt-3 rounded-md border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 text-xs leading-5">
-                No connections configured. Add one in Settings → Connections.
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={onGenerate}
-              disabled={isGenerating || isPending || connections.length === 0}
-              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-4 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:opacity-50"
-            >
-              {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{" "}
-              {isGenerating
-                ? "Generating draft..."
-                : previousDraft
-                  ? "Rewrite editable draft"
-                  : "Generate editable draft"}
-            </button>
-            {previousDraft && !isGenerating && (
-              <button
-                type="button"
-                onClick={onUndoDraft}
-                className="mt-1 flex min-h-11 w-full items-center justify-center text-xs font-semibold text-[var(--noodle-blue)] hover:underline"
-              >
-                Undo AI changes
-              </button>
-            )}
-          </div>
-          <div className="order-1 space-y-5 lg:order-2">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block space-y-2">
+        <div className="mt-5 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-1">
                 <span className="text-xs font-semibold">Stage name</span>
                 <input
                   required
@@ -1120,62 +1198,200 @@ function StageProfileForm({
                   value={draft.displayName}
                   maxLength={120}
                   onChange={(event) => onChange({ displayName: event.target.value })}
-                  className={fieldClass}
+                  className={`${fieldClass} !h-10`}
                 />
               </label>
-              <label className="block space-y-2">
+              <label className="block space-y-1">
                 <span className="text-xs font-semibold">Stage handle</span>
-                <input
-                  required
-                  aria-required="true"
-                  disabled={isGenerating || isPending}
-                  value={draft.handle}
-                  maxLength={40}
-                  onChange={(event) => onChange({ handle: event.target.value })}
-                  placeholder="afterhours"
-                  className={fieldClass}
-                />
+                <span className="relative block">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-semibold text-[var(--noodle-blue)]"
+                  >
+                    @
+                  </span>
+                  <input
+                    required
+                    aria-required="true"
+                    disabled={isGenerating || isPending}
+                    value={draft.handle}
+                    maxLength={40}
+                    onChange={(event) => onChange({ handle: event.target.value })}
+                    placeholder="afterhours"
+                    className={`${fieldClass} !h-10 !pl-7`}
+                  />
+                </span>
               </label>
-            </div>
-            <label className="block space-y-2">
+            <label className="block space-y-1">
               <span className="text-xs font-semibold">Bio</span>
               <textarea
+                rows={2}
                 disabled={isGenerating || isPending}
                 value={draft.bio}
                 maxLength={500}
                 onChange={(event) => onChange({ bio: event.target.value })}
-                className={textareaClass}
+                className={`${textareaClass} !min-h-0`}
               />
             </label>
-            <label className="block space-y-2">
+            <label className="block space-y-1">
               <span className="text-xs font-semibold">Stage voice</span>
               <textarea
+                rows={2}
                 disabled={isGenerating || isPending}
                 value={draft.stagePersonality}
                 maxLength={1000}
                 onChange={(event) => onChange({ stagePersonality: event.target.value })}
                 placeholder="Voice, attitude, boundaries, and creator persona"
-                className={textareaClass}
+                className={`${textareaClass} !min-h-0`}
               />
             </label>
-            <fieldset className="space-y-2">
-              <legend className="text-xs font-semibold">Identity relationship</legend>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {DISCLOSURE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={disclosureMode === option.value}
-                    disabled={isGenerating || isPending}
-                    onClick={() => onDisclosureChange(option.value)}
-                    className={`min-h-11 rounded-md border px-3 py-2 text-left text-xs font-semibold transition-colors ${disclosureMode === option.value ? "border-[var(--noodle-blue)] bg-[var(--noodle-blue)]/10 text-[var(--foreground)]" : "border-[var(--noodle-divider)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]"}`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
           </div>
+          <details className="group overflow-visible rounded-lg border border-[var(--noodle-divider)]">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--accent)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--noodle-blue)] [&::-webkit-details-marker]:hidden">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--noodle-blue)]/15 text-[var(--noodle-blue)]">
+                <Sparkles size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold">AI guidance</span>
+                <span className="block text-xs leading-5 text-[var(--muted-foreground)]">
+                  Generate or rewrite an editable profile draft.
+                </span>
+              </span>
+              <ChevronDown
+                size={18}
+                className="shrink-0 text-[var(--muted-foreground)] transition-transform group-open:rotate-180"
+              />
+            </summary>
+            <div className="border-t border-[var(--noodle-divider)] p-4">
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold">Optional direction for AI</span>
+                <textarea
+                  value={guidance}
+                  maxLength={2000}
+                  disabled={isGenerating || isPending}
+                  onChange={(event) => onGuidanceChange(event.target.value)}
+                  placeholder="A mysterious late-night photographer with a warm but guarded voice"
+                  className={`${textareaClass} min-h-20`}
+                />
+              </label>
+              {connections.length === 0 && (
+                <p className="mt-3 rounded-md border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 text-xs leading-5">
+                  No connections configured. Add one in Settings → Connections.
+                </p>
+              )}
+              <div className="mt-3 flex items-center justify-end gap-2">
+                {connections.length > 0 && (
+                  <div ref={connectionPickerRef} className="relative shrink-0">
+                    <button
+                      type="button"
+                      disabled={isGenerating || isPending}
+                      onClick={() => setConnectionPickerOpen((open) => !open)}
+                      aria-label={`Generation connection: ${selectedConnection?.name ?? "Default connection"}`}
+                      aria-haspopup="listbox"
+                      aria-expanded={connectionPickerOpen}
+                      title={`Connection: ${selectedConnection?.name ?? "Default connection"}`}
+                      className={cn(
+                        "flex h-11 max-w-[calc(100%-10.5rem)] items-center justify-center gap-2 rounded-md border border-[var(--noodle-divider)] px-3 transition-colors hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--noodle-blue)] sm:max-w-64",
+                        connectionPickerOpen && "border-[var(--noodle-blue)] bg-[var(--noodle-blue)]/10",
+                        (isGenerating || isPending) && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      <Link size={18} className="shrink-0 !text-[var(--noodle-blue)]" />
+                      <span className="truncate text-xs font-semibold">
+                        {selectedConnection?.name ?? "Default connection"}
+                      </span>
+                    </button>
+                    {connectionPickerOpen && (
+                      <div
+                        role="listbox"
+                        aria-label="Generation connections"
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.stopPropagation();
+                            setConnectionPickerOpen(false);
+                          }
+                        }}
+                        className="absolute bottom-full left-0 z-50 mb-2 flex w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-foreground/10 bg-[var(--card)] shadow-2xl"
+                      >
+                        <div className="border-b border-foreground/10 px-3 py-2 text-[0.6875rem] font-semibold">
+                          Connections
+                        </div>
+                        <div className="max-h-60 overflow-y-auto p-1">
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={!connectionId}
+                            onClick={() => {
+                              onConnectionChange("");
+                              setConnectionPickerOpen(false);
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-foreground/10",
+                              !connectionId && "bg-foreground/5 font-semibold",
+                            )}
+                          >
+                            <span className="flex-1 truncate">Default connection</span>
+                            {!connectionId && <Check size={14} />}
+                          </button>
+                          {connections.map((connection) => {
+                            const isSelected = connection.id === connectionId;
+                            return (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={isSelected}
+                                key={connection.id}
+                                onClick={() => {
+                                  onConnectionChange(connection.id);
+                                  setConnectionPickerOpen(false);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-foreground/10",
+                                  isSelected && "bg-foreground/5 font-semibold",
+                                )}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{connection.name}</span>
+                                  {connection.model && (
+                                    <span className="block truncate text-[0.6875rem] font-normal text-[var(--muted-foreground)]">
+                                      {connection.model}
+                                    </span>
+                                  )}
+                                </span>
+                                {isSelected && <Check size={14} className="shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={onGenerate}
+                  disabled={isGenerating || isPending || connections.length === 0}
+                  className="inline-flex min-h-11 w-40 shrink-0 items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-4 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:opacity-50"
+                >
+                  {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{" "}
+                  {isGenerating
+                    ? "Generating draft..."
+                    : previousDraft
+                      ? "Rewrite draft"
+                      : "Generate draft"}
+                </button>
+              </div>
+              {previousDraft && !isGenerating && (
+                <button
+                  type="button"
+                  onClick={onUndoDraft}
+                  className="mt-1 flex min-h-11 w-full items-center justify-center text-xs font-semibold text-[var(--noodle-blue)] hover:underline"
+                >
+                  Undo AI changes
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       </div>
       <WizardFooter
@@ -1531,41 +1747,71 @@ function StageProfileView({
   onAccessChange: (access: NoodlerManagedStageProfile["access"]) => void;
 }) {
   const [accessSettingsOpen, setAccessSettingsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<NoodleProfileTab>("posts");
+  const [activeTab, setActiveTab] = useState<NoodlerProfileTab>("posts");
+  const [revealedManagedPostIds, setRevealedManagedPostIds] = useState<Set<string>>(() => new Set());
+  const subscribersQuery = useNoodlerSubscribers(profile.id);
   const accent = useNoodleAccent();
   const viewingOwnCreator = Boolean(viewerAccount && profile.publicAccountId === viewerAccount.id);
+  const managedPostById = new Map(posts.map((post) => [post.id, post]));
   const projectedPosts = viewingOwnCreator
     ? posts.map((post) => ({ kind: "card" as const, model: toManagedPostCardModel(post, profile) }))
     : (viewerCreator?.posts ?? []).map((post) =>
-        post.locked
-          ? { kind: "locked" as const, post }
+        post.locked && revealedManagedPostIds.has(post.id) && managedPostById.has(post.id)
+          ? {
+              kind: "managed-reveal" as const,
+              model: toManagedPostCardModel(managedPostById.get(post.id)!, profile),
+            }
+          : post.locked
+            ? { kind: "locked" as const, post }
           : { kind: "card" as const, model: toNoodlePostCardModel(post, viewerCreator!.profile) },
       );
   const visiblePosts = projectedPosts.filter((item) => {
     if (activeTab === "posts") return true;
     if (item.kind === "locked") return false;
     if (activeTab === "media") return Boolean(item.model.imageUrl);
-    return Boolean(
-      viewerAccount &&
-        item.model.interactions.some(
-          (interaction) =>
-            interaction.actorAccountId === viewerAccount.id &&
-            interaction.type === "like" &&
-            !interaction.parentInteractionId,
-        ),
-    );
+    return false;
   });
   const cards = (
     <>
-      <PrivatePostComposer
-        key={profile.id}
-        profile={profile}
-        onManualPost={onManualPost}
-        onGuidedPost={onGuidedPost}
-        manualPending={manualPending}
-        guidePending={guidePending}
-      />
-      {(viewingOwnCreator ? isLoading : viewerLoading) ? (
+      {activeTab === "subscribers" ? (
+        subscribersQuery.isLoading ? (
+          <div className="flex justify-center py-12" role="status" aria-label="Loading subscribers">
+            <Loader2 size={22} className="animate-spin text-[var(--noodle-blue)]" />
+          </div>
+        ) : subscribersQuery.isError ? (
+          <EmptyState
+            title="Subscribers could not be loaded."
+            action="Try again"
+            onAction={() => void subscribersQuery.refetch()}
+          />
+        ) : (subscribersQuery.data ?? []).length > 0 ? (
+          <div>
+            {(subscribersQuery.data ?? []).map((subscriber) => (
+              <div
+                key={subscriber.id}
+                className="flex min-h-16 items-center gap-3 border-b border-[var(--noodle-divider)] px-4 py-3"
+              >
+                <Avatar account={subscriber} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold">{subscriber.displayName}</p>
+                  <p className="truncate text-xs text-[var(--muted-foreground)]">@{subscriber.handle}</p>
+                </div>
+                <time
+                  dateTime={subscriber.subscribedAt}
+                  className="shrink-0 text-xs text-[var(--muted-foreground)]"
+                >
+                  {new Date(subscriber.subscribedAt).toLocaleDateString()}
+                </time>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No subscribers yet."
+            detail="When a viewer subscribes to this creator, they will appear here."
+          />
+        )
+      ) : (viewingOwnCreator ? isLoading : viewerLoading) ? (
         <div className="flex justify-center py-12"><Loader2 size={22} className="animate-spin text-[var(--noodle-blue)]" /></div>
       ) : (viewingOwnCreator ? isError : viewerError) ? (
         <EmptyState
@@ -1584,7 +1830,41 @@ function StageProfileView({
               subscriptionPending={subscriptionPending}
               onUnlock={onUnlock}
               onToggleSubscription={onToggleSubscription}
+              managePending={isLoading}
+              onManage={() => {
+                setRevealedManagedPostIds((current) => {
+                  const next = new Set(current);
+                  next.add(item.post.id);
+                  return next;
+                });
+                if (!managedPostById.has(item.post.id)) void onRetry();
+              }}
             />
+          ) : item.kind === "managed-reveal" ? (
+            <div key={item.model.id}>
+              <div className="flex min-h-11 items-center justify-between gap-3 border-b border-[var(--noodle-divider)] bg-[var(--noodle-blue)]/5 px-4">
+                <span className="text-xs font-semibold text-[var(--muted-foreground)]">
+                  Controller view · hidden from {viewerAccount?.displayName ?? "this viewer"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRevealedManagedPostIds((current) => {
+                      const next = new Set(current);
+                      next.delete(item.model.id);
+                      return next;
+                    })
+                  }
+                  className="min-h-11 shrink-0 px-2 text-xs font-bold text-[var(--noodle-blue)]"
+                >
+                  Hide
+                </button>
+              </div>
+              <NoodlePostCard
+                post={item.model}
+                ctx={{ ...postCardCtx, personaAccount: null, postManagement: true }}
+              />
+            </div>
           ) : (
             <NoodlePostCard
               key={item.model.id}
@@ -1592,38 +1872,13 @@ function StageProfileView({
               ctx={{
                 ...postCardCtx,
                 personaAccount: viewingOwnCreator ? null : viewerAccount,
-                postManagement: viewingOwnCreator,
+                postManagement: true,
               }}
             />
           ),
         ) : (
           <EmptyState title={activeTab === "posts" ? "No private posts yet." : `No ${activeTab} posts yet.`} />
         )}
-      {!viewingOwnCreator && isLoading && (
-        <p className="border-t border-[var(--noodle-divider)] px-4 py-3 text-xs text-[var(--muted-foreground)]">Loading creator controls…</p>
-      )}
-      {!viewingOwnCreator && isError && (
-        <div className="border-t border-[var(--noodle-divider)] px-4 py-3">
-          <p className="text-xs text-[var(--destructive)]">Creator controls could not be loaded.</p>
-          <button type="button" onClick={onRetry} className="mt-2 text-xs font-bold text-[var(--noodle-blue)]">Try again</button>
-        </div>
-      )}
-      {!viewingOwnCreator && !isLoading && !isError && posts.length > 0 && (
-        <details className="border-t border-[var(--noodle-divider)]">
-          <summary className="cursor-pointer px-4 py-3 text-xs font-bold text-[var(--muted-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--noodle-blue)]">
-            Creator controls · manage all posts
-          </summary>
-          <div className="border-t border-[var(--noodle-divider)]">
-            {posts.map((post) => (
-              <NoodlePostCard
-                key={post.id}
-                post={toManagedPostCardModel(post, profile)}
-                ctx={{ ...postCardCtx, personaAccount: null, postManagement: true }}
-              />
-            ))}
-          </div>
-        </details>
-      )}
     </>
   );
   return (
@@ -1632,22 +1887,29 @@ function StageProfileView({
         mobileHeader={<div className="border-b border-[var(--noodle-divider)] px-4 py-3 text-sm font-bold lg:hidden">Creator profile</div>}
         account={profile}
         displayHandle={profile.handle}
+        decorativeBanner
+        touchActions
+        leadingActions={viewerCreator && !viewingOwnCreator ? (
+          <button
+            type="button"
+            disabled={subscriptionPending}
+            onClick={() => onToggleSubscription(profile.id, viewerCreator.subscribed)}
+            className={cn(
+              "min-h-11 rounded-full px-4 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50",
+              viewerCreator.subscribed
+                ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
+                : "bg-[var(--foreground)] text-[var(--background)]",
+            )}
+          >
+            {viewerCreator.subscribed ? "Subscribed" : "Subscribe"}
+          </button>
+        ) : undefined}
         editAction={{ onEdit, label: "Edit Profile" }}
         secondaryActions={<>
-          {viewerCreator && !viewingOwnCreator && (
-            <button
-              type="button"
-              disabled={subscriptionPending}
-              onClick={() => onToggleSubscription(profile.id, viewerCreator.subscribed)}
-              className="h-9 rounded-full border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50"
-            >
-              {viewerCreator.subscribed ? "Subscribed" : "Subscribe"}
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setAccessSettingsOpen(true)}
-            className="h-9 rounded-full border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)]"
+            className="min-h-11 rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold hover:bg-[var(--accent)]"
           >
             Access
           </button>
@@ -1656,7 +1918,7 @@ function StageProfileView({
             onClick={onDelete}
             disabled={deletePending}
             aria-label={`Delete ${profile.displayName} profile`}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--destructive)]/45 text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:cursor-wait disabled:opacity-50"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--destructive)]/45 text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:cursor-wait disabled:opacity-50"
           >
             {deletePending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
           </button>
@@ -1672,8 +1934,27 @@ function StageProfileView({
             )}
           </div>
         </>}
+        tabs={[
+          { id: "posts", label: "Posts" },
+          { id: "media", label: "Media" },
+          {
+            id: "subscribers",
+            label: `Subscribers (${subscribersQuery.data?.length ?? "…"})`,
+            ariaLabel: `Subscribers, ${subscribersQuery.data?.length ?? "loading"} total`,
+          },
+        ]}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        preTabsContent={
+          <PrivatePostComposer
+            key={profile.id}
+            profile={profile}
+            onManualPost={onManualPost}
+            onGuidedPost={onGuidedPost}
+            manualPending={manualPending}
+            guidePending={guidePending}
+          />
+        }
         postList={cards}
       />
       <Modal
@@ -1760,6 +2041,7 @@ function ViewerHub({
   authorError,
   onRetryAuthor,
   onCreateAuthorProfile,
+  onOpenAuthorProfile,
   onManualPost,
   onGuidedPost,
   manualPending,
@@ -1785,6 +2067,7 @@ function ViewerHub({
   authorError: boolean;
   onRetryAuthor: () => void;
   onCreateAuthorProfile?: () => void;
+  onOpenAuthorProfile?: () => void;
   onManualPost: (input: PrivatePostSubmission) => Promise<void>;
   onGuidedPost: (input: PrivatePostSubmission) => Promise<void>;
   manualPending: boolean;
@@ -1932,7 +2215,12 @@ function ViewerHub({
           )}
         </>
       ) : (
-        <EmptyState title="No stage profiles are visible to this persona." />
+        <EmptyState
+          title={authorProfile ? "No other stage profiles are visible to this persona." : "No stage profiles are visible to this persona."}
+          detail={authorProfile ? "Your own stage profile and its posts are still available." : undefined}
+          action={authorProfile && onOpenAuthorProfile ? `View ${authorProfile.displayName}` : undefined}
+          onAction={authorProfile ? onOpenAuthorProfile : undefined}
+        />
       )}
     </div>
   );
@@ -1946,6 +2234,8 @@ function LockedPrivatePostCard({
   subscriptionPending,
   onUnlock,
   onToggleSubscription,
+  onManage,
+  managePending = false,
 }: {
   post: NoodlerPostView;
   profile: NoodlerStageProfile;
@@ -1954,6 +2244,8 @@ function LockedPrivatePostCard({
   subscriptionPending: boolean;
   onUnlock: (postId: string) => void;
   onToggleSubscription: (creatorAccountId: string, subscribed: boolean) => void;
+  onManage?: () => void;
+  managePending?: boolean;
 }) {
   return (
     <article className="flex gap-3 border-b border-[var(--noodle-divider)] px-4 py-4">
@@ -1988,6 +2280,17 @@ function LockedPrivatePostCard({
               className="min-h-10 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Subscribe
+            </button>
+          )}
+          {onManage && (
+            <button
+              type="button"
+              onClick={onManage}
+              disabled={managePending}
+              className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:cursor-wait disabled:opacity-50"
+            >
+              {managePending ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+              {managePending ? "Loading controls…" : "Manage post"}
             </button>
           )}
         </div>
@@ -2083,7 +2386,6 @@ function PrivatePostComposer({
           className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-[var(--noodle-divider)] px-3 text-left transition-colors hover:bg-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--noodle-blue)]"
           aria-expanded="false"
         >
-          <ProfileInitial profile={profile} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">Post as {profile.displayName}</span>
             <span className="block text-xs text-[var(--muted-foreground)]">Write directly or guide the AI</span>
@@ -2097,6 +2399,18 @@ function PrivatePostComposer({
   return (
     <NoodleComposerShell
       dataComponent="NoodlerHome.PrivatePostComposer"
+      header={
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          disabled={pending}
+          aria-expanded="true"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1 text-xs font-bold text-[var(--noodle-blue)] hover:bg-[var(--accent)] disabled:opacity-50"
+        >
+          <ChevronDown size={14} />
+          Post as {profile.displayName}
+        </button>
+      }
       avatar={<ProfileInitial profile={profile} />}
       tools={
         <div className="flex flex-wrap items-center gap-2">
@@ -2133,7 +2447,6 @@ function PrivatePostComposer({
       }
       action={
         <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={() => setExpanded(false)} disabled={pending} className="h-8 rounded-full px-3 text-xs font-semibold text-[var(--muted-foreground)] hover:bg-[var(--accent)] disabled:opacity-50">Collapse</button>
           <button
             type="button"
             onClick={() => void guidePost()}
@@ -2149,7 +2462,9 @@ function PrivatePostComposer({
             disabled={pending || !body.trim()}
             className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {manualPending ? <Loader2 size={13} className="animate-spin" /> : <Pencil size={13} />}
+            {manualPending
+              ? <Loader2 size={13} className="animate-spin text-zinc-950" />
+              : <Send size={13} className="text-zinc-950" />}
             {manualPending ? "Posting…" : "Post"}
           </button>
         </div>
@@ -2161,7 +2476,6 @@ function PrivatePostComposer({
         </div>
       )}
     >
-      <p className="mb-2 truncate text-xs font-semibold text-[var(--muted-foreground)]">Posting as {profile.displayName} · @{profile.handle}</p>
       <label className="block space-y-1">
         <span className="sr-only">Post title (optional)</span>
         <input
@@ -2271,7 +2585,7 @@ function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="px-8 py-16 text-center">
+    <div className="px-8 py-8 text-center sm:py-16">
       <UserRound size={36} className="mx-auto text-[var(--noodle-blue)]" />
       <p className="mt-4 font-bold">{title}</p>
       {detail && <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted-foreground)]">{detail}</p>}

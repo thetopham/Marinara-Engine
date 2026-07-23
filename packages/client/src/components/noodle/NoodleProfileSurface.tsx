@@ -16,7 +16,7 @@ const profileTabs: Array<{ id: NoodleProfileTab; label: string }> = [
   { id: "media", label: "Media" },
 ];
 
-export interface NoodleProfileSurfaceProps {
+export interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTab> {
   mobileHeader: ReactNode;
   account: Parameters<typeof Avatar>[0]["account"];
   displayHandle: string;
@@ -50,16 +50,21 @@ export interface NoodleProfileSurfaceProps {
   };
   editAction?: { onEdit: () => void; label?: string };
   followAction?: { followed: boolean; pending: boolean; onToggle: () => void };
+  leadingActions?: ReactNode;
   secondaryActions?: ReactNode;
+  decorativeBanner?: boolean;
+  touchActions?: boolean;
   location?: string;
   bioContent: ReactNode;
   connections?: { followingCount: number; followerCount: number; onOpenFollowing: () => void; onOpenFollowers: () => void };
-  activeTab: NoodleProfileTab;
-  onTabChange: (tab: NoodleProfileTab) => void;
+  tabs?: Array<{ id: TTab; label: ReactNode; ariaLabel?: string }>;
+  activeTab: TTab;
+  onTabChange: (tab: TTab) => void;
+  preTabsContent?: ReactNode;
   postList: ReactNode;
 }
 
-export function NoodleProfileSurface({
+export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
   mobileHeader,
   account,
   displayHandle,
@@ -68,14 +73,21 @@ export function NoodleProfileSurface({
   editor,
   editAction,
   followAction,
+  leadingActions,
   secondaryActions,
+  decorativeBanner = false,
+  touchActions = false,
   location,
   bioContent,
   connections,
+  tabs,
   activeTab,
   onTabChange,
+  preTabsContent,
   postList,
-}: NoodleProfileSurfaceProps) {
+}: NoodleProfileSurfaceProps<TTab>) {
+  const hasBanner = Boolean(banner) || decorativeBanner;
+  const resolvedTabs = tabs ?? (profileTabs as Array<{ id: TTab; label: ReactNode; ariaLabel?: string }>);
   return (
     <div className="border-b border-[var(--noodle-divider)]">
       {mobileHeader}
@@ -111,9 +123,15 @@ export function NoodleProfileSurface({
         className="hidden"
         onChange={banner.onFileChange}
       /></>}
+      {!banner && decorativeBanner && (
+        <div
+          className="h-40 w-full bg-[var(--noodle-blue)]/10"
+          aria-hidden="true"
+        />
+      )}
 
       <div className="px-4 pb-5">
-        <div className={cn("flex items-end justify-between gap-3", banner ? "-mt-10" : "pt-5")}>
+        <div className={cn("flex items-end justify-between gap-3", hasBanner ? "-mt-10" : "pt-5")}>
           {avatarUpload ? <button
             type="button"
             onClick={() => {
@@ -140,7 +158,8 @@ export function NoodleProfileSurface({
             className="hidden"
             onChange={avatarUpload.onFileChange}
           />}
-          <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+          <div className="mb-1 flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          {leadingActions}
           {editor ? (
             <button
               type="button"
@@ -149,7 +168,10 @@ export function NoodleProfileSurface({
                 else editor.onStartEditing();
               }}
               disabled={editor.isEditing ? !editor.canSave || editor.isSaving : false}
-              className="h-9 rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className={cn(
+                "rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                touchActions ? "min-h-11" : "h-9",
+              )}
             >
               {editor.isEditing ? (editor.isSaving ? "Saving" : "Save") : "Edit Profile"}
             </button>
@@ -157,7 +179,10 @@ export function NoodleProfileSurface({
             <button
               type="button"
               onClick={editAction.onEdit}
-              className="h-9 rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90"
+              className={cn(
+                "rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90",
+                touchActions ? "min-h-11" : "h-9",
+              )}
             >
               {editAction.label ?? "Edit Profile"}
             </button>
@@ -167,7 +192,8 @@ export function NoodleProfileSurface({
               onClick={followAction.onToggle}
               disabled={followAction.pending}
               className={cn(
-                "h-9 rounded-full px-5 text-xs font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                "rounded-full px-5 text-xs font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                touchActions ? "min-h-11" : "h-9",
                 followAction.followed
                   ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
                   : "bg-[var(--foreground)] text-[var(--background)]",
@@ -234,18 +260,20 @@ export function NoodleProfileSurface({
         )}
       </div>
       <div className="border-t border-[var(--noodle-divider)]">
-        <div className="grid grid-cols-3 border-b border-[var(--noodle-divider)]">
-          {profileTabs.map((tab) => (
+        {preTabsContent}
+        <div className="flex border-b border-[var(--noodle-divider)]">
+          {resolvedTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onTabChange(tab.id)}
+              aria-label={tab.ariaLabel}
               className={cn(
-                "relative flex h-12 items-center justify-center text-sm font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                "relative flex h-12 min-w-0 flex-1 items-center justify-center px-2 text-sm font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                 activeTab === tab.id && "text-[var(--foreground)]",
               )}
             >
-              {tab.label}
+              <span className="truncate">{tab.label}</span>
               {activeTab === tab.id && (
                 <span className="absolute bottom-0 left-1/2 h-1 w-12 -translate-x-1/2 rounded-full bg-[var(--noodle-blue)]" />
               )}

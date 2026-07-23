@@ -109,10 +109,8 @@ const privatePostSchema = {
   properties: {
     title: { type: ["string", "null"], maxLength: NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH },
     content: { type: "string" },
-    imagePrompt: nullableString,
-    poll: pollSchema,
   },
-  required: ["title", "content", "imagePrompt", "poll"],
+  required: ["title", "content"],
   additionalProperties: false,
 } as const;
 

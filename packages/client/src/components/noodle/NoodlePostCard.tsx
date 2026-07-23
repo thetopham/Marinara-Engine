@@ -1483,6 +1483,7 @@ export function NoodlePostCard({
 // tools-left / action-right toolbar row. Noodle fills it with its post composer;
 // NoodleR fills it with the guided-generation composer. Keeps both pixel-aligned.
 export function NoodleComposerShell({
+  header,
   avatar,
   children,
   tools,
@@ -1491,6 +1492,7 @@ export function NoodleComposerShell({
   footer,
   dataComponent,
 }: {
+  header?: React.ReactNode;
   avatar: React.ReactNode;
   children: React.ReactNode;
   tools?: React.ReactNode;
@@ -1501,6 +1503,7 @@ export function NoodleComposerShell({
 }) {
   return (
     <div className="border-b border-[var(--noodle-divider)] px-4 py-3" data-component={dataComponent}>
+      {header && <div className="mb-2">{header}</div>}
       <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
         {avatar}
         <div className="min-w-0">{children}</div>

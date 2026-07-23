@@ -1899,6 +1899,15 @@ export function createNoodleStorage(db: DB) {
       return rows.map(mapSubscription);
     },
 
+    async listSubscriptionsForCreator(creatorAccountId: string): Promise<NoodleAccountSubscription[]> {
+      const rows = await db
+        .select()
+        .from(noodleAccountSubscriptions)
+        .where(eq(noodleAccountSubscriptions.creatorAccountId, creatorAccountId))
+        .orderBy(desc(noodleAccountSubscriptions.createdAt));
+      return rows.map(mapSubscription);
+    },
+
     async unlockPost(viewerAccountId: string, postId: string): Promise<NoodlePostUnlock | null> {
       return db.transaction(async (tx) => {
         const [viewerRows, postRows] = await Promise.all([

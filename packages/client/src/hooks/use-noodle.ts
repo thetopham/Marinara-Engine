@@ -30,6 +30,7 @@ import type {
   NoodlerManagedPost,
   NoodlerStageProfile,
   NoodlerManagedStageProfile,
+  NoodlerSubscriber,
   NoodlerViewerScope,
   NoodlerCreateInteractionInput,
   NoodlerRemoveInteractionInput,
@@ -51,6 +52,7 @@ export const noodleKeys = {
   privateEligibleAccounts: (search: string, kind: string) =>
     [...noodleKeys.privateEligibleAccountsRoot(), search, kind] as const,
   privatePosts: (accountId: string) => [...noodleKeys.privateRoot(), "posts", accountId] as const,
+  privateSubscribers: (accountId: string) => [...noodleKeys.privateRoot(), "subscribers", accountId] as const,
   privateViewers: () => [...noodleKeys.privateRoot(), "viewers"] as const,
   viewer: (personaId: string) => [...noodleKeys.privateViewers(), personaId] as const,
 };
@@ -102,6 +104,15 @@ export function useNoodlerPosts(accountId: string | null) {
   return useQuery({
     queryKey: noodleKeys.privatePosts(accountId ?? "none"),
     queryFn: () => api.get<NoodlerManagedPost[]>(`/noodle/noodler/accounts/${encodeURIComponent(accountId!)}/posts`),
+    enabled: Boolean(accountId),
+    staleTime: 10_000,
+  });
+}
+
+export function useNoodlerSubscribers(accountId: string | null) {
+  return useQuery({
+    queryKey: noodleKeys.privateSubscribers(accountId ?? "none"),
+    queryFn: () => api.get<NoodlerSubscriber[]>(`/noodle/noodler/accounts/${encodeURIComponent(accountId!)}/subscribers`),
     enabled: Boolean(accountId),
     staleTime: 10_000,
   });
@@ -227,7 +238,11 @@ export function useToggleNoodlerSubscription() {
             `/noodle/noodler/accounts/${encodeURIComponent(creatorAccountId)}/subscribe?personaId=${encodeURIComponent(personaId)}`,
           )
         : api.post(`/noodle/noodler/accounts/${encodeURIComponent(creatorAccountId)}/subscribe`, { personaId }),
-    onSuccess: (_result, input) => qc.invalidateQueries({ queryKey: noodleKeys.viewer(input.personaId) }),
+    onSuccess: (_result, input) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: noodleKeys.viewer(input.personaId) }),
+        qc.invalidateQueries({ queryKey: noodleKeys.privateSubscribers(input.creatorAccountId) }),
+      ]),
   });
 }
 

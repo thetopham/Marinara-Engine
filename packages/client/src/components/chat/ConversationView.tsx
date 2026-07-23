@@ -13,6 +13,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Loader2,
   ChevronUp,
@@ -305,6 +306,7 @@ export function ConversationView({
   onConcludeScene,
   onAbandonScene,
 }: ConversationViewProps) {
+  const { t } = useTranslation();
   useRenderTimer("convo-messages"); // [#3104 diagnostic]
   const streamingChatId = useChatStore((s) => s.streamingChatId);
   const isStreaming = useChatStore((s) => s.isStreaming) && streamingChatId === chatId;
@@ -1200,7 +1202,7 @@ export function ConversationView({
                   const parsed = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
                   return {
                     ...msg,
-                    content: streamBuffer || (thinkingBuffer ? "Thinking..." : msg.content),
+                    content: streamBuffer || (thinkingBuffer ? t("chat.message.thinking") : msg.content),
                     // Only the live buffer belongs here: falling back to the
                     // previous swipe's thinking would show stale thoughts in
                     // the viewer while the replacement is still streaming.
@@ -1238,7 +1240,6 @@ export function ConversationView({
                 key={msg.id}
                 message={displayMsg as any}
                 isStreaming={hasStreamContent}
-                showStreamingThinkingAction={hasStreamContent}
                 isGrouped={isGrouped}
                 onDelete={onDelete}
                 onRegenerate={onRegenerate}
@@ -1273,7 +1274,6 @@ export function ConversationView({
                   isStreaming
                   isGrouped={false}
                   hideActions
-                  showStreamingThinkingAction
                   onDelete={onDelete}
                   onRegenerate={onRegenerate}
                   onEdit={onEdit}
@@ -1304,7 +1304,6 @@ export function ConversationView({
             isStreaming
             isGrouped={false}
             hideActions
-            showStreamingThinkingAction
             onDelete={onDelete}
             onRegenerate={onRegenerate}
             onEdit={onEdit}

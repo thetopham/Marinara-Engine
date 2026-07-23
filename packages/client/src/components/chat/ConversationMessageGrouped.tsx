@@ -114,6 +114,8 @@ export function ConversationMessageGrouped({
     <div
       ref={msgRef}
       data-component="ConversationMessage.Grouped"
+      data-message-id={message.id}
+      data-message-role={message.role}
       className={cn(
         "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
         isBubbleStyle && "hover:bg-transparent",
@@ -413,12 +415,13 @@ export function ConversationMessageGrouped({
       )}
 
       {/* Action bar */}
-      {!hideActions && (
+      {(!hideActions || !!thinking) && (
         <ConversationMessageActions
           isBubbleStyle={isBubbleStyle}
           isUser={false}
           showActions={showActions}
-          forceShowActions={forceShowActions}
+          forceShowActions={hideActions && !!thinking ? true : forceShowActions}
+          thinkingOnly={hideActions && !!thinking}
           copied={copied}
           translatedText={translatedText}
           isHiddenFromAI={isHiddenFromAI}

@@ -1675,6 +1675,95 @@ test("home shell and primary topbar panels open without client errors", async ({
   expect(errors).toEqual([]);
 });
 
+test("UI language selection loads locale files and persists across reloads", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectUnexpectedErrors(page);
+  const languageSelect = page.locator("#settings-control-language select");
+
+  // UI settings are normally synchronized through a single server record. Keep
+  // this preference test browser-local so parallel desktop/mobile projects do
+  // not overwrite each other's selected language.
+  await page.route("**/api/app-settings/ui", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { value: null } });
+      return;
+    }
+    const body = route.request().postDataJSON() as { value?: unknown } | null;
+    await route.fulfill({ json: { value: typeof body?.value === "string" ? body.value : "" } });
+  });
+
+  const openGeneralSettings = async () => {
+    if (!(await languageSelect.isVisible())) {
+      await page.locator('[data-tour="panel-settings"]').click();
+    }
+    await expect(languageSelect).toBeVisible({ timeout: 30_000 });
+  };
+
+  await page.goto("/");
+  await openGeneralSettings();
+  await expect(languageSelect.locator('option[value="en"]')).toHaveCount(1);
+  await expect(languageSelect.locator('option[value="pl"]')).toHaveCount(1);
+  await expect(languageSelect.locator('option[value="ko"]')).toHaveCount(1);
+
+  await languageSelect.selectOption("pl");
+  await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.lang))
+    .toBe("pl");
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dir))
+    .toBe("ltr");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+          state?: { language?: unknown };
+        };
+        return persisted.state?.language;
+      }),
+    )
+    .toBe("pl");
+
+  await page.reload();
+  await openGeneralSettings();
+  await expect(languageSelect).toHaveValue("pl");
+  await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
+
+  await languageSelect.selectOption("ko");
+  await expect(page.getByText("앱 동작", { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.lang))
+    .toBe("ko");
+
+  await languageSelect.selectOption("en");
+  await expect(page.getByText("App Behavior", { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+          state?: { language?: unknown };
+        };
+        return persisted.state?.language;
+      }),
+    )
+    .toBe("en");
+
+  await page.addInitScript(() => {
+    const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+      state?: { language?: unknown };
+    };
+    persisted.state = { ...(persisted.state ?? {}), language: "not-a-real-locale" };
+    localStorage.setItem("marinara-engine-ui", JSON.stringify(persisted));
+  });
+  await page.reload();
+  await openGeneralSettings();
+  await expect(languageSelect).toHaveValue("en");
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.lang))
+    .toBe("en");
+  expect(errors).toEqual([]);
+});
+
 test("Card Browser labels and the Persona full library stay available across viewports", async ({ page }) => {
   const errors = collectUnexpectedErrors(page);
   await page.route("**/api/bot-browser/chub/search?*", async (route) => {
@@ -2720,6 +2809,19 @@ test("Conversation feature packages expose commands and settings without per-cha
     await expect(drawer.getByText("UNO", { exact: true })).toBeVisible();
     await expect(drawer.getByText("Illustrator Settings", { exact: true })).toBeVisible();
     await expect(drawer.getByText("Conversation Calls", { exact: true })).toBeVisible();
+    const callsCapability = drawer.locator("marinara-capability-conversation-calls");
+    await expect(callsCapability).toHaveAttribute("lang", "en");
+    await expect(callsCapability).toHaveAttribute("dir", "ltr");
+    await expect
+      .poll(() =>
+        callsCapability.evaluate((element) => {
+          const capability = element as HTMLElement & {
+            capabilityProps?: { localization?: { locale?: unknown; direction?: unknown } };
+          };
+          return capability.capabilityProps?.localization ?? null;
+        }),
+      )
+      .toEqual({ locale: "en", direction: "ltr" });
     await expect(drawer.getByText("Call Audio Pipeline", { exact: true })).toHaveCount(0);
     await expect(drawer.getByText("Enable Agents", { exact: true })).toHaveCount(0);
     await expect(drawer.getByText("Agent Suite", { exact: true })).toHaveCount(0);

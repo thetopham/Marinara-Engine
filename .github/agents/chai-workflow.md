@@ -68,6 +68,10 @@ maintainer explicitly asks for end-to-end autonomous implementation.
 
 For UI work, define the primary path, mobile expectations, theme expectations,
 empty/error states, and the browser proof needed before calling the UI done.
+Treat localization as part of the implementation and proof boundary: route all
+new or changed user-facing copy through semantic keys, update English and every
+bundled locale together, and run `pnpm localization:check`. Prompts and
+user-authored content are not UI copy.
 
 ## Issue Filing Lane
 

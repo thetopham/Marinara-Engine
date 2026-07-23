@@ -78,4 +78,5 @@ Android-specific rule:
 ## Frontend Changes
 
 - **Read `packages/client/.instructions.md` before editing any client code.** It is the authoritative reference for architecture, patterns, conventions, and common-mistake avoidance.
+- Treat localization as part of every client UI change. New or changed user-facing labels, messages, tooltips, placeholders, toasts, confirmations, accessibility text, tutorials, and similar copy must use semantic localization keys and update the canonical English catalog plus every bundled locale in the same change. Do not translate model prompts or user-authored content. Run `pnpm localization:check` before shipping.
 - Validate with `pnpm check` (TypeScript + ESLint). Use `pnpm regression:prompt` for prompt/lorebook/macro regressions and `pnpm smoke:ui` for the browser shell smoke suite when the change touches those areas.

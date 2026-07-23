@@ -473,6 +473,14 @@ const SETTINGS_SEARCHABLE_CONTROLS: readonly SettingsSearchableControlMeta[] = [
     kind: "Toggle",
   },
   {
+    id: "android-status-bar",
+    sectionId: "application",
+    label: "Android status bar",
+    description: "Show the time, battery level, and notification icons in the Android app.",
+    aliases: ["android", "battery", "clock", "time", "notifications", "fullscreen"],
+    kind: "Toggle",
+  },
+  {
     id: "achievements",
     sectionId: "application",
     label: "Achievements",
@@ -1108,6 +1116,8 @@ const SETTINGS_COMPACT_PRIMARY_BUTTON_CLASS =
   "mari-chrome-control mari-chrome-control--compact mari-chrome-control--selected text-[0.625rem]";
 type MarinaraAndroidBridge = {
   openConsole?: () => void;
+  isStatusBarVisible?: () => boolean;
+  setStatusBarVisible?: (visible: boolean) => void;
 };
 
 function getMarinaraAndroidBridge(): MarinaraAndroidBridge | null {
@@ -1118,6 +1128,60 @@ function getMarinaraAndroidBridge(): MarinaraAndroidBridge | null {
 
 function isMarinaraAndroidShell(): boolean {
   return typeof navigator !== "undefined" && /\bMarinaraEngine\/Android\b/u.test(navigator.userAgent);
+}
+
+function readAndroidStatusBarVisibility(): boolean | null {
+  const bridge = getMarinaraAndroidBridge();
+  if (typeof bridge?.isStatusBarVisible !== "function") return null;
+  try {
+    return bridge.isStatusBarVisible();
+  } catch {
+    return null;
+  }
+}
+
+function updateAndroidStatusBarVisibility(visible: boolean): boolean {
+  const bridge = getMarinaraAndroidBridge();
+  if (typeof bridge?.setStatusBarVisible !== "function") return false;
+  try {
+    bridge.setStatusBarVisible(visible);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function AndroidStatusBarSetting() {
+  const { t } = useTranslation();
+  const initialVisibility = readAndroidStatusBarVisibility();
+  const [visible, setVisible] = useState(initialVisibility ?? false);
+  const supported = initialVisibility !== null;
+
+  const handleChange = useCallback((nextVisible: boolean) => {
+    if (!updateAndroidStatusBarVisibility(nextVisible)) {
+      toast.error(t("settings.application.androidStatusBar.error"));
+      return;
+    }
+    setVisible(nextVisible);
+  }, [t]);
+
+  let help = t("settings.application.androidStatusBar.unavailable");
+  if (supported) {
+    help = t("settings.application.androidStatusBar.help");
+  } else if (isMarinaraAndroidShell()) {
+    help = t("settings.application.androidStatusBar.updateRequired");
+  }
+
+  return (
+    <ToggleSetting
+      anchorId={getSettingsControlAnchorId("android-status-bar")}
+      label={t("settings.application.androidStatusBar.label")}
+      checked={visible}
+      onChange={handleChange}
+      help={help}
+      disabled={!supported}
+    />
+  );
 }
 
 function isStandaloneIosInstall(): boolean {
@@ -2652,6 +2716,7 @@ function GeneralSettings() {
             onChange={setConfirmBeforeDelete}
             help="Shows a confirmation dialog before permanently deleting chats, characters, or other items. Recommended to keep on."
           />
+          <AndroidStatusBarSetting />
           <ToggleSetting
             anchorId={getSettingsControlAnchorId("achievements")}
             label="Achievements"

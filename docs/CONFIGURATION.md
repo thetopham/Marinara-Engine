@@ -48,6 +48,14 @@ The repository root must contain an `agents.json` array using the same agent-def
 
 Marinara accepts GitHub repository-root URLs only and validates the bounded archive plus every agent definition before showing the preview. During synchronization, remote prompt, settings, and tool values replace the repository-managed values shown in that preview. Connection and artwork choices remain local. If an agent disappears upstream, Marinara keeps it as a normal local custom agent and removes only its repository link. Removing a source follows the same keep-local policy.
 
+### External Extensions
+
+External Extension imports require two independent opt-ins. Set `ENABLE_EXTERNAL_EXTENSIONS=true` in `.env`, then open **Settings → Advanced → Danger Zone**, scroll below the data-deletion controls, read the warning, and enable **Allow third-party extension imports**. Only then does the **External Extensions** section appear under **Settings → Addons**.
+
+The environment variable is the host-operator permission; the Danger Zone toggle is the user's explicit acceptance. The section, import routes, approval routes, and both runtime loaders all enforce the combined policy. Closing either gate disables external records and stops running external code. Manually stored, legacy, profile-imported, and unknown-source extension records are treated as external, so dropping files into an extension-related folder cannot bypass the gates.
+
+Professor Mari drafts remain available without this flag. They are created disabled and still require approval of their exact code hash.
+
 ## Where the .env file is
 
 Configuration lives in a file named `.env`. This is a plain text file with one setting per line, in the form `KEY=value`. Lines that start with `#` are comments and the server ignores them.
@@ -219,6 +227,7 @@ Related privileged settings:
 | `HAPTICS_ALLOW_REMOTE` | `false` | Allows haptic device actions from a remote device, with a valid secret. |
 | `CUSTOM_TOOL_SCRIPT_ENABLED` | `false` | Enables custom script tools. Keep off for untrusted or imported tools. |
 | `ENABLE_CUSTOM_AGENT_REPOS` | `false` | Enables manual GitHub agent-repository preview and sync in Agents Manager. Third-party agents are unvetted and require explicit confirmation before import or update. |
+| `ENABLE_EXTERNAL_EXTENSIONS` | `false` | First of two gates for third-party extension imports. The user must also opt in under Settings → Advanced → Danger Zone. |
 | `IMPORT_ALLOWED_ROOTS` | empty | Filesystem folders that bulk import may read without a picker token. |
 | `PROFILE_EXPORT_JSON_LIMIT_BYTES` | `268435456` (256 MiB) | Largest single JSON profile export the server will build. |
 

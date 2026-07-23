@@ -129,6 +129,14 @@ Open **Settings**, go to the **Advanced** tab, find the **Backup & Export** sect
 
 Remember that a backup does not include your API keys, so re-enter them after you restore. For the full guide, see [Backing Up and Restoring](data/backup-and-restore.md).
 
+## How do extensions work, and can I import third-party code?
+
+By default, only Professor Mari can create a Personal Extension draft for you. It starts disabled, and you must inspect its code and approve the exact SHA-256 hash before it runs.
+
+Browser code runs in a dedicated Worker inside an opaque-origin iframe. Server code runs in a separate OS-sandboxed process on supported macOS and Linux hosts. Both runtimes receive only narrow logging, private-storage, timer, and cleanup capabilities.
+
+Third-party imports are hidden by default. The host operator must set `ENABLE_EXTERNAL_EXTENSIONS=true` in `.env`, then the user must accept the warning under **Settings → Advanced → Danger Zone**. Until both gates are open, external records—including manually stored and profile-imported records—do not appear, cannot be approved, and cannot execute. See [Personal Extensions](extending/personal-extensions.md).
+
 ## Where is my data stored?
 
 Everything lives on the computer running Marinara, inside the `data` folder in your install. Your characters, chats, personas, lorebooks, presets, and settings are all saved there. Nothing is stored in the cloud. See [Where Your Data Is Stored](data/where-data-is-stored.md).

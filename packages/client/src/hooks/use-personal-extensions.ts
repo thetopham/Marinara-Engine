@@ -3,6 +3,7 @@ import type {
   CreatePersonalExtensionInput,
   PersonalClientExtensionRuntime,
   PersonalExtension,
+  PersonalExtensionPolicy,
   UpdatePersonalExtensionInput,
 } from "@marinara-engine/shared";
 import { api } from "../lib/api-client";
@@ -11,6 +12,7 @@ export const personalExtensionKeys = {
   all: ["personal-extensions"] as const,
   list: () => [...personalExtensionKeys.all, "list"] as const,
   runtime: () => [...personalExtensionKeys.all, "runtime"] as const,
+  policy: () => [...personalExtensionKeys.all, "policy"] as const,
 };
 
 export function usePersonalExtensions() {
@@ -25,8 +27,27 @@ export function usePersonalExtensionRuntime() {
   return useQuery({
     queryKey: personalExtensionKeys.runtime(),
     queryFn: () => api.get<PersonalClientExtensionRuntime[]>("/personal-extensions/runtime/client"),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    staleTime: 1_000,
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+  });
+}
+
+export function usePersonalExtensionPolicy() {
+  return useQuery({
+    queryKey: personalExtensionKeys.policy(),
+    queryFn: () => api.get<PersonalExtensionPolicy>("/personal-extensions/policy"),
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useSetExternalExtensionsEnabled() {
+  const invalidate = useInvalidatePersonalExtensions();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.patch<PersonalExtensionPolicy>("/personal-extensions/policy/external", { enabled }),
+    onSuccess: invalidate,
   });
 }
 
@@ -59,7 +80,7 @@ export function useApprovePersonalExtension() {
     mutationFn: ({ id, contentHash }: { id: string; contentHash: string }) =>
       api.post<PersonalExtension>(`/personal-extensions/${id}/approve`, {
         contentHash,
-        acknowledgeFullTrust: true,
+        acknowledgeSandboxedCode: true,
       }),
     onSuccess: invalidate,
   });

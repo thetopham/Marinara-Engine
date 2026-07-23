@@ -1004,7 +1004,7 @@ test("extension API routes no longer exist", async ({ page }) => {
   }
 });
 
-test("retired extension records disappear from local state and Settings", async ({ page }, testInfo) => {
+test("legacy browser records are cleaned while extension imports stay locked", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "One browser proves the shared UI-state migration.");
 
   await page.goto("/");
@@ -1056,7 +1056,17 @@ test("retired extension records disappear from local state and Settings", async 
   await page.locator('[data-tour="panel-settings"]').click();
   await page.getByRole("tab", { name: "Addons" }).click();
   await expect(page.getByText("Personal Extensions", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "New Draft" })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Ask Professor Mari to create an extension for you. Nothing runs until you enable it and approve the exact code hash.",
+      { exact: true },
+    ).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "New Draft" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Import Extension File" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Import Extension Folder" })).toHaveCount(0);
+  await expect(page.getByText("External Extensions", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Supported local formats", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Theme Library", { exact: true })).toBeVisible();
   await expect(page.getByText("Legacy Extension Cleanup", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Extensions have been removed/i)).toHaveCount(0);
@@ -1064,63 +1074,53 @@ test("retired extension records disappear from local state and Settings", async 
   await expect(page.getByRole("button", { name: /Export extension/i })).toHaveCount(0);
 });
 
-test("Personal Extensions require exact-code approval on desktop and mobile", async ({ page, request }, testInfo) => {
-  const suffix = testInfo.project.name.replace(/\W+/g, "-");
-  const extensionName = `Personal Extension Smoke ${suffix} ${Date.now()}`;
-  const marker = `__marinaraPersonalExtensionSmoke_${suffix.replace(/-/g, "_")}`;
-  const firstSource = `globalThis[${JSON.stringify(marker)}] = "running"; marinara.onCleanup(() => { delete globalThis[${JSON.stringify(marker)}]; });`;
-  let extensionId: string | null = null;
+test("Personal Extensions default to the Professor Mari-only locked workflow", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('[data-tour="panel-settings"]').click();
+  await page.getByRole("tab", { name: "Addons" }).click();
 
-  try {
-    await page.goto("/");
-    await page.locator('[data-tour="panel-settings"]').click();
-    await page.getByRole("tab", { name: "Addons" }).click();
-    await expect(page.getByText("Personal Extensions", { exact: true }).first()).toBeVisible();
-    await page.getByRole("button", { name: "New Draft" }).click();
+  await expect(page.getByText("Personal Extensions", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByText(
+      "Ask Professor Mari to create an extension for you. Nothing runs until you enable it and approve the exact code hash.",
+      { exact: true },
+    ).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "New Draft" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Import Extension File" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Import Extension Folder" })).toHaveCount(0);
+  await expect(page.getByText("External Extensions", { exact: true })).toHaveCount(0);
 
-    await page.getByLabel("Name").fill(extensionName);
-    await page.getByLabel("Browser JavaScript").fill(firstSource);
-    await page.getByRole("button", { name: "Save Draft" }).click();
-    await expect(page.getByText("Disabled pending approval", { exact: true })).toBeVisible();
-    await expect
-      .poll(async () => {
-        const extensions = (await (await request.get("/api/personal-extensions")).json()) as Array<{
-          id: string;
-          name: string;
-        }>;
-        const extension = extensions.find((candidate) => candidate.name === extensionName);
-        extensionId = extension?.id ?? null;
-        return Boolean(extension);
-      })
-      .toBe(true);
+  await page.getByRole("tab", { name: "Advanced" }).click();
+  const importToggle = page.getByLabel("Allow third-party extension imports");
+  const clearAllButton = page.getByRole("button", { name: "Clear All Data" });
+  await expect(clearAllButton).toBeVisible();
+  await expect(importToggle).toBeDisabled();
+  expect(
+    await importToggle.evaluate((toggle) => {
+      const clearAll = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Clear All Data",
+      );
+      return Boolean(
+        clearAll && (clearAll.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      );
+    }),
+  ).toBe(true);
 
-    await page.getByRole("button", { name: "Review and Run" }).click();
-    const approvalDialog = page.getByRole("dialog", { name: "Run Personal Browser Code?" });
-    await expect(approvalDialog.getByText(/Marinara's origin and can read or change data/i)).toBeVisible();
-    await approvalDialog.getByRole("button", { name: "Run Exact Code" }).click();
-    await expect(page.getByText("Running approved code", { exact: true })).toBeVisible();
-    await expect
-      .poll(() => page.evaluate((key) => (globalThis as unknown as Record<string, unknown>)[key], marker))
-      .toBe("running");
-
-    await page
-      .getByLabel("Browser JavaScript")
-      .fill(`globalThis[${JSON.stringify(marker)}] = "changed code must wait";`);
-    await page.getByRole("button", { name: "Save Draft" }).click();
-    await expect(page.getByText("Disabled pending approval", { exact: true })).toBeVisible();
-    await expect
-      .poll(() => page.evaluate((key) => (globalThis as unknown as Record<string, unknown>)[key], marker))
-      .toBeUndefined();
-  } finally {
-    if (!extensionId) {
-      const response = await request.get("/api/personal-extensions");
-      if (response.ok()) {
-        const extensions = (await response.json()) as Array<{ id: string; name: string }>;
-        extensionId = extensions.find((candidate) => candidate.name === extensionName)?.id ?? null;
-      }
-    }
-    if (extensionId) await request.delete(`/api/personal-extensions/${extensionId}`);
-  }
+  const warning = page.getByText(/Third-party extensions may contain malicious or dangerous code\./u);
+  await expect(warning).toBeVisible();
+  const warningColors = await warning.evaluate((element) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--primary)";
+    document.body.appendChild(probe);
+    const result = {
+      accent: getComputedStyle(probe).color,
+      warning: getComputedStyle(element).color,
+    };
+    probe.remove();
+    return result;
+  });
+  expect(warningColors.warning).toBe(warningColors.accent);
 });
 
 test("Roleplay Active Context shows rich lorebook activation provenance", async ({ page, request }, testInfo) => {

@@ -288,6 +288,21 @@ If the lite container restarts whenever it sends an AI request on a Raspberry Pi
 
 The regular (non-lite) image is not affected. Until the upstream fix ships, use the regular image on that device. Known affected lite images include `1.5.7-lite` and `1.5.8-lite`. Last checked against Marinara Engine 2.2.0.
 
+### External Extensions is missing from Addons
+
+The section is intentionally hidden until both safety gates are open:
+
+1. Set `ENABLE_EXTERNAL_EXTENSIONS=true` in the host's `.env`.
+2. Wait about two seconds for the configuration watcher, then open **Settings → Advanced → Danger Zone**, scroll below the data-deletion controls, and enable **Allow third-party extension imports**.
+
+If the Danger Zone switch is disabled, the host flag is still false or the app has not observed the change. Confirm that you edited the active `.env` path described in [Server Configuration](CONFIGURATION.md). On Docker, that is normally `/app/data/.env`.
+
+When either gate is closed, external, legacy, profile-imported, manually stored, and unknown-source extension records do not appear and cannot run. Reopening the gates does not automatically re-enable them.
+
+### A Server Extension says no supported sandbox is available
+
+Server Extensions run only with macOS Seatbelt or Linux Bubblewrap. Install `bwrap` on the Linux host, then restart Marinara. Windows, Android, and other unsupported hosts deliberately refuse Server Extension execution instead of falling back to the main server process. Browser Extensions can still use their opaque-origin Worker sandbox.
+
 ## Getting more help
 
 If you still need help, gather good detail first.

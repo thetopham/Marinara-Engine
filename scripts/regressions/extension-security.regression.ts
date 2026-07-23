@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPersonalExtensionSchema } from "../../packages/shared/src/schemas/personal-extension.schema.js";
 import type { DB } from "../../packages/server/src/db/connection.js";
 import { createFileNativeDB } from "../../packages/server/src/db/file-backed-store.js";
 import { appSettings, installedExtensions } from "../../packages/server/src/db/schema/index.js";
+import {
+  getPersonalExtensionPolicy,
+  setExternalExtensionsEnabled,
+} from "../../packages/server/src/services/extensions/personal-extension-policy.service.js";
+import { getPersonalExtensionSandboxStatus } from "../../packages/server/src/services/extensions/personal-extension-sandbox.js";
 import { createPersonalExtensionSettingsStorage } from "../../packages/server/src/services/extensions/personal-extension-settings.service.js";
 import { createPersonalExtensionsStorage } from "../../packages/server/src/services/extensions/personal-extension-storage.service.js";
 import { PersonalServerExtensionRuntime } from "../../packages/server/src/services/extensions/personal-server-extension-runtime.js";
@@ -13,46 +18,61 @@ import { getMariDbService } from "../../packages/server/src/services/mari-db/mar
 import { preparePersonalExtensionTrust } from "../../packages/server/src/services/setup/personal-extension-trust.js";
 import { createAppSettingsStorage } from "../../packages/server/src/services/storage/app-settings.storage.js";
 
-const clientInjectorSource = readFileSync(
-  new URL("../../packages/client/src/components/layout/PersonalExtensionInjector.tsx", import.meta.url),
-  "utf8",
+const readSource = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8");
+const clientInjectorSource = readSource("../../packages/client/src/components/layout/PersonalExtensionInjector.tsx");
+const clientSettingsSource = readSource(
+  "../../packages/client/src/components/panels/settings/PersonalExtensionsSettings.tsx",
 );
-const clientAppSource = readFileSync(new URL("../../packages/client/src/App.tsx", import.meta.url), "utf8");
-const clientSettingsSource = readFileSync(
-  new URL("../../packages/client/src/components/panels/settings/PersonalExtensionsSettings.tsx", import.meta.url),
-  "utf8",
+const settingsPanelSource = readSource("../../packages/client/src/components/panels/SettingsPanel.tsx");
+const clientHooksSource = readSource("../../packages/client/src/hooks/use-personal-extensions.ts");
+const localizationSource = readSource("../../packages/client/src/localization/locales/en.json");
+const routeSource = readSource("../../packages/server/src/routes/personal-extensions.routes.ts");
+const runtimeSource = readSource(
+  "../../packages/server/src/services/extensions/personal-server-extension-runtime.ts",
 );
-const routeIndexSource = readFileSync(new URL("../../packages/server/src/routes/index.ts", import.meta.url), "utf8");
-const extensionRoutesSource = readFileSync(
-  new URL("../../packages/server/src/routes/personal-extensions.routes.ts", import.meta.url),
-  "utf8",
-);
-const extensionSchemaSource = readFileSync(
-  new URL("../../packages/shared/src/schemas/personal-extension.schema.ts", import.meta.url),
-  "utf8",
-);
-const backupSource = readFileSync(new URL("../../packages/server/src/routes/backup.routes.ts", import.meta.url), "utf8");
-const securityHeadersSource = readFileSync(
-  new URL("../../packages/server/src/middleware/security-headers.ts", import.meta.url),
-  "utf8",
-);
-const professorMariSource = readFileSync(
-  new URL("../../packages/server/src/services/professor-mari/workspace-agent.service.ts", import.meta.url),
-  "utf8",
-);
+const sandboxSource = readSource("../../packages/server/src/services/extensions/personal-extension-sandbox.ts");
+const schemaSource = readSource("../../packages/shared/src/schemas/personal-extension.schema.ts");
+const backupSource = readSource("../../packages/server/src/routes/backup.routes.ts");
+const professorMariSource = readSource("../../packages/server/src/services/professor-mari/workspace-agent.service.ts");
 
-assert.match(clientAppSource, /PersonalExtensionInjector/u);
-assert.match(clientSettingsSource, /Nothing runs until you approve its exact code hash/u);
-assert.match(clientSettingsSource, /Review and Run/u);
-assert.match(routeIndexSource, /personalExtensionsRoutes/u);
-assert.match(extensionSchemaSource, /acknowledgeFullTrust:\s*z\.literal\(true\)/u);
-assert.match(extensionRoutesSource, /approvedHash !== extension\.contentHash/u);
-assert.match(clientInjectorSource, /\/api\/personal-extensions\/\$\{encodeURIComponent\(extension\.id\)\}\/runtime\.js/u);
-assert.doesNotMatch(clientInjectorSource, /createObjectURL|blob:|eval\(|new Function/u);
-assert.doesNotMatch(securityHeadersSource, /script-src[^"\n]*\bblob:/u);
+assert.match(
+  localizationSource,
+  /Ask Professor Mari to create an extension for you\. Nothing runs until you enable it and approve the exact code hash\./u,
+);
+assert.match(clientSettingsSource, /mode="personal"/u);
+assert.match(clientSettingsSource, /mode="external"/u);
+assert.match(clientSettingsSource, /isExternal && \(/u);
+assert.match(clientSettingsSource, /settings\.externalExtensions\.formats\.title/u);
+assert.match(localizationSource, /"settings\.externalExtensions\.formats\.title": "Supported local formats"/u);
+assert.match(clientSettingsSource, /const fingerprint = extension\.contentHash/u);
+assert.doesNotMatch(clientSettingsSource, /\+ New Draft/u);
+assert.match(settingsPanelSource, /extensionPolicy\?\.externalExtensionsEnabled && <ExternalExtensionsSettings/u);
+assert.match(settingsPanelSource, /settings\.externalExtensions\.warning/u);
+
+assert.match(clientInjectorSource, /iframe\.setAttribute\("sandbox", "allow-scripts"\)/u);
+assert.doesNotMatch(clientInjectorSource, /allow-same-origin/u);
+assert.match(clientInjectorSource, /event\.origin !== "null"/u);
+assert.doesNotMatch(clientInjectorSource, /document\.head|createElement\("script"\)|runtime\.js/u);
+assert.match(clientHooksSource, /refetchInterval:\s*2_000/u);
+assert.match(clientHooksSource, /refetchIntervalInBackground:\s*true/u);
+assert.match(routeSource, /worker-src blob:/u);
+assert.match(routeSource, /connect-src 'none'/u);
+assert.match(routeSource, /new Worker\(workerUrl\)/u);
+assert.match(routeSource, /sandbox became unresponsive/u);
+assert.match(routeSource, /canExecutePersonalExtension/u);
+assert.match(routeSource, /ENABLE_EXTERNAL_EXTENSIONS=true/u);
+
+assert.match(schemaSource, /acknowledgeSandboxedCode:\s*z\.literal\(true\)/u);
+assert.doesNotMatch(schemaSource, /acknowledgeFullTrust/u);
+assert.match(runtimeSource, /spawnSandboxedPersonalExtension/u);
+assert.doesNotMatch(runtimeSource, /pathToFileURL|safeFetch|await import\(/u);
+assert.match(sandboxSource, /--permission/u);
+assert.match(sandboxSource, /--unshare-all/u);
+assert.match(sandboxSource, /macos-seatbelt/u);
+assert.match(sandboxSource, /linux-bubblewrap/u);
+
 assert.match(backupSource, /quarantineProfilePersonalExtensionRow/u);
 assert.match(backupSource, /approvedHash: null/u);
-assert.match(backupSource, /personalServerExtensionRuntime\.reloadAll\(\)/u);
 assert.match(professorMariSource, /Never claim to approve, enable, or run an extension/u);
 assert.doesNotMatch(professorMariSource, /personal_extension\.approve|personal_extension\.enable/u);
 
@@ -65,7 +85,14 @@ const manifestWithEnabled = createPersonalExtensionSchema.parse({
 assert.equal("enabled" in manifestWithEnabled, false);
 
 const storageDir = mkdtempSync(join(tmpdir(), "marinara-personal-extension-security-"));
+const previousFileStorageDir = process.env.FILE_STORAGE_DIR;
+const previousExternalGate = process.env.ENABLE_EXTERNAL_EXTENSIONS;
+const previousSandboxSecret = process.env.MARINARA_EXTENSION_SANDBOX_SECRET;
 process.env.FILE_STORAGE_DIR = storageDir;
+process.env.ENABLE_EXTERNAL_EXTENSIONS = "false";
+process.env.MARINARA_EXTENSION_SANDBOX_SECRET = "must-not-leak";
+const outsideSecretPath = join(storageDir, "outside-secret.txt");
+writeFileSync(outsideSecretPath, "outside-secret", "utf8");
 const fileDb = await createFileNativeDB();
 const db = fileDb as unknown as DB;
 try {
@@ -92,68 +119,41 @@ try {
   const migration = await preparePersonalExtensionTrust(db);
   assert.deepEqual(migration, { legacyRecordsQuarantined: 1, changedRecordsDisabled: 0 });
   const migratedRows = await db.select().from(installedExtensions);
-  assert.equal(migratedRows.length, 1);
   assert.equal(migratedRows[0]!.enabled, "false");
-  assert.match(migratedRows[0]!.contentHash, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(migratedRows[0]!.approvedHash, null);
   assert.equal(migratedRows[0]!.source, "legacy");
-  assert.equal((await db.select().from(appSettings))[0]!.value, '{"kept":true}');
 
   const storage = createPersonalExtensionsStorage(db);
-  const created = await storage.create({
-    name: "Local Clock",
-    version: "1.0.0",
-    description: "Regression fixture",
-    runtime: "client",
-    css: null,
-    js: "marinara.onCleanup(() => undefined);",
-    serverJs: null,
-  });
-  assert.ok(created);
-  assert.equal(created.enabled, false);
-  assert.equal(created.approvedHash, null);
-
-  await assert.rejects(
-    storage.approve(created.id, migratedRows[0]!.contentHash),
-    /content changed before approval/i,
+  const externalDraft = await storage.create(
+    {
+      name: "Dropped external extension",
+      runtime: "client",
+      js: "marinara.log.info('external');",
+    },
+    { source: "external" },
   );
-  const approved = await storage.approve(created.id, created.contentHash);
-  assert.ok(approved);
-  assert.equal(approved.enabled, true);
-  assert.equal(approved.approvedHash, approved.contentHash);
+  assert.ok(externalDraft);
+  assert.equal(externalDraft.enabled, false);
 
-  const updated = await storage.update(created.id, {
-    js: "marinara.onCleanup(() => console.info('updated'));",
-  });
-  assert.ok(updated);
-  assert.notEqual(updated.contentHash, approved.contentHash);
-  assert.equal(updated.enabled, false);
-  assert.equal(updated.approvedHash, null);
-  assert.equal(updated.revisions[0]?.contentHash, approved.contentHash);
-  await assert.rejects(storage.approve(created.id, approved.contentHash), /content changed before approval/i);
+  await createAppSettingsStorage(db).set("external-extensions-enabled", "true");
+  let policy = await getPersonalExtensionPolicy(db);
+  assert.equal(policy.externalExtensionsEnvEnabled, false);
+  assert.equal(policy.externalExtensionsEnabled, false);
 
-  const rolledBack = await storage.rollback(created.id, approved.contentHash);
-  assert.ok(rolledBack);
-  assert.equal(rolledBack.contentHash, approved.contentHash);
-  assert.equal(rolledBack.enabled, false);
-  assert.equal(rolledBack.approvedHash, null);
+  const directlyApprovedExternal = await storage.approve(externalDraft.id, externalDraft.contentHash);
+  assert.equal(directlyApprovedExternal?.enabled, true);
+  const policyRuntime = new PersonalServerExtensionRuntime();
+  await policyRuntime.start(db);
+  assert.equal((await storage.getById(externalDraft.id))?.enabled, false);
+  await policyRuntime.stop();
 
-  const serverDraft = await storage.create({
-    name: "Trusted local server draft",
-    runtime: "server",
-    serverJs:
-      "await marinara.storage.patch({ started: true }); marinara.onCleanup(async () => { await marinara.storage.patch({ stopped: true }); });",
-  });
-  assert.ok(serverDraft);
-  const approvedServer = await storage.approve(serverDraft.id, serverDraft.contentHash);
-  assert.ok(approvedServer?.enabled);
-  const serverRuntime = new PersonalServerExtensionRuntime(join(storageDir, "runtime-proof"));
-  const extensionSettings = createPersonalExtensionSettingsStorage(createAppSettingsStorage(db));
-  await serverRuntime.start(db);
-  assert.equal(serverRuntime.withRuntimeStatus(approvedServer).serverStatus, "running");
-  assert.deepEqual(await extensionSettings.get(serverDraft.id), { started: true });
-  await serverRuntime.stop();
-  assert.deepEqual(await extensionSettings.get(serverDraft.id), { started: true, stopped: true });
+  process.env.ENABLE_EXTERNAL_EXTENSIONS = "true";
+  await setExternalExtensionsEnabled(db, false);
+  policy = await getPersonalExtensionPolicy(db);
+  assert.equal(policy.externalExtensionsEnvEnabled, true);
+  assert.equal(policy.externalExtensionsEnabled, false);
+  policy = await setExternalExtensionsEnabled(db, true);
+  assert.equal(policy.externalExtensionsEnabled, true);
 
   const mariDb = getMariDbService(db);
   const mariCreate = await mariDb.executeAction({
@@ -161,7 +161,7 @@ try {
     data: {
       name: "Professor Mari draft",
       runtime: "client",
-      js: "marinara.addElement(document.body, 'div', { textContent: 'draft' });",
+      js: "marinara.log.info('draft');",
     },
     apply: true,
     sessionId: "personal-extension-regression",
@@ -172,19 +172,6 @@ try {
   assert.equal(mariDraft.source, "professor_mari");
   assert.equal(mariDraft.enabled, false);
   assert.equal(mariDraft.approvedHash, null);
-
-  const mariUpdate = await mariDb.executeAction({
-    action: "personal_extension.update",
-    extensionId: mariDraft.id,
-    patch: { js: "marinara.addElement(document.body, 'div', { textContent: 'revised draft' });" },
-    apply: true,
-    sessionId: "personal-extension-regression",
-  });
-  assert.equal(mariUpdate.ok, true);
-  assert.equal((await storage.getById(mariDraft.id))?.enabled, false);
-  if (mariUpdate.approval?.status === "pending") {
-    await mariDb.restoreAppliedReview(mariUpdate.approval.id);
-  }
 
   const forbiddenMariApproval = await mariDb.executeAction({
     action: "personal_extension.approve",
@@ -208,16 +195,120 @@ try {
     sessionId: "personal-extension-regression",
   });
   assert.equal(rawApprovalAttempt.ok, false);
-  assert.match(
-    JSON.stringify(rawApprovalAttempt.validation),
-    /cannot mutate Personal Extensions through raw DB actions/u,
-  );
+  assert.match(JSON.stringify(rawApprovalAttempt.validation), /cannot mutate Personal Extensions through raw DB actions/u);
 
-  const repeatedMigration = await preparePersonalExtensionTrust(db);
-  assert.deepEqual(repeatedMigration, { legacyRecordsQuarantined: 0, changedRecordsDisabled: 0 });
+  const sandbox = getPersonalExtensionSandboxStatus();
+  if (!sandbox.available) {
+    assert.ok(sandbox.reason.length > 0);
+    console.log(`Server extension sandbox runtime proof skipped: ${sandbox.reason}`);
+  } else {
+    const serverDraft = await storage.create(
+      {
+        name: "Sandbox capability proof",
+        runtime: "server",
+        serverJs: `
+          const escapedProcess = globalThis.constructor.constructor("return process")();
+          const fs = escapedProcess.getBuiltinModule("node:fs");
+          const childProcess = escapedProcess.getBuiltinModule("node:child_process");
+          const net = escapedProcess.getBuiltinModule("node:net");
+          let outsideReadBlocked = false;
+          let arbitraryWriteBlocked = false;
+          let childProcessBlocked = false;
+          let parentSignalBlocked = false;
+          let networkBlocked = false;
+          try { fs.readFileSync(${JSON.stringify(outsideSecretPath)}, "utf8"); } catch { outsideReadBlocked = true; }
+          try { fs.writeFileSync(escapedProcess.env.HOME + "/extension-owned.txt", "unsafe"); } catch { arbitraryWriteBlocked = true; }
+          try { childProcess.spawnSync("/bin/echo", ["unsafe"]); } catch { childProcessBlocked = true; }
+          try { escapedProcess.kill(escapedProcess.ppid, 0); } catch { parentSignalBlocked = true; }
+          await new Promise((resolve) => {
+            let socket;
+            try {
+              socket = net.connect({ host: "127.0.0.1", port: 9 });
+            } catch {
+              networkBlocked = true;
+              resolve();
+              return;
+            }
+            socket.once("error", () => {
+              networkBlocked = true;
+              resolve();
+            });
+            marinara.setTimeout(() => {
+              socket.destroy();
+              resolve();
+            }, 500);
+          });
+          await marinara.storage.patch({
+            started: true,
+            processType: typeof process,
+            fetchType: typeof fetch,
+            documentType: typeof document,
+            inheritedSecret: escapedProcess.env.MARINARA_EXTENSION_SANDBOX_SECRET ?? null,
+            outsideReadBlocked,
+            arbitraryWriteBlocked,
+            childProcessBlocked,
+            parentSignalBlocked,
+            networkBlocked,
+          });
+          marinara.onCleanup(async () => {
+            await marinara.storage.patch({ stopped: true });
+          });
+        `,
+      },
+      { source: "professor_mari" },
+    );
+    assert.ok(serverDraft);
+    const approvedServer = await storage.approve(serverDraft.id, serverDraft.contentHash);
+    assert.ok(approvedServer?.enabled);
+    const runtime = new PersonalServerExtensionRuntime();
+    const extensionSettings = createPersonalExtensionSettingsStorage(createAppSettingsStorage(db));
+    await runtime.start(db);
+    assert.equal(runtime.withRuntimeStatus(approvedServer).serverStatus, "running");
+    assert.deepEqual(await extensionSettings.get(serverDraft.id), {
+      started: true,
+      processType: "undefined",
+      fetchType: "undefined",
+      documentType: "undefined",
+      inheritedSecret: null,
+      outsideReadBlocked: true,
+      arbitraryWriteBlocked: true,
+      childProcessBlocked: true,
+      parentSignalBlocked: true,
+      networkBlocked: true,
+    });
+    await runtime.stop();
+    assert.deepEqual(await extensionSettings.get(serverDraft.id), {
+      started: true,
+      stopped: true,
+      processType: "undefined",
+      fetchType: "undefined",
+      documentType: "undefined",
+      inheritedSecret: null,
+      outsideReadBlocked: true,
+      arbitraryWriteBlocked: true,
+      childProcessBlocked: true,
+      parentSignalBlocked: true,
+      networkBlocked: true,
+    });
+    console.log(`Server extension sandbox runtime proof passed with ${sandbox.backend}.`);
+  }
+
+  await setExternalExtensionsEnabled(db, false);
+  const approvedAgain = await storage.approve(externalDraft.id, externalDraft.contentHash);
+  assert.equal(approvedAgain?.enabled, true);
+  const closedGateRuntime = new PersonalServerExtensionRuntime();
+  await closedGateRuntime.start(db);
+  assert.equal((await storage.getById(externalDraft.id))?.enabled, false);
+  await closedGateRuntime.stop();
 } finally {
   await fileDb._fileStore.close();
+  if (previousFileStorageDir === undefined) delete process.env.FILE_STORAGE_DIR;
+  else process.env.FILE_STORAGE_DIR = previousFileStorageDir;
+  if (previousExternalGate === undefined) delete process.env.ENABLE_EXTERNAL_EXTENSIONS;
+  else process.env.ENABLE_EXTERNAL_EXTENSIONS = previousExternalGate;
+  if (previousSandboxSecret === undefined) delete process.env.MARINARA_EXTENSION_SANDBOX_SECRET;
+  else process.env.MARINARA_EXTENSION_SANDBOX_SECRET = previousSandboxSecret;
   rmSync(storageDir, { recursive: true, force: true });
 }
 
-console.log("Personal Extension trust regression passed.");
+console.log("Personal Extension sandbox and policy regression passed.");

@@ -33,6 +33,10 @@ import {
 import { getAvatarCropStyle } from "../../packages/client/src/lib/utils.js";
 import { filterCustomEmojisByName } from "../../packages/client/src/lib/custom-emoji.js";
 import {
+  shouldSuppressAutonomousMessages,
+  toAutonomousPresenceStatus,
+} from "../../packages/client/src/lib/user-status.js";
+import {
   trackChatMetadataSave,
   waitForPendingChatMetadataSaves,
 } from "../../packages/client/src/lib/chat-metadata-save-barrier.js";
@@ -230,6 +234,10 @@ const comfyReferenceWorkflow = JSON.stringify({
   thirdName: "%reference_image_name_03%",
   outsideSupportedRange: "%reference_image_05%",
 });
+assert.equal(toAutonomousPresenceStatus("active"), "active");
+assert.equal(toAutonomousPresenceStatus("dnd"), "dnd");
+assert.equal(shouldSuppressAutonomousMessages("active"), false);
+assert.equal(shouldSuppressAutonomousMessages("dnd"), true);
 assert.deepEqual(findMissingComfyReferenceSlots(comfyReferenceWorkflow, "reference_image", 1), [1]);
 assert.deepEqual(findMissingComfyReferenceSlots(comfyReferenceWorkflow, "reference_image_name", 1), [2]);
 assert.equal(numberedComfyReferencePlaceholder("reference_image_name", 2), "%reference_image_name_03%");

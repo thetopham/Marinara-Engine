@@ -26,6 +26,7 @@ import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./Gene
 import {
   HiddenFromAIConversationButton,
   ConversationMessageLightbox,
+  MsgAction,
   type MessageData,
   type MessageRenderContext,
 } from "./ConversationMessageShared";
@@ -82,6 +83,7 @@ interface ConversationMessageProps {
   hideUserAvatar?: boolean;
   plainUserMessages?: boolean;
   forceShowActions?: boolean;
+  showStreamingThinkingAction?: boolean;
   messageStyle?: ConversationMessageStyle;
   contentParts?: string[];
   visiblePartCount?: number;
@@ -122,6 +124,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   hideUserAvatar,
   plainUserMessages,
   forceShowActions,
+  showStreamingThinkingAction,
   messageStyle = "classic",
   contentParts,
   visiblePartCount,
@@ -826,7 +829,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const modals = (
     <>
       {showThinking &&
-        thinking &&
+        (thinking || showStreamingThinkingAction) &&
         createPortal(
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
@@ -854,7 +857,7 @@ export const ConversationMessage = memo(function ConversationMessage({
               </div>
               <div className={cn(NEUTRAL_PANEL_SCROLL_AREA, "overflow-y-auto px-4 py-3")}>
                 <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-text)]">
-                  {thinking}
+                  {thinking || "Waiting for model thoughts…"}
                 </pre>
               </div>
             </div>
@@ -998,7 +1001,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       <div
         ref={msgRef}
         className={cn(
-          "mari-message relative px-4 transition-colors",
+          "mari-message relative w-full min-w-0 max-w-full px-4 transition-colors",
           !noHoverGroup && "group",
           isBubbleStyle
             ? cn("py-1", isUser ? "mari-message-user" : "mari-message-assistant", !isGrouped && "mt-2.5")
@@ -1050,6 +1053,20 @@ export const ConversationMessage = memo(function ConversationMessage({
             onShowThinking={() => setShowThinking(true)}
             onPickReaction={handleToggleReaction}
           />
+        )}
+        {showStreamingThinkingAction && !isUser && (
+          <div
+            className={cn(
+              "mari-message-actions absolute -top-3 z-10 flex items-center rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1 py-0.5 shadow-sm backdrop-blur-sm dark:border-white/20 dark:bg-black/40",
+              isBubbleStyle ? "left-12" : "right-4",
+            )}
+          >
+            <MsgAction
+              icon={<Brain size="0.75rem" />}
+              onClick={() => setShowThinking(true)}
+              title="View model thoughts"
+            />
+          </div>
         )}
       </div>
       {reactionRow}

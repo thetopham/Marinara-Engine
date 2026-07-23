@@ -20,6 +20,7 @@ import {
   useCharacterGalleryClips,
   useUploadCharacterGalleryImage,
   useDeleteCharacterGalleryImage,
+  useSetCharacterGalleryImageAsAvatar,
   useDeleteCharacterGalleryClip,
   useUpdateCharacterGalleryClipTrim,
   useUploadCharacterGalleryClip,
@@ -2215,6 +2216,7 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
   const { data: images, isLoading } = useCharacterGalleryImages(characterId);
   const upload = useUploadCharacterGalleryImage(characterId);
   const remove = useDeleteCharacterGalleryImage(characterId);
+  const setAvatar = useSetCharacterGalleryImageAsAvatar(characterId);
   const tag = useTagCharacterGalleryImage(characterId);
   const [lightbox, setLightbox] = useState<CharacterGalleryImage | null>(null);
 
@@ -2242,6 +2244,18 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
       if (lightbox?.id === image.id) setLightbox(null);
     },
     [lightbox?.id, remove],
+  );
+
+  const handleSetAvatar = useCallback(
+    async (image: CharacterGalleryImage) => {
+      try {
+        await setAvatar.mutateAsync(image.id);
+        toast.success("Character avatar updated.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to update character avatar.");
+      }
+    },
+    [setAvatar],
   );
 
   return (
@@ -2321,6 +2335,19 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
                       {new Date(image.createdAt).toLocaleDateString()}
                     </span>
                     <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleSetAvatar(image)}
+                        disabled={setAvatar.isPending}
+                        className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25 disabled:opacity-50"
+                        title="Set as avatar"
+                      >
+                        {setAvatar.isPending ? (
+                          <Loader2 size="0.75rem" className="animate-spin" />
+                        ) : (
+                          <User size="0.75rem" />
+                        )}
+                      </button>
                       <a
                         href={image.url}
                         download
@@ -2372,6 +2399,19 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
               className="max-h-[85vh] w-full rounded-lg object-contain shadow-2xl"
             />
             <div className="absolute right-2 top-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void handleSetAvatar(lightbox)}
+                disabled={setAvatar.isPending}
+                className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
+                title="Set as avatar"
+              >
+                {setAvatar.isPending ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <User size="0.875rem" />
+                )}
+              </button>
               <a
                 href={lightbox.url}
                 download

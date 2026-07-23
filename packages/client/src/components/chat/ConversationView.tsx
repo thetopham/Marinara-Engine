@@ -1269,6 +1269,7 @@ export function ConversationView({
                   isStreaming
                   isGrouped={false}
                   hideActions
+                  showStreamingThinkingAction
                   onDelete={onDelete}
                   onRegenerate={onRegenerate}
                   onEdit={onEdit}
@@ -1299,6 +1300,7 @@ export function ConversationView({
             isStreaming
             isGrouped={false}
             hideActions
+            showStreamingThinkingAction
             onDelete={onDelete}
             onRegenerate={onRegenerate}
             onEdit={onEdit}

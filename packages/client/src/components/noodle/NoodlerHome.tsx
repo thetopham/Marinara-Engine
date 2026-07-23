@@ -24,6 +24,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
+  NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH,
   NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH,
   NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH,
 } from "@marinara-engine/shared";
@@ -1755,39 +1756,24 @@ function StageProfileView({
   const accent = useNoodleAccent();
   const viewingOwnCreator = Boolean(viewerAccount && profile.publicAccountId === viewerAccount.id);
   const viewerPostById = new Map((viewerCreator?.posts ?? []).map((post) => [post.id, post]));
-  const projectedPosts = viewingOwnCreator
-    ? posts.map((post) => ({ kind: "card" as const, model: toManagedPostCardModel(post, profile) }))
-    : posts.map((managedPost) => {
-        const viewerPost = viewerPostById.get(managedPost.id);
-        if (revealedManagedPostIds.has(managedPost.id)) {
-          return {
-            kind: "managed-reveal" as const,
-            model: toManagedPostCardModel(managedPost, profile),
-          };
-        }
-        if (!viewerPost) {
-          return {
-            kind: "controller-locked" as const,
-            post: {
-              id: managedPost.id,
-              authorAccountId: managedPost.authorAccountId,
-              access: managedPost.access,
-              ppvPrice: managedPost.ppvPrice,
-              locked: true,
-              title: null,
-              content: null,
-              imageUrl: null,
-              imagePrompt: null,
-              metadata: null,
-              createdAt: managedPost.createdAt,
-              interactions: [],
-            } satisfies NoodlerPostView,
-          };
-        }
-        return viewerPost.locked
-          ? { kind: "locked" as const, post: viewerPost }
-          : { kind: "card" as const, model: toNoodlePostCardModel(viewerPost, profile) };
-      });
+  const projectedPosts = posts.map((managedPost) => {
+    const viewerPost = viewerPostById.get(managedPost.id);
+    if (revealedManagedPostIds.has(managedPost.id)) {
+      return {
+        kind: "managed-reveal" as const,
+        model: toManagedPostCardModel(managedPost, profile),
+      };
+    }
+    if (!viewerPost) {
+      return {
+        kind: "controller-locked" as const,
+        post: managedPost,
+      };
+    }
+    return viewerPost.locked
+      ? { kind: "locked" as const, post: viewerPost }
+      : { kind: "card" as const, model: toNoodlePostCardModel(viewerPost, profile) };
+  });
   const visiblePosts = projectedPosts.filter((item) => {
     if (activeTab === "posts") return true;
     if (item.kind === "locked" || item.kind === "controller-locked") return false;
@@ -1854,7 +1840,6 @@ function StageProfileView({
               subscriptionPending={subscriptionPending}
               onUnlock={onUnlock}
               onToggleSubscription={onToggleSubscription}
-              managePending={isLoading}
               onManage={() => {
                 setRevealedManagedPostIds((current) => {
                   const next = new Set(current);
@@ -2287,9 +2272,8 @@ function LockedPrivatePostCard({
   onUnlock,
   onToggleSubscription,
   onManage,
-  managePending = false,
 }: {
-  post: NoodlerPostView;
+  post: Pick<NoodlerPostView, "id" | "access" | "ppvPrice" | "createdAt">;
   profile: NoodlerStageProfile;
   controllerOnly?: boolean;
   subscribed: boolean;
@@ -2298,7 +2282,6 @@ function LockedPrivatePostCard({
   onUnlock: (postId: string) => void;
   onToggleSubscription: (creatorAccountId: string, subscribed: boolean) => void;
   onManage?: () => void;
-  managePending?: boolean;
 }) {
   return (
     <article className="flex gap-3 border-b border-[var(--noodle-divider)] px-4 py-4">
@@ -2350,11 +2333,10 @@ function LockedPrivatePostCard({
             <button
               type="button"
               onClick={onManage}
-              disabled={managePending}
-              className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:cursor-wait disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)]"
             >
-              {managePending ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-              {managePending ? "Loading controls…" : "Manage post"}
+              <Pencil size={14} />
+              Manage post
             </button>
           )}
         </div>
@@ -2436,7 +2418,9 @@ function PrivatePostComposer({
   const guidePost = async () => {
     setGuideError(null);
     if (guide.length > NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH) {
-      setGuideError("The combined title and body guide must be 2,000 characters or fewer.");
+      setGuideError(
+        `The combined title and body guide must be ${NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH.toLocaleString()} characters or fewer.`,
+      );
       return;
     }
     if (access === "ppv" && (!Number.isFinite(parsedPrice) || parsedPrice < 0 || parsedPrice > 999_999)) {
@@ -2518,7 +2502,7 @@ function PrivatePostComposer({
           <button
             type="button"
             onClick={() => void guidePost()}
-            disabled={pending || guide.length > NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH}
+            disabled={pending}
             className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {guidePending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
@@ -2618,7 +2602,7 @@ function PrivatePostComposer({
       <textarea
         value={body}
         onChange={(event) => setBody(event.target.value)}
-        maxLength={4000}
+        maxLength={NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH}
         disabled={pending}
         aria-label="Post body"
         placeholder="What's simmering, privately?"

@@ -259,17 +259,13 @@ export async function generatePrivatePost(
     ),
   };
   if (!protectedGenerated.content) throw new Error("Private generation returned no usable post content.");
-  const validatedGenerated = noodleGeneratedPrivatePostSchema.parse(protectedGenerated);
   const post = await noodle.createPrivatePost({
     authorAccountId: account.id,
-    title: validatedGenerated.title,
-    content: validatedGenerated.content,
-    imageUrl: null,
-    imagePrompt: null,
+    title: protectedGenerated.title,
+    content: protectedGenerated.content,
     source: "generated",
     access: input.request.access,
     ppvPrice: input.request.access === "ppv" ? (input.request.ppvPrice ?? null) : null,
-    metadata: {},
   });
   if (!post) throw new Error("Failed to persist the generated private NoodleR post.");
   return post;

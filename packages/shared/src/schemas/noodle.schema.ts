@@ -13,7 +13,9 @@ export const noodleThemeSchema = z.enum(["system", "light", "dark"]);
 export const noodleIdentityDisclosureSchema = z.enum(["open", "hinted", "secret"]);
 export const NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH = 200;
 export const NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH = 4000;
-export const NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH = 2000;
+// Exact `Title:\n` + `\n\n` + `Body:\n` framing overhead from serializePrivatePostGuide.
+export const NOODLE_PRIVATE_POST_GUIDE_MAX_LENGTH =
+  NOODLE_PRIVATE_POST_TITLE_MAX_LENGTH + NOODLE_PRIVATE_POST_CONTENT_MAX_LENGTH + 15;
 
 export const DEFAULT_NOODLE_SETTINGS = {
   refreshesPerDay: 2,
@@ -497,7 +499,8 @@ export const noodleGeneratedPrivatePostSchema = z
     imagePrompt: z.string().max(2000).nullable().optional(),
     poll: noodlePollInputSchema.nullable().optional(),
   })
-  .strict();
+  .strict()
+  .transform(({ title, content }) => ({ title, content }));
 
 export const noodleGeneratedInteractionSchema = z
   .object({
@@ -626,6 +629,5 @@ export type NoodlePrivateGenerationRequest = z.infer<typeof noodlePrivateGenerat
 export type NoodleGenerationRequest = z.infer<typeof noodleGenerationRequestSchema>;
 export type NoodleRescheduleRefreshInput = z.infer<typeof noodleRescheduleRefreshSchema>;
 export type NoodleGeneratedRefresh = z.infer<typeof noodleGeneratedRefreshSchema>;
-export type NoodleGeneratedPrivatePost = z.infer<typeof noodleGeneratedPrivatePostSchema>;
 export type NoodleGeneratedProfiles = z.infer<typeof noodleGeneratedProfilesSchema>;
 export type NoodleGeneratedProfile = z.infer<typeof noodleGeneratedProfileSchema>;

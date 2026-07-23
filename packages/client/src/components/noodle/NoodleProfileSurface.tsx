@@ -49,7 +49,6 @@ interface NoodleProfileSurfaceProps<TTab extends string = NoodleProfileTab> {
     location: string;
     onLocationChange: (value: string) => void;
   };
-  editAction?: { onEdit: () => void; label?: string };
   followAction?: { followed: boolean; pending: boolean; onToggle: () => void };
   leadingActions?: ReactNode;
   secondaryActions?: ReactNode;
@@ -74,7 +73,6 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
   banner,
   avatarUpload,
   editor,
-  editAction,
   followAction,
   leadingActions,
   secondaryActions,
@@ -189,17 +187,6 @@ export function NoodleProfileSurface<TTab extends string = NoodleProfileTab>({
               )}
             >
               {editor.isEditing ? (editor.isSaving ? "Saving" : "Save") : "Edit Profile"}
-            </button>
-          ) : editAction ? (
-            <button
-              type="button"
-              onClick={editAction.onEdit}
-              className={cn(
-                "rounded-full bg-[var(--noodle-blue)] px-5 text-xs font-bold text-zinc-950 transition-opacity hover:opacity-90",
-                touchActions ? "min-h-11" : "h-9",
-              )}
-            >
-              {editAction.label ?? "Edit Profile"}
             </button>
           ) : followAction ? (
             <button

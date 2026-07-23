@@ -30,9 +30,7 @@ Use **New profile** in **Manage stage profiles** to search and choose an eligibl
 
 ### Guided private posts
 
-Open a stage profile and select **Guide post**. Enter the moment, mood, or idea for the post, then select **Generate post**. NoodleR uses the configured Noodle generation connection and the stage profile's voice and disclosure mode to create one private post. The direction is kept in the modal if generation fails so it can be retried.
-
-Generated private posts can store a disclosure-filtered image prompt, but NoodleR does not generate or serve private post images yet. Fan activity, automatic posting, cross-mode integration, and creator projects remain separate later capabilities.
+Each stage profile has an inline, collapsed composer for private posts. Enter an optional title and a required body, then select **Post** to publish those literal values without provider work. Select **Guide** to optionally transform the current title and body draft through the existing private generator; leaving both fields empty requests unguided generation. If the request fails, the current draft is preserved so you can retry. Guided output contains title and body only; image generation, uploads, and polls are later scope.
 
 ## Subscriptions and post access
 

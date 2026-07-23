@@ -69,6 +69,11 @@ Community locales may temporarily omit keys while a feature-area translation is 
 back to English. Unknown keys, empty translations, malformed metadata, and changed interpolation tokens fail the
 localization check.
 
+Feature PRs must add or update the canonical English key, but they do not need to modify every community locale.
+Translate a community value only when the contributor can supply a useful translation. Do not duplicate the English
+value across locale files merely to keep their key lists equal: the runtime fallback already provides that English
+text, and leaving the key absent prevents needless merge conflicts for translators.
+
 Machine-produced translations are welcome as an initial draft when the PR identifies them as such. A fluent speaker
 should review terminology, tone, truncation, and mobile layout before the locale is described as reviewed.
 

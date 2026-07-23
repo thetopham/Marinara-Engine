@@ -64,6 +64,45 @@ async function expectHomeContentFits(page: Page) {
     .toBe(true);
 }
 
+async function updateLiveReasoningState(
+  page: Page,
+  chatId: string,
+  action: "start" | "append-thinking" | "append-content" | "stop",
+  value = "",
+) {
+  await page.evaluate(
+    async ({ activeChatId, nextAction, nextValue }) => {
+      const storePath = "/src/stores/chat.store.ts";
+      const { useChatStore } = (await import(/* @vite-ignore */ storePath)) as {
+        useChatStore: {
+          getState: () => {
+            appendStreamBuffer: (text: string, chatId?: string) => void;
+            appendThinkingBuffer: (text: string, chatId?: string) => void;
+            clearStreamBuffer: (chatId?: string) => void;
+            clearThinkingBuffer: (chatId?: string) => void;
+            setStreaming: (streaming: boolean, chatId?: string) => void;
+          };
+        };
+      };
+      const chat = useChatStore.getState();
+      if (nextAction === "start") {
+        chat.clearStreamBuffer(activeChatId);
+        chat.clearThinkingBuffer(activeChatId);
+        chat.setStreaming(true, activeChatId);
+      } else if (nextAction === "append-thinking") {
+        chat.appendThinkingBuffer(nextValue, activeChatId);
+      } else if (nextAction === "append-content") {
+        chat.appendStreamBuffer(nextValue, activeChatId);
+      } else {
+        chat.setStreaming(false, activeChatId);
+        chat.clearStreamBuffer(activeChatId);
+        chat.clearThinkingBuffer(activeChatId);
+      }
+    },
+    { activeChatId: chatId, nextAction: action, nextValue: value },
+  );
+}
+
 test.beforeEach(async ({ page }) => {
   await prepareFreshClient(page);
 });
@@ -696,6 +735,128 @@ test("generation fallbacks identify the replacement connection in a toast", asyn
     await page.request.delete(`/api/chats/${chat.id}`);
   }
 });
+
+for (const mode of ["roleplay", "conversation"] as const) {
+  test(`${mode} exposes reasoning on its first live chunk and retains saved reasoning`, async ({ page }, testInfo) => {
+    const characters: Array<{ id: string; name: string }> = [];
+    if (mode === "conversation") {
+      for (const name of ["Reasoning One", "Reasoning Two"]) {
+        const characterResponse = await page.request.post("/api/characters", {
+          data: { data: { name } },
+        });
+        expect(characterResponse.ok()).toBeTruthy();
+        characters.push({ id: ((await characterResponse.json()) as { id: string }).id, name });
+      }
+    }
+    const chatResponse = await page.request.post("/api/chats", {
+      data: {
+        name: `${mode} Reasoning Smoke`,
+        mode,
+        characterIds: characters.map((character) => character.id),
+      },
+    });
+    expect(chatResponse.ok()).toBeTruthy();
+    const chat = (await chatResponse.json()) as { id: string };
+
+    try {
+      if (mode === "conversation") {
+        const metadataResponse = await page.request.patch(`/api/chats/${chat.id}/metadata`, {
+          data: { conversationSetupComplete: true },
+        });
+        expect(metadataResponse.ok()).toBeTruthy();
+      }
+      const savedMessageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+        data: {
+          role: "assistant",
+          content:
+            mode === "conversation"
+              ? `${characters[0]!.name}: A completed response with saved reasoning.`
+              : "A completed response with saved reasoning.",
+          extra: { thinking: "Saved reasoning remains available." },
+        },
+      });
+      expect(savedMessageResponse.ok()).toBeTruthy();
+      const savedMessage = (await savedMessageResponse.json()) as { id: string };
+
+      await page.addInitScript((chatId) => {
+        localStorage.setItem("marinara-active-chat-id", chatId);
+      }, chat.id);
+      await page.goto("/");
+
+      await updateLiveReasoningState(page, chat.id, "start");
+      const liveMessageId = mode === "roleplay" ? "__streaming__" : "__conversation_live_stream__";
+      const liveMessage = page.locator(`[data-message-id="${liveMessageId}"]`);
+
+      if (mode === "roleplay") {
+        await expect(liveMessage).toBeVisible();
+        await expect(liveMessage.getByText("Thinking…", { exact: true })).toBeVisible();
+      } else {
+        await expect(liveMessage).toHaveCount(0);
+        await expect(page.locator(".mari-typing-indicator")).toBeVisible();
+      }
+      await expect(liveMessage.getByRole("button", { name: "View model thoughts" })).toHaveCount(0);
+
+      await updateLiveReasoningState(page, chat.id, "append-thinking", "First reasoning chunk.");
+      await expect(liveMessage).toBeVisible();
+      const liveThoughtsButton = liveMessage.getByRole("button", { name: "View model thoughts" });
+      await expect(liveThoughtsButton).toBeVisible();
+      await liveThoughtsButton.click();
+
+      const thoughtsDialog = page.getByRole("dialog", { name: "Model Thoughts" });
+      await expect(thoughtsDialog).toBeVisible();
+      await expect(thoughtsDialog).toContainText("First reasoning chunk.");
+
+      await updateLiveReasoningState(page, chat.id, "append-thinking", " Second reasoning chunk.");
+      await expect(thoughtsDialog).toContainText("First reasoning chunk. Second reasoning chunk.");
+      await updateLiveReasoningState(
+        page,
+        chat.id,
+        "append-content",
+        mode === "conversation"
+          ? `${characters[0]!.name}: The visible response begins.`
+          : "The visible response begins.",
+      );
+      await expect(thoughtsDialog).toBeVisible();
+      await expect(thoughtsDialog).toContainText("Second reasoning chunk.");
+      await expect(liveMessage.getByRole("button", { name: "View model thoughts" })).toBeVisible();
+      const closeThoughtsButton = thoughtsDialog.getByRole("button", { name: "Close Model Thoughts" });
+      await expect
+        .poll(() => thoughtsDialog.evaluate((dialog) => dialog.contains(document.activeElement)))
+        .toBe(true);
+      await page.keyboard.press("Tab");
+      await expect(closeThoughtsButton).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(closeThoughtsButton).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(thoughtsDialog).toBeHidden();
+      await expect(liveThoughtsButton).toBeFocused();
+
+      await updateLiveReasoningState(page, chat.id, "stop");
+      await expect(liveMessage).toHaveCount(0);
+
+      const savedRow = page.locator(`[data-message-id="${savedMessage.id}"]`);
+      if (testInfo.project.name.includes("mobile")) {
+        await savedRow.click();
+      } else {
+        await savedRow.hover();
+      }
+      const savedThoughtsButton = testInfo.project.name.includes("mobile")
+        ? savedRow.getByRole("button", { name: "View model thoughts" })
+        : savedRow.locator('button[title="View model thoughts"]');
+      await expect(savedThoughtsButton).toBeVisible();
+      await savedThoughtsButton.click();
+      await expect(page.getByRole("dialog", { name: "Model Thoughts" })).toContainText(
+        "Saved reasoning remains available.",
+      );
+    } finally {
+      await updateLiveReasoningState(page, chat.id, "stop").catch(() => undefined);
+      await page.request.delete(`/api/chats/${chat.id}`).catch(() => undefined);
+      await Promise.all(
+        characters.map((character) => page.request.delete(`/api/characters/${character.id}`).catch(() => undefined)),
+      );
+    }
+  });
+}
 
 test("Roleplay rewrite streaming follows the rendered message height", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Roleplay rewrite scrolling is covered on desktop.");

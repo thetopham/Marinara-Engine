@@ -115,6 +115,7 @@ export interface MessageRenderContext {
   regenerateButtonTitle: string;
   regenerateGuidedClass?: string;
   thinking?: string | null;
+  thinkingButtonRef: RefObject<HTMLButtonElement | null>;
   generationReplay: MessageExtra["generationReplay"] | null;
   canRegenerate: boolean;
   isLastAssistantMessage?: boolean;
@@ -404,15 +405,18 @@ export function MsgAction({
   title,
   className,
   tabIndex,
+  buttonRef,
 }: {
   icon: React.ReactNode;
   onClick: () => void;
   title: string;
   className?: string;
   tabIndex?: number;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <button
+      ref={buttonRef}
       onClick={(e) => {
         e.stopPropagation();
         onClick();

@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { decodeEncodedSpeakerTags, formatTextQuotes, type Message, type QuoteFormat } from "@marinara-engine/shared";
 import { memo, useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { chatKeys, rememberRecentMessageContentEdit } from "../../hooks/use-chats";
 import { useShallow } from "zustand/react/shallow";
@@ -67,12 +67,7 @@ import type { ChatImage } from "../../hooks/use-gallery";
 import { ChatImageLightbox } from "./ChatImageLightbox";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import { toast } from "sonner";
-import {
-  NEUTRAL_PANEL_HEADER,
-  NEUTRAL_PANEL_SCROLL_AREA,
-  NEUTRAL_PANEL_SHELL,
-  NEUTRAL_PANEL_TITLE,
-} from "../ui/neutral-surface-styles";
+import { MessageThinkingModal } from "./MessageThinkingModal";
 
 const MESSAGE_ACTION_ICON_SIZE = "1em";
 const MESSAGE_SWIPE_ICON_SIZE = "1.15em";
@@ -209,19 +204,9 @@ type AIVisibilityCharacter = {
   avatarCrop: AvatarCropValue | null | undefined;
 };
 
-type ToggleHiddenFromAI = (
-  messageId: string,
-  hiddenFromAll: boolean,
-  hiddenFromAICharacterIds?: string[],
-) => void;
+type ToggleHiddenFromAI = (messageId: string, hiddenFromAll: boolean, hiddenFromAICharacterIds?: string[]) => void;
 
-function AIVisibilityAvatar({
-  character,
-  className,
-}: {
-  character: AIVisibilityCharacter;
-  className: string;
-}) {
+function AIVisibilityAvatar({ character, className }: { character: AIVisibilityCharacter; className: string }) {
   return character.avatarUrl ? (
     <span
       className={cn(
@@ -315,7 +300,10 @@ function AIVisibilityRecipientAvatars({
   if (recipients.length === 0) return null;
 
   return (
-    <span className="ml-0.5 inline-flex -space-x-1" title={`Hidden from ${recipients.map((item) => item.name).join(", ")}`}>
+    <span
+      className="ml-0.5 inline-flex -space-x-1"
+      title={`Hidden from ${recipients.map((item) => item.name).join(", ")}`}
+    >
       {recipients.map((character) => (
         <span key={character.id} className="rounded-full ring-1 ring-[var(--marinara-chat-chrome-panel-bg)]">
           <AIVisibilityAvatar character={character} className="h-4 w-4 text-[0.45rem]" />
@@ -817,9 +805,7 @@ const ENCODED_HTML_TAG_RE = new RegExp(
 );
 
 function decodeHtmlTagAttributeEntities(value: string): string {
-  return value
-    .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
-    .replace(/&apos;|&#0*39;|&#x0*27;/gi, "'");
+  return value.replace(/&quot;|&#0*34;|&#x0*22;/gi, '"').replace(/&apos;|&#0*39;|&#x0*27;/gi, "'");
 }
 
 function decodeEncodedChatHtmlTags(value: string): string {
@@ -925,11 +911,7 @@ const CSS_SELECTOR_RE = /(^|[{}])\s*([^@{}][^{]*)\{/g;
 const MD_IMAGE_HTML_RE = /!\[([^\]]*)\]\(((?:https?:\/\/[^)\s]+|card:\/\/[^)\s]+|\/api\/[^)\s]+))\)/g;
 
 function escapeHtmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function sanitizeChatHtml(html: string, options: { allowStyle?: boolean } = {}) {
@@ -1077,11 +1059,14 @@ function renderContent(
   // Convert markdown images to <img> before sanitization so DOMPurify validates them.
   // Keep tags minimal (no class, only loading/decoding attrs) — styling is via .mari-message-content img in CSS
   // to avoid the dialogue-bolding regex mangling attribute quotes.
-  const withImages = normalizeCardAssetImageSyntax(withBreaks).replace(MD_IMAGE_HTML_RE, (_m, alt: string, url: string) => {
-    const src = escapeHtmlAttr(resolveCardAssetUrl(url));
-    const safeAlt = escapeHtmlAttr(alt || "image");
-    return `<img src="${src}" alt="${safeAlt}" loading="lazy" decoding="async">`;
-  });
+  const withImages = normalizeCardAssetImageSyntax(withBreaks).replace(
+    MD_IMAGE_HTML_RE,
+    (_m, alt: string, url: string) => {
+      const src = escapeHtmlAttr(resolveCardAssetUrl(url));
+      const safeAlt = escapeHtmlAttr(alt || "image");
+      return `<img src="${src}" alt="${safeAlt}" loading="lazy" decoding="async">`;
+    },
+  );
 
   const clean = sanitizeChatHtml(withImages, { allowStyle: true });
 
@@ -1196,6 +1181,7 @@ export const ChatMessage = memo(function ChatMessage({
   isSelected,
   onToggleSelect,
 }: ChatMessageProps) {
+  const { t } = useTranslation();
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isNarrator = message.role === "narrator";
@@ -1292,6 +1278,7 @@ export const ChatMessage = memo(function ChatMessage({
   const [imageLightbox, setImageLightbox] = useState<ChatMessageImageLightboxState | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
   const msgRef = useRef<HTMLDivElement>(null);
+  const thinkingButtonRef = useRef<HTMLButtonElement>(null);
   const editSwipeIndexRef = useRef<number | null>(null);
   const lastQuickTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const openImageLightbox = useCallback(
@@ -1534,7 +1521,9 @@ export const ChatMessage = memo(function ChatMessage({
       )
     : [];
   const isHiddenFromAI = isHiddenFromAllAI || hiddenFromAICharacterIds.length > 0;
-  const thinking = extra.thinking as string | undefined;
+  const thinking =
+    typeof extra.thinking === "string" && extra.thinking.trim().length > 0 ? (extra.thinking as string) : null;
+  const showStreamingThinkingAction = !!isStreaming && !!thinking && !isUser;
   const generationReplay = hasGenerationReplayDetails(extra.generationReplay) ? extra.generationReplay : null;
   const diceRollResult = isDiceRollResult(extra.diceRollResult) ? extra.diceRollResult : null;
   const canCreateNextSwipe = Boolean(onRegenerate && !isUser);
@@ -2149,7 +2138,11 @@ export const ChatMessage = memo(function ChatMessage({
           <PendingTypingDots className="mari-message-typing py-0.5" dotClassName="bg-blue-400/60" />
         ) : (
           <>
-            {diceRollResult ? <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} /> : renderedContent}
+            {diceRollResult ? (
+              <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} />
+            ) : (
+              renderedContent
+            )}
             {isStreaming && (
               <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-blue-400" />
             )}
@@ -2277,7 +2270,11 @@ export const ChatMessage = memo(function ChatMessage({
                   className={cn("mari-message-content break-words italic", !isHtmlContent && "whitespace-pre-wrap")}
                   style={messageTextStyle}
                 >
-                  {diceRollResult ? <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} /> : renderedContent}
+                  {diceRollResult ? (
+                    <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} />
+                  ) : (
+                    renderedContent
+                  )}
                 </div>
               )}
             </div>
@@ -2453,7 +2450,12 @@ export const ChatMessage = memo(function ChatMessage({
             {isConversationStart && (
               <div className="flex items-center gap-1.5 px-1 mb-1">
                 <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
-                <span className={cn("text-[0.5625rem] font-semibold uppercase tracking-widest", MESSAGE_CHROME_MARKER_TEXT_CLASS)}>
+                <span
+                  className={cn(
+                    "text-[0.5625rem] font-semibold uppercase tracking-widest",
+                    MESSAGE_CHROME_MARKER_TEXT_CLASS,
+                  )}
+                >
                   New Start
                 </span>
                 <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
@@ -2663,6 +2665,8 @@ export const ChatMessage = memo(function ChatMessage({
                 "mari-message-actions flex items-center gap-0.5 px-1 opacity-0 transition-all group-hover:opacity-100",
                 isUser && "flex-row-reverse",
                 showActions && "opacity-100",
+                showStreamingThinkingAction &&
+                  "opacity-100 [&>button:not([data-message-thinking-action])]:hidden [&>div]:hidden",
               )}
             >
               <ActionBtn
@@ -2739,7 +2743,9 @@ export const ChatMessage = memo(function ChatMessage({
                 <ActionBtn
                   icon={<Brain size={MESSAGE_ACTION_ICON_SIZE} />}
                   onClick={() => setShowThinking(true)}
-                  title="View thoughts"
+                  title={t("chat.message.thoughts.view")}
+                  thinkingAction
+                  buttonRef={thinkingButtonRef}
                   dark
                 />
               )}
@@ -2821,7 +2827,13 @@ export const ChatMessage = memo(function ChatMessage({
         </div>
 
         {/* Thinking modal */}
-        {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
+        {showThinking && thinking && (
+          <MessageThinkingModal
+            thinking={thinking}
+            onClose={() => setShowThinking(false)}
+            restoreFocusRef={thinkingButtonRef}
+          />
+        )}
         {generationReplay && (
           <GenerationReplayDetailsModal
             open={showGenerationReplay}
@@ -2951,7 +2963,12 @@ export const ChatMessage = memo(function ChatMessage({
           {isConversationStart && (
             <div className="flex items-center gap-1.5 px-2 mb-0.5">
               <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
-              <span className={cn("text-[0.5625rem] font-semibold uppercase tracking-widest", MESSAGE_CHROME_MARKER_TEXT_CLASS)}>
+              <span
+                className={cn(
+                  "text-[0.5625rem] font-semibold uppercase tracking-widest",
+                  MESSAGE_CHROME_MARKER_TEXT_CLASS,
+                )}
+              >
                 New Start
               </span>
               <span className={cn("h-px flex-1", MESSAGE_CHROME_MARKER_LINE_CLASS)} />
@@ -3001,7 +3018,11 @@ export const ChatMessage = memo(function ChatMessage({
                     />
                   ) : (
                     <>
-                      {diceRollResult ? <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} /> : renderedContent}
+                      {diceRollResult ? (
+                        <DiceMessageContent diceRollResult={diceRollResult} createdAt={message.createdAt} />
+                      ) : (
+                        renderedContent
+                      )}
                       {isStreaming && (
                         <span className="ml-0.5 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-white/70" />
                       )}
@@ -3114,6 +3135,8 @@ export const ChatMessage = memo(function ChatMessage({
               "mari-message-actions flex items-center gap-0 px-1 opacity-0 transition-all group-hover:opacity-100",
               isUser && "flex-row-reverse",
               showActions && "opacity-100",
+              showStreamingThinkingAction &&
+                "opacity-100 [&>button:not([data-message-thinking-action])]:hidden [&>div]:hidden",
             )}
           >
             <ActionBtn
@@ -3172,7 +3195,9 @@ export const ChatMessage = memo(function ChatMessage({
               <ActionBtn
                 icon={<Brain size={MESSAGE_ACTION_ICON_SIZE} />}
                 onClick={() => setShowThinking(true)}
-                title="View thoughts"
+                title={t("chat.message.thoughts.view")}
+                thinkingAction
+                buttonRef={thinkingButtonRef}
               />
             )}
             {onBranch && (
@@ -3258,7 +3283,13 @@ export const ChatMessage = memo(function ChatMessage({
       </div>
 
       {/* Thinking modal */}
-      {showThinking && thinking && <ThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
+      {showThinking && thinking && (
+        <MessageThinkingModal
+          thinking={thinking}
+          onClose={() => setShowThinking(false)}
+          restoreFocusRef={thinkingButtonRef}
+        />
+      )}
       {generationReplay && (
         <GenerationReplayDetailsModal
           open={showGenerationReplay}
@@ -3279,42 +3310,6 @@ export const ChatMessage = memo(function ChatMessage({
     </div>
   );
 });
-
-// ── Thinking modal ──
-function ThinkingModal({ thinking, onClose }: { thinking: string; onClose: () => void }) {
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm max-md:pt-[env(safe-area-inset-top)]"
-      onClick={onClose}
-    >
-      <div
-        className={cn(NEUTRAL_PANEL_SHELL, "relative mx-4 flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden")}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={cn(NEUTRAL_PANEL_HEADER, "flex items-center justify-between gap-3 px-4 py-3")}>
-          <div className={cn(NEUTRAL_PANEL_TITLE, "text-sm")}>
-            <Brain size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />
-            Model Thoughts
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close thoughts"
-            className="mari-chrome-control mari-chrome-control--small p-1.5"
-          >
-            <X size="0.875rem" />
-          </button>
-        </div>
-        <div className={cn(NEUTRAL_PANEL_SCROLL_AREA, "overflow-y-auto px-4 py-3")}>
-          <pre className="whitespace-pre-wrap break-words text-[0.8125rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-text)]">
-            {thinking}
-          </pre>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 function TTSLineVolumeControl({
   volume,
@@ -3364,11 +3359,7 @@ function TTSLineVolumeControl({
         dark={dark}
         ariaPressed={open}
         className={
-          open
-            ? dark
-              ? MESSAGE_CHROME_ACTIVE_ICON_CLASS
-              : "bg-[var(--accent)] text-[var(--foreground)]"
-            : undefined
+          open ? (dark ? MESSAGE_CHROME_ACTIVE_ICON_CLASS : "bg-[var(--accent)] text-[var(--foreground)]") : undefined
         }
       />
       {open && (
@@ -3423,6 +3414,8 @@ function ActionBtn({
   dark,
   disabled,
   ariaPressed,
+  thinkingAction,
+  buttonRef,
 }: {
   icon: React.ReactNode;
   onClick: () => void;
@@ -3431,14 +3424,18 @@ function ActionBtn({
   dark?: boolean;
   disabled?: boolean;
   ariaPressed?: boolean;
+  thinkingAction?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       title={title}
       aria-label={title}
       aria-pressed={ariaPressed}
+      data-message-thinking-action={thinkingAction || undefined}
       disabled={disabled}
       className={cn(
         "inline-flex h-[1.7em] w-[1.7em] shrink-0 items-center justify-center rounded-md p-0 text-[0.8125rem] leading-none transition-all active:scale-90 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-30",

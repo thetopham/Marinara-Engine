@@ -17,6 +17,8 @@ Keep these properties true:
 9. Closing either gate disables stored external records and stops active server processes. Browser runtime polling removes active browser workers.
 10. Browser code never executes in the Marinara document. Server code never executes in the Marinara server process.
 11. There is no URL installer, remote catalog, or automatic updater.
+12. Host contributions are plain validated descriptors. Extension markup, styles, URLs, components, and callbacks never cross into Marinara's React tree.
+13. Contribution registration, activation, events, updates, and removal remain bound to the enabled extension's exact approved content hash.
 
 The gates are enforced in routes and runtime services. Hiding controls is not a security boundary. A manually added, restored, legacy, or out-of-band external record must remain invisible and unexecutable while either gate is closed.
 
@@ -55,11 +57,28 @@ The worker receives only:
 - private extension storage brokered by the parent;
 - managed timers;
 - cleanup registration;
-- a constrained window UI through `marinara.ui.showWindow(...)`.
+- a constrained iframe window through `marinara.ui.showWindow(...)`;
+- trusted host contribution slots through `marinara.ui.registerContribution(...)`.
 
-`marinara.ui.showWindow({ title, elements, onEvent, onClose })` returns a handle with `update({ title?, elements? })` and `close()`. Each element is one of a fixed whitelist — `heading`, `text`, `pre`, `button`, `input`, `spacer` — with plain-string fields; `button` and `input` require an `id`. The worker only sends these descriptors. The trusted iframe bootstrap renders them with `textContent` (never `innerHTML`), so no markup, event handlers, or styles cross from the extension into the rendered DOM. A button click posts `{ windowId, elementId, values }` back to `onEvent`, where `values` maps each input `id` to its current string value. The host reveals the otherwise-hidden sandbox iframe as a centered overlay only while a window is open, and hides it again on close; the extension still has no access to Marinara's DOM, network, or the host window. Window count, element count, and text length are capped, and window messages count toward the same rate limit as everything else.
+`marinara.ui.showWindow({ title, elements, onEvent, onClose })` returns a handle with `update({ title?, elements? })` and `close()`. The worker only sends descriptors, and the trusted iframe bootstrap builds every element with DOM APIs and `textContent` (never `innerHTML`). The host reveals the otherwise-hidden sandbox iframe only while a window is open and hides it again on close.
+
+`marinara.ui.registerContribution({ id, kind, label, description?, icon?, elements?, onActivate?, onEvent? })` returns a frozen handle with `update(patch)` and `remove()`. It supports three fixed locations:
+
+- `button`: a compact top-bar action on larger screens and an action in the Extensions menu everywhere;
+- `menu-item`: an action in the Extensions menu;
+- `panel`: an entry that opens Marinara's trusted Extensions side panel.
+
+Panel elements use the same declarative vocabulary as constrained windows: `heading`, `text`, `pre`, `button`, `input`, `select`, `toggle`, `slider`, `color`, and `spacer`. Interactive controls require unique IDs. A panel button posts `{ contributionId, elementId, values }` to `onEvent`; `values` contains the current string value of every control. `onActivate` runs inside the extension Worker when the user opens or invokes the contribution. The extension can call `handle.update(...)` to replace its label, description, icon, or panel elements after state changes.
+
+The client independently validates every descriptor before adding it to the runtime store. Contribution kinds, icons, controls, IDs, option lists, text lengths, total panel text, element count, and per-extension contribution count are allowlisted and capped. React renders extension text as text. No extension-controlled HTML, CSS, URL, React component, or host callback is accepted. The host removes all contributions when the worker is stopped, its hash changes, or it disappears from the approved runtime response. Events are dispatched only to the worker registered for the same extension ID and content hash.
 
 There is no DOM helper, Marinara API fetch, parent event access, or arbitrary network capability. The iframe validates and rate-limits messages. A heartbeat watchdog terminates an unresponsive or busy-looping worker.
+
+## Complex extension compatibility
+
+The contribution protocol is intended to support real settings-heavy tools and multi-step workflows, not only decorative buttons. A complex extension can progressively replace a panel's elements and keep its own state in private extension storage.
+
+Existing legacy packages that inject buttons with host selectors, traverse React internals, write arbitrary overlays, or call same-origin `/api` routes do not run unchanged in the safe runtime. Port them by replacing their interface with contribution descriptors. Functionality that needs Marinara application data or scene-level visual effects must use a separate, narrowly scoped, user-approved broker capability when one exists; never restore raw DOM or unrestricted API authority as a compatibility shortcut.
 
 ## Server runtime
 
@@ -83,4 +102,4 @@ pnpm regression:professor-mari-shell-sandbox
 pnpm smoke:ui
 ```
 
-The security regression must prove the two-step gate, exact-hash invalidation, opaque-origin worker shape, removal of same-origin injection, environment stripping, filesystem/network denial, private storage, and fail-closed sandbox availability.
+The security regression must prove the two-step gate, exact-hash invalidation, opaque-origin worker shape, host contribution validation and cleanup, removal of same-origin injection, environment stripping, filesystem/network denial, private storage, and fail-closed sandbox availability.

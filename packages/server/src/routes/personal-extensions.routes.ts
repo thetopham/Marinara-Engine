@@ -7,6 +7,10 @@ import {
   personalExtensionStoragePatchSchema,
   rollbackPersonalExtensionSchema,
   updatePersonalExtensionSchema,
+  PERSONAL_EXTENSION_CONTRIBUTION_ICONS,
+  PERSONAL_EXTENSION_CONTRIBUTION_KINDS,
+  PERSONAL_EXTENSION_UI_ELEMENT_KINDS,
+  PERSONAL_EXTENSION_UI_LIMITS,
   type PersonalClientExtensionRuntime,
   type PersonalExtension,
 } from "@marinara-engine/shared";
@@ -24,7 +28,10 @@ import {
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-function privileged(req: Parameters<typeof requirePrivilegedAccess>[0], reply: Parameters<typeof requirePrivilegedAccess>[1]) {
+function privileged(
+  req: Parameters<typeof requirePrivilegedAccess>[0],
+  reply: Parameters<typeof requirePrivilegedAccess>[1],
+) {
   return requirePrivilegedAccess(req, reply, { feature: "Personal Extensions" });
 }
 
@@ -38,10 +45,17 @@ export function browserWorkerSource(extension: PersonalExtension) {
     name: extension.name,
     contentHash: extension.contentHash,
   });
+  const contributionContract = JSON.stringify({
+    kinds: PERSONAL_EXTENSION_CONTRIBUTION_KINDS,
+    icons: PERSONAL_EXTENSION_CONTRIBUTION_ICONS,
+    elementKinds: PERSONAL_EXTENSION_UI_ELEMENT_KINDS,
+    limits: PERSONAL_EXTENSION_UI_LIMITS,
+  });
   return `
 (() => {
   "use strict";
   const extension = ${identity};
+  const contributionContract = ${contributionContract};
   const send = self.postMessage.bind(self);
   const cleanupFns = [];
   let requestId = 0;
@@ -74,12 +88,20 @@ export function browserWorkerSource(extension: PersonalExtension) {
   const MAX_UI_WINDOWS = 4;
   const MAX_UI_ELEMENTS = 60;
   const MAX_UI_TEXT = 8000;
-  const UI_ELEMENT_KINDS = new Set(["heading", "text", "pre", "button", "input", "spacer"]);
+  const UI_ELEMENT_KINDS = new Set(contributionContract.elementKinds);
+  const UI_CONTROL_KINDS = new Set(["button", "input", "select", "toggle", "slider", "color"]);
   const uiWindows = new Set();
   const uiEventHandlers = new Map();
   const uiCloseHandlers = new Map();
   let uiWindowCounter = 0;
   const clampText = (value) => String(value == null ? "" : value).slice(0, MAX_UI_TEXT);
+  const optionalText = (value) => value == null ? undefined : clampText(value);
+  const normalizeControlId = (element) => {
+    if (typeof element.id !== "string" || !element.id) {
+      throw new Error(element.kind + " element requires a string id");
+    }
+    return element.id.slice(0, 128);
+  };
   const normalizeUiElements = (elements) => {
     if (!Array.isArray(elements)) throw new Error("window elements must be an array");
     if (elements.length > MAX_UI_ELEMENTS) throw new Error("window has too many elements (max " + MAX_UI_ELEMENTS + ")");
@@ -87,18 +109,72 @@ export function browserWorkerSource(extension: PersonalExtension) {
       if (!element || typeof element !== "object" || !UI_ELEMENT_KINDS.has(element.kind)) {
         throw new Error("unsupported window element");
       }
-      if (element.kind === "button" || element.kind === "input") {
-        if (typeof element.id !== "string" || !element.id) throw new Error(element.kind + " element requires a string id");
+      if (element.kind === "spacer") return { kind: "spacer" };
+      if (element.kind === "heading" || element.kind === "text" || element.kind === "pre") {
+        return { kind: element.kind, text: clampText(element.text) };
       }
-      return {
-        kind: element.kind,
-        id: typeof element.id === "string" ? element.id.slice(0, 128) : undefined,
-        text: clampText(element.text),
-        label: element.label == null ? undefined : clampText(element.label),
-        placeholder: element.placeholder == null ? undefined : clampText(element.placeholder),
-        value: element.value == null ? undefined : clampText(element.value),
-        multiline: element.kind === "input" ? Boolean(element.multiline) : undefined,
-      };
+      const id = normalizeControlId(element);
+      if (element.kind === "button") {
+        return { kind: "button", id, label: clampText(element.label ?? element.text) };
+      }
+      if (element.kind === "input") {
+        return {
+          kind: "input",
+          id,
+          label: optionalText(element.label),
+          placeholder: optionalText(element.placeholder),
+          value: optionalText(element.value),
+          multiline: Boolean(element.multiline),
+        };
+      }
+      if (element.kind === "select") {
+        if (!Array.isArray(element.options) || element.options.length > contributionContract.limits.selectOptions) {
+          throw new Error("select options exceed their limit");
+        }
+        const values = new Set();
+        const options = element.options.map((option) => {
+          if (!option || typeof option !== "object" || typeof option.value !== "string" || typeof option.label !== "string") {
+            throw new Error("select options require string values and labels");
+          }
+          const value = clampText(option.value);
+          if (!value || values.has(value)) throw new Error("select option values must be non-empty and unique");
+          values.add(value);
+          return { value, label: clampText(option.label) };
+        });
+        const value = optionalText(element.value);
+        if (value !== undefined && !values.has(value)) throw new Error("select value must match an option");
+        return { kind: "select", id, label: optionalText(element.label), value, options };
+      }
+      if (element.kind === "toggle") {
+        return { kind: "toggle", id, label: clampText(element.label), checked: Boolean(element.checked) };
+      }
+      if (element.kind === "slider") {
+        const min = Number(element.min);
+        const max = Number(element.max);
+        const step = element.step == null ? undefined : Number(element.step);
+        const value = element.value == null ? undefined : Number(element.value);
+        if (
+          !Number.isFinite(min) ||
+          !Number.isFinite(max) ||
+          min >= max ||
+          (step !== undefined && (!Number.isFinite(step) || step <= 0)) ||
+          (value !== undefined && !Number.isFinite(value))
+        ) {
+          throw new Error("slider values are invalid");
+        }
+        return {
+          kind: "slider",
+          id,
+          label: optionalText(element.label),
+          min,
+          max,
+          step,
+          value: value === undefined ? undefined : Math.max(min, Math.min(max, value)),
+        };
+      }
+      const value = optionalText(element.value);
+      if (value !== undefined && !/^#[a-f0-9]{6}$/iu.test(value)) throw new Error("color value must be a hex color");
+      return { kind: "color", id, label: optionalText(element.label), value };
     });
   };
   const showWindow = (options) => {
@@ -130,9 +206,128 @@ export function browserWorkerSource(extension: PersonalExtension) {
       },
     };
   };
+  // Host contributions are declarative records only. The extension can ask
+  // Marinara to place trusted controls in fixed slots, but it never supplies
+  // markup, styles, component code, URLs, or host callbacks.
+  const contributionKinds = new Set(contributionContract.kinds);
+  const contributionIcons = new Set(contributionContract.icons);
+  const contributionControlKinds = new Set(["button", "input", "select", "toggle", "slider", "color"]);
+  const uiContributions = new Map();
+  const uiContributionActivateHandlers = new Map();
+  const uiContributionEventHandlers = new Map();
+  const contributionIdPattern = /^[A-Za-z0-9._-]+$/;
+  const contributionText = (value, max, required) => {
+    if (value == null && !required) return undefined;
+    if (typeof value !== "string") throw new Error("contribution text must be a string");
+    const text = value.trim();
+    if ((required && !text) || text.length > max) throw new Error("contribution text exceeds its limit");
+    return text;
+  };
+  const contributionId = (value) => {
+    const id = contributionText(value, contributionContract.limits.idLength, true);
+    if (!contributionIdPattern.test(id)) throw new Error("contribution id contains unsupported characters");
+    return id;
+  };
+  const normalizeContributionElements = (elements) => {
+    const normalized = normalizeUiElements(elements || []);
+    let totalTextLength = 0;
+    const interactiveIds = new Set();
+    for (const element of normalized) {
+      if (contributionControlKinds.has(element.kind)) {
+        if (!element.id || element.id.length > contributionContract.limits.idLength) {
+          throw new Error("panel control id exceeds its limit");
+        }
+        if (!contributionIdPattern.test(element.id)) {
+          throw new Error("panel control id contains unsupported characters");
+        }
+        if (interactiveIds.has(element.id)) throw new Error("panel control ids must be unique");
+        interactiveIds.add(element.id);
+      }
+      for (const field of ["id", "text", "label", "placeholder", "value"]) {
+        if (typeof element[field] === "string") totalTextLength += element[field].length;
+      }
+      if (typeof element.label === "string" && element.label.length > contributionContract.limits.labelLength) {
+        throw new Error("panel control label exceeds its limit");
+      }
+      if (
+        typeof element.placeholder === "string" &&
+        element.placeholder.length > contributionContract.limits.descriptionLength
+      ) {
+        throw new Error("panel control placeholder exceeds its limit");
+      }
+      if (element.kind === "select") {
+        for (const option of element.options) {
+          if (
+            option.value.length > contributionContract.limits.labelLength ||
+            option.label.length > contributionContract.limits.labelLength
+          ) {
+            throw new Error("select option text exceeds its limit");
+          }
+          totalTextLength += option.value.length + option.label.length;
+        }
+      }
+    }
+    if (totalTextLength > contributionContract.limits.totalPanelTextLength) {
+      throw new Error("panel text exceeds its total limit");
+    }
+    return normalized;
+  };
+  const normalizeContribution = (options) => {
+    if (!options || typeof options !== "object") throw new Error("contribution options are required");
+    const id = contributionId(options.id);
+    const kind = contributionKinds.has(options.kind) ? options.kind : null;
+    if (!kind) throw new Error("unsupported contribution kind");
+    const label = contributionText(options.label, contributionContract.limits.labelLength, true);
+    const description = contributionText(options.description, contributionContract.limits.descriptionLength, false);
+    const icon = options.icon == null ? undefined : options.icon;
+    if (icon !== undefined && !contributionIcons.has(icon)) throw new Error("unsupported contribution icon");
+    if (kind !== "panel" && options.elements !== undefined) {
+      throw new Error("only panel contributions may include elements");
+    }
+    const elements = kind === "panel" ? normalizeContributionElements(options.elements) : undefined;
+    return { id, kind, label, description, icon, elements };
+  };
+  const registerContribution = (options) => {
+    if (uiContributions.size >= contributionContract.limits.contributionsPerExtension) {
+      throw new Error("too many extension contributions");
+    }
+    const descriptor = normalizeContribution(options);
+    if (uiContributions.has(descriptor.id)) throw new Error("contribution id is already registered");
+    uiContributions.set(descriptor.id, descriptor);
+    if (typeof options.onActivate === "function") {
+      uiContributionActivateHandlers.set(descriptor.id, options.onActivate);
+    }
+    if (typeof options.onEvent === "function") {
+      uiContributionEventHandlers.set(descriptor.id, options.onEvent);
+    }
+    send({ type: "ui-contribution-register", contribution: descriptor });
+    return Object.freeze({
+      id: descriptor.id,
+      update: (patch) => {
+        const current = uiContributions.get(descriptor.id);
+        if (!current) return;
+        const nextOptions = { ...current, ...(patch || {}), id: current.id, kind: current.kind };
+        const next = normalizeContribution(nextOptions);
+        uiContributions.set(next.id, next);
+        if (typeof patch?.onActivate === "function") {
+          uiContributionActivateHandlers.set(next.id, patch.onActivate);
+        }
+        if (typeof patch?.onEvent === "function") {
+          uiContributionEventHandlers.set(next.id, patch.onEvent);
+        }
+        send({ type: "ui-contribution-update", contribution: next });
+      },
+      remove: () => {
+        if (!uiContributions.delete(descriptor.id)) return;
+        uiContributionActivateHandlers.delete(descriptor.id);
+        uiContributionEventHandlers.delete(descriptor.id);
+        send({ type: "ui-contribution-remove", contributionId: descriptor.id });
+      },
+    });
+  };
   const marinara = Object.freeze({
     runtime: "client",
-    version: 3,
+    version: 4,
     extensionId: extension.id,
     extensionName: extension.name,
     log: Object.freeze({
@@ -148,6 +343,7 @@ export function browserWorkerSource(extension: PersonalExtension) {
     }),
     ui: Object.freeze({
       showWindow,
+      registerContribution,
     }),
     setTimeout: managedTimeout,
     setInterval: managedInterval,
@@ -189,7 +385,33 @@ export function browserWorkerSource(extension: PersonalExtension) {
         if (handler) { try { handler({ windowId: message.windowId }); } catch {} }
       }
     }
+    if (message?.type === "ui-contribution-activate" && typeof message.contributionId === "string") {
+      const handler = uiContributionActivateHandlers.get(message.contributionId);
+      if (handler) {
+        Promise.resolve()
+          .then(() => handler({ contributionId: message.contributionId }))
+          .catch((error) => log("error", [error instanceof Error ? error.message : String(error)]));
+      }
+    }
+    if (message?.type === "ui-contribution-event" && typeof message.contributionId === "string") {
+      const handler = uiContributionEventHandlers.get(message.contributionId);
+      if (handler) {
+        Promise.resolve()
+          .then(() => handler({
+            contributionId: message.contributionId,
+            elementId: typeof message.elementId === "string" ? message.elementId : "",
+            values: message.values && typeof message.values === "object" ? message.values : {},
+          }))
+          .catch((error) => log("error", [error instanceof Error ? error.message : String(error)]));
+      }
+    }
     if (message?.type === "stop") {
+      for (const id of uiContributions.keys()) {
+        send({ type: "ui-contribution-remove", contributionId: id });
+      }
+      uiContributions.clear();
+      uiContributionActivateHandlers.clear();
+      uiContributionEventHandlers.clear();
       for (const cleanup of [...cleanupFns].reverse()) {
         try { cleanup(); } catch {}
       }
@@ -283,8 +505,26 @@ export function sandboxDocument(extension: PersonalExtension, nonce: string) {
   const collectValues = (windowId) => {
     const values = {};
     const entry = uiWindows.get(windowId);
-    if (entry) for (const [id, node] of entry.inputs) values[id] = String(node.value ?? "");
+    if (entry) {
+      for (const [id, node] of entry.inputs) {
+        values[id] = node.type === "checkbox" ? String(node.checked) : String(node.value ?? "");
+      }
+    }
     return values;
+  };
+  const buildField = (descriptor, inputs, field) => {
+    const wrap = document.createElement("label");
+    Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.8125rem" });
+    if (descriptor.label) {
+      const label = document.createElement("span");
+      label.textContent = descriptor.label;
+      wrap.appendChild(label);
+    }
+    field.setAttribute("data-ext-input", descriptor.id);
+    Object.assign(field.style, { minHeight: "2.25rem", padding: "0.4rem 0.5rem", borderRadius: "6px", border: "1px solid var(--ext-border)", background: "var(--ext-muted)", color: "inherit", font: "inherit", boxSizing: "border-box" });
+    inputs.set(descriptor.id, field);
+    wrap.appendChild(field);
+    return wrap;
   };
   const buildElement = (windowId, descriptor, inputs) => {
     if (descriptor.kind === "heading") {
@@ -311,19 +551,54 @@ export function sandboxDocument(extension: PersonalExtension, nonce: string) {
       return el;
     }
     if (descriptor.kind === "input") {
-      const wrap = document.createElement("label");
-      Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.8125rem" });
-      if (descriptor.label) { const lab = document.createElement("span"); lab.textContent = descriptor.label; wrap.appendChild(lab); }
       const field = descriptor.multiline ? document.createElement("textarea") : document.createElement("input");
       if (!descriptor.multiline) field.type = "text";
       if (descriptor.placeholder) field.placeholder = descriptor.placeholder;
       field.value = descriptor.value || "";
-      field.setAttribute("data-ext-input", descriptor.id);
-      Object.assign(field.style, { padding: "0.4rem 0.5rem", borderRadius: "6px", border: "1px solid var(--ext-border)", background: "var(--ext-muted)", color: "inherit", font: "inherit" });
       if (descriptor.multiline) field.rows = 4;
+      return buildField(descriptor, inputs, field);
+    }
+    if (descriptor.kind === "select") {
+      const field = document.createElement("select");
+      for (const option of descriptor.options || []) {
+        const optionEl = document.createElement("option");
+        optionEl.value = option.value;
+        optionEl.textContent = option.label;
+        field.appendChild(optionEl);
+      }
+      field.value = descriptor.value || descriptor.options?.[0]?.value || "";
+      return buildField(descriptor, inputs, field);
+    }
+    if (descriptor.kind === "toggle") {
+      const wrap = document.createElement("label");
+      Object.assign(wrap.style, { display: "flex", alignItems: "center", gap: "0.6rem", minHeight: "2.25rem", fontSize: "0.8125rem" });
+      const field = document.createElement("input");
+      field.type = "checkbox";
+      field.checked = Boolean(descriptor.checked);
+      field.setAttribute("data-ext-input", descriptor.id);
+      field.style.accentColor = "var(--ext-accent)";
       inputs.set(descriptor.id, field);
+      const label = document.createElement("span");
+      label.textContent = descriptor.label || "";
       wrap.appendChild(field);
+      wrap.appendChild(label);
       return wrap;
+    }
+    if (descriptor.kind === "slider") {
+      const field = document.createElement("input");
+      field.type = "range";
+      field.min = String(descriptor.min);
+      field.max = String(descriptor.max);
+      if (descriptor.step !== undefined) field.step = String(descriptor.step);
+      field.value = String(descriptor.value ?? descriptor.min);
+      field.style.accentColor = "var(--ext-accent)";
+      return buildField(descriptor, inputs, field);
+    }
+    if (descriptor.kind === "color") {
+      const field = document.createElement("input");
+      field.type = "color";
+      field.value = descriptor.value || "#808080";
+      return buildField(descriptor, inputs, field);
     }
     if (descriptor.kind === "button") {
       const el = document.createElement("button");
@@ -424,6 +699,25 @@ export function sandboxDocument(extension: PersonalExtension, nonce: string) {
       closeWindowLocally(message.windowId, false);
       return;
     }
+    if (
+      message?.type === "ui-contribution-register" ||
+      message?.type === "ui-contribution-update"
+    ) {
+      post({
+        type: message.type,
+        contentHash: extension.contentHash,
+        contribution: message.contribution,
+      });
+      return;
+    }
+    if (message?.type === "ui-contribution-remove") {
+      post({
+        type: message.type,
+        contentHash: extension.contentHash,
+        contributionId: message.contributionId,
+      });
+      return;
+    }
     if (message?.type === "storage" || message?.type === "log" || message?.type === "ready" || message?.type === "error") {
       post(message);
     }
@@ -442,6 +736,9 @@ export function sandboxDocument(extension: PersonalExtension, nonce: string) {
     if (event.source !== window.parent || event.data?.channel !== "marinara-personal-extension") return;
     const message = event.data;
     if (message.type === "storage-result") worker.postMessage(message);
+    if (message.type === "ui-contribution-activate" || message.type === "ui-contribution-event") {
+      worker.postMessage(message);
+    }
     if (message.type === "ui-theme" && message.theme && typeof message.theme === "object") {
       // The host forwards Marinara's resolved accent/surface colors so the
       // in-iframe window matches the app; values are only ever used as CSS.
@@ -551,7 +848,9 @@ export async function personalExtensionsRoutes(app: FastifyInstance) {
     const input = createPersonalExtensionSchema.parse(req.body);
     const existing = await storage.getByName(input.name);
     if (existing) {
-      return reply.status(409).send({ error: `A Personal Extension named "${input.name}" already exists`, id: existing.id });
+      return reply
+        .status(409)
+        .send({ error: `A Personal Extension named "${input.name}" already exists`, id: existing.id });
     }
     return storage.create(input, { source: "external" });
   });
@@ -562,7 +861,8 @@ export async function personalExtensionsRoutes(app: FastifyInstance) {
     const input = updatePersonalExtensionSchema.parse(req.body);
     const existing = await storage.getById(req.params.id);
     if (!existing) return reply.status(404).send({ error: "Personal Extension not found" });
-    const updated = input.enabled === false ? await storage.disable(req.params.id) : await storage.update(req.params.id, input);
+    const updated =
+      input.enabled === false ? await storage.disable(req.params.id) : await storage.update(req.params.id, input);
     if (existing.runtime === "server" || updated?.runtime === "server") {
       await personalServerExtensionRuntime.reloadExtension(req.params.id);
     }
@@ -580,7 +880,9 @@ export async function personalExtensionsRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: "External Extensions are locked by the two-step safety gate." });
     }
     if (existing.runtime === "server" && !policy.serverSandboxAvailable) {
-      return reply.status(503).send({ error: policy.serverSandboxReason ?? "No supported server sandbox is available." });
+      return reply
+        .status(503)
+        .send({ error: policy.serverSandboxReason ?? "No supported server sandbox is available." });
     }
     const approved = await storage.approve(req.params.id, input.contentHash);
     if (!approved) return reply.status(404).send({ error: "Personal Extension not found" });

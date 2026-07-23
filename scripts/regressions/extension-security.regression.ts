@@ -20,6 +20,10 @@ import { createAppSettingsStorage } from "../../packages/server/src/services/sto
 
 const readSource = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8");
 const clientInjectorSource = readSource("../../packages/client/src/components/layout/PersonalExtensionInjector.tsx");
+const clientContributionSource = readSource("../../packages/client/src/lib/personal-extension-contributions.ts");
+const clientContributionPanelSource = readSource(
+  "../../packages/client/src/components/panels/PersonalExtensionPanel.tsx",
+);
 const clientSettingsSource = readSource(
   "../../packages/client/src/components/panels/settings/PersonalExtensionsSettings.tsx",
 );
@@ -27,9 +31,7 @@ const settingsPanelSource = readSource("../../packages/client/src/components/pan
 const clientHooksSource = readSource("../../packages/client/src/hooks/use-personal-extensions.ts");
 const localizationSource = readSource("../../packages/client/src/localization/locales/en.json");
 const routeSource = readSource("../../packages/server/src/routes/personal-extensions.routes.ts");
-const runtimeSource = readSource(
-  "../../packages/server/src/services/extensions/personal-server-extension-runtime.ts",
-);
+const runtimeSource = readSource("../../packages/server/src/services/extensions/personal-server-extension-runtime.ts");
 const sandboxSource = readSource("../../packages/server/src/services/extensions/personal-extension-sandbox.ts");
 const schemaSource = readSource("../../packages/shared/src/schemas/personal-extension.schema.ts");
 const backupSource = readSource("../../packages/server/src/routes/backup.routes.ts");
@@ -53,6 +55,14 @@ assert.match(clientInjectorSource, /iframe\.setAttribute\("sandbox", "allow-scri
 assert.doesNotMatch(clientInjectorSource, /allow-same-origin/u);
 assert.match(clientInjectorSource, /event\.origin !== "null"/u);
 assert.doesNotMatch(clientInjectorSource, /document\.head|createElement\("script"\)|runtime\.js/u);
+assert.match(clientInjectorSource, /registerPersonalExtensionContribution/u);
+assert.match(clientInjectorSource, /removePersonalExtensionContributions/u);
+assert.match(clientInjectorSource, /message\.contentHash === active\.contentHash/u);
+assert.match(clientContributionSource, /PERSONAL_EXTENSION_UI_LIMITS/u);
+assert.doesNotMatch(clientContributionPanelSource, /dangerouslySetInnerHTML|innerHTML/u);
+assert.match(clientContributionPanelSource, /aria-label=\{element\.label \? undefined :/u);
+assert.match(clientContributionPanelSource, /\[activePanelKey, defaultsKey\]/u);
+assert.doesNotMatch(clientContributionPanelSource, /\[activePanelKey, defaultsKey, elements\]/u);
 assert.match(clientHooksSource, /refetchInterval:\s*2_000/u);
 assert.match(clientHooksSource, /refetchIntervalInBackground:\s*true/u);
 assert.match(routeSource, /worker-src blob:/u);
@@ -61,6 +71,7 @@ assert.match(routeSource, /new Worker\(workerUrl\)/u);
 assert.match(routeSource, /sandbox became unresponsive/u);
 assert.match(routeSource, /canExecutePersonalExtension/u);
 assert.match(routeSource, /ENABLE_EXTERNAL_EXTENSIONS=true/u);
+assert.match(routeSource, /panel control id contains unsupported characters/u);
 
 assert.match(schemaSource, /acknowledgeSandboxedCode:\s*z\.literal\(true\)/u);
 assert.doesNotMatch(schemaSource, /acknowledgeFullTrust/u);
@@ -195,7 +206,10 @@ try {
     sessionId: "personal-extension-regression",
   });
   assert.equal(rawApprovalAttempt.ok, false);
-  assert.match(JSON.stringify(rawApprovalAttempt.validation), /cannot mutate Personal Extensions through raw DB actions/u);
+  assert.match(
+    JSON.stringify(rawApprovalAttempt.validation),
+    /cannot mutate Personal Extensions through raw DB actions/u,
+  );
 
   const sandbox = getPersonalExtensionSandboxStatus();
   if (!sandbox.available) {
@@ -315,16 +329,30 @@ try {
 // generated worker/bootstrap source so a regression cannot silently widen the
 // sandbox (e.g. reintroduce innerHTML or leak DOM/network to the extension).
 {
-  const { browserWorkerSource, sandboxDocument } = await import(
-    "../../packages/server/src/routes/personal-extensions.routes.js"
-  );
+  const { browserWorkerSource, sandboxDocument } =
+    await import("../../packages/server/src/routes/personal-extensions.routes.js");
   const uiExtension = {
     id: "ui-demo",
     name: "UI Demo",
     contentHash: "sha256:demo",
     runtime: "client" as const,
     css: "",
-    js: "const w = marinara.ui.showWindow({ title: 'Bunny', elements: [{ kind: 'pre', text: '(\\u2022_\\u2022)' }] });",
+    js: `
+      marinara.ui.showWindow({ title: "Bunny", elements: [{ kind: "pre", text: "(\\u2022_\\u2022)" }] });
+      marinara.ui.registerContribution({
+        id: "weather",
+        kind: "panel",
+        label: "Weather",
+        icon: "sparkles",
+        elements: [
+          { kind: "select", id: "kind", options: [{ value: "rain", label: "Rain" }] },
+          { kind: "toggle", id: "lightning", label: "Lightning" },
+          { kind: "slider", id: "intensity", min: 0, max: 100, value: 50 },
+          { kind: "color", id: "tint", value: "#6d8cff" },
+          { kind: "button", id: "apply", label: "Apply" },
+        ],
+      });
+    `,
     serverJs: null,
     description: "",
     version: null,
@@ -337,14 +365,19 @@ try {
     updatedAt: "",
   };
   const worker = browserWorkerSource(uiExtension);
-  assert.match(worker, /ui:\s*Object\.freeze\(\{\s*showWindow/u, "Worker must expose marinara.ui.showWindow");
+  assert.match(worker, /ui:\s*Object\.freeze\(\{\s*showWindow,\s*registerContribution/u);
   assert.match(worker, /"ui-show"/u, "Worker must send a ui-show descriptor message");
   assert.match(worker, /"ui-event"/u, "Worker must receive button events via ui-event");
+  assert.match(worker, /"ui-contribution-register"/u, "Worker must register declarative host contributions");
+  assert.match(worker, /"ui-contribution-activate"/u, "Worker must receive host contribution activation");
+  assert.match(worker, /"ui-contribution-event"/u, "Worker must receive host-rendered control events");
   assert.doesNotMatch(worker, /\bdocument\b/u, "Worker source must never touch the DOM");
 
   const doc = sandboxDocument(uiExtension, "test-nonce");
   assert.match(doc, /textContent/u, "Sandbox bootstrap must render window text via textContent");
   assert.doesNotMatch(doc, /innerHTML/u, "Sandbox bootstrap must never assign innerHTML");
+  assert.match(doc, /ui-contribution-register/u, "Sandbox must forward declarative contributions to the host");
+  assert.match(doc, /contentHash:\s*extension\.contentHash/u, "Sandbox messages must carry the exact content hash");
   assert.match(doc, /ui-window-open/u, "Sandbox reveals the iframe only through the ui-window-open signal");
   assert.match(doc, /ui-resize/u, "Sandbox reports its content size so the host can fit the floating panel");
   assert.doesNotMatch(
@@ -355,6 +388,79 @@ try {
   assert.ok(
     doc.includes("new Worker(") && doc.includes("marinara.ui.showWindow"),
     "Extension JS must run in the worker embedded by the bootstrap, not in the document",
+  );
+}
+
+{
+  const { normalizePersonalExtensionContribution } =
+    await import("../../packages/client/src/lib/personal-extension-contributions.js");
+  const normalized = normalizePersonalExtensionContribution({
+    id: "weather.panel",
+    kind: "panel",
+    label: "Weather controls",
+    description: "A settings-heavy safe contribution",
+    icon: "sparkles",
+    html: "<script>unsafe()</script>",
+    style: "position:fixed",
+    url: "https://example.invalid",
+    elements: [
+      {
+        kind: "select",
+        id: "weather",
+        value: "rain",
+        options: [
+          { value: "rain", label: "Rain" },
+          { value: "snow", label: "Snow" },
+        ],
+      },
+      { kind: "toggle", id: "lightning", label: "Lightning", checked: true },
+      { kind: "slider", id: "intensity", label: "Intensity", min: 0, max: 100, value: 50 },
+      { kind: "color", id: "tint", label: "Tint", value: "#6d8cff" },
+      { kind: "button", id: "apply", label: "Apply" },
+    ],
+  });
+  assert.ok(normalized);
+  assert.equal("html" in normalized, false);
+  assert.equal("style" in normalized, false);
+  assert.equal("url" in normalized, false);
+  assert.equal(normalized.elements?.length, 5);
+
+  assert.equal(
+    normalizePersonalExtensionContribution({
+      id: "duplicate-controls",
+      kind: "panel",
+      label: "Invalid",
+      elements: [
+        { kind: "input", id: "same" },
+        { kind: "button", id: "same", label: "Same" },
+      ],
+    }),
+    null,
+  );
+  assert.equal(
+    normalizePersonalExtensionContribution({
+      id: "unknown-icon",
+      kind: "button",
+      label: "Invalid",
+      icon: "remote-image-url",
+    }),
+    null,
+  );
+  assert.equal(
+    normalizePersonalExtensionContribution({
+      id: "foreign-select-value",
+      kind: "panel",
+      label: "Invalid",
+      elements: [
+        {
+          kind: "select",
+          id: "choice",
+          value: "not-listed",
+          options: [{ value: "listed", label: "Listed" }],
+        },
+      ],
+    }),
+    null,
   );
 }
 

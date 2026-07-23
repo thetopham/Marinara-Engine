@@ -8243,13 +8243,19 @@ export async function generateRoutes(app: FastifyInstance) {
                         // Save to disk
                         const filePath = saveImageToDisk(input.chatId, imageResult.base64, imageResult.ext);
 
+                        // A fallback connection may have rendered this variant;
+                        // record the connection that actually produced it.
+                        const effectiveImageProvider =
+                          imageResult.effectiveConnection?.provider ?? imgConnFull.provider ?? "image_generation";
+                        const effectiveImageModel = imageResult.effectiveConnection?.model || imgModel || "unknown";
+
                         // Save to gallery
                         const galleryEntry = await galleryStore.create({
                           chatId: input.chatId,
                           filePath,
                           prompt: fullPrompt,
-                          provider: "image_generation",
-                          model: imgModel || "unknown",
+                          provider: effectiveImageProvider,
+                          model: effectiveImageModel,
                           width: imgWidth,
                           height: imgHeight,
                         });
@@ -8260,8 +8266,8 @@ export async function generateRoutes(app: FastifyInstance) {
                           characterGallery,
                           personaGallery,
                           prompt: fullPrompt,
-                          provider: imgConnFull.provider ?? "image_generation",
-                          model: imgModel || "unknown",
+                          provider: effectiveImageProvider,
+                          model: effectiveImageModel,
                           width: imgWidth,
                           height: imgHeight,
                         });

@@ -32,11 +32,16 @@ export function ActionDropdown({
   useEffect(() => {
     const menu = ref.current;
     if (!menu) return;
-    const rect = menu.getBoundingClientRect();
-    setPosition({
-      left: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)),
-      top: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)),
-    });
+    const applyClampedPosition = () => {
+      const rect = menu.getBoundingClientRect();
+      setPosition({
+        left: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)),
+        top: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)),
+      });
+    };
+    applyClampedPosition();
+    window.addEventListener("resize", applyClampedPosition);
+    return () => window.removeEventListener("resize", applyClampedPosition);
   }, [x, y]);
 
   useEffect(() => {
@@ -60,7 +65,7 @@ export function ActionDropdown({
       data-chat-floating-panel
       ref={ref}
       role="menu"
-      className="fixed z-[9999] min-w-[10rem] rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+      className="fixed z-[10002] min-w-[10rem] rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
       style={{ left: position.left, top: position.top }}
     >
       {items.map((item, i) => (

@@ -895,7 +895,7 @@ export function GameAssetsBrowserView({
           <div
             data-chat-floating-panel
             ref={folderSelectionMenuRef}
-            className="fixed z-[9999] w-72 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+            className="fixed z-[10002] w-72 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
             style={{ left: folderSelectionMenu.x, top: folderSelectionMenu.y }}
           >
           {(() => {

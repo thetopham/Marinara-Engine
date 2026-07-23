@@ -1404,7 +1404,7 @@ export function ChatArea() {
   // Sync translation config from chat metadata to the translation store
   useEffect(() => {
     if (!chat?.id) return;
-    const legacyTargetLanguage = chatMeta.translationTargetLang ?? "en";
+    const legacyTargetLanguage = chatMeta.translationTargetLang?.trim() || "en";
     const legacySystemPrompt = typeof chatMeta.translationPrompt === "string" ? chatMeta.translationPrompt : undefined;
     const inputSystemPrompt =
       chatMeta.translationInputPrompt === undefined
@@ -1420,8 +1420,10 @@ export function ChatArea() {
           : undefined;
     useTranslationStore.getState().setConfig({
       provider: chatMeta.translationProvider ?? "google",
-      inputTargetLanguage: chatMeta.translationInputTargetLang ?? legacyTargetLanguage,
-      outputTargetLanguage: chatMeta.translationOutputTargetLang ?? legacyTargetLanguage,
+      // A cleared settings field stores "" — fall back to the legacy/default
+      // language so translation never runs with an empty target.
+      inputTargetLanguage: chatMeta.translationInputTargetLang?.trim() || legacyTargetLanguage,
+      outputTargetLanguage: chatMeta.translationOutputTargetLang?.trim() || legacyTargetLanguage,
       connectionId: chatMeta.translationConnectionId,
       inputSystemPrompt,
       outputSystemPrompt,

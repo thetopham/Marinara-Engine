@@ -3261,12 +3261,17 @@ async function applyRetryResultEffects(args: {
 
             for (const [variantIndex, imageResult] of imageResults.entries()) {
               const filePath = saveImageToDisk(chatId, imageResult.base64, imageResult.ext);
+              // A fallback connection may have rendered this variant; record
+              // the connection that actually produced it.
+              const effectiveImageProvider =
+                imageResult.effectiveConnection?.provider ?? imgConnFull.provider ?? "image_generation";
+              const effectiveImageModel = imageResult.effectiveConnection?.model || imgModel || "unknown";
               const galleryEntry = await galleryStore.create({
                 chatId,
                 filePath,
                 prompt: promptSubmission.prompt,
-                provider: "image_generation",
-                model: imgModel || "unknown",
+                provider: effectiveImageProvider,
+                model: effectiveImageModel,
                 width: imgWidth,
                 height: imgHeight,
               });
@@ -3277,8 +3282,8 @@ async function applyRetryResultEffects(args: {
                 characterGallery: createCharacterGalleryStorage(app.db),
                 personaGallery: createPersonaGalleryStorage(app.db),
                 prompt: promptSubmission.prompt,
-                provider: imgConnFull.provider ?? "image_generation",
-                model: imgModel || "unknown",
+                provider: effectiveImageProvider,
+                model: effectiveImageModel,
                 width: imgWidth,
                 height: imgHeight,
               });

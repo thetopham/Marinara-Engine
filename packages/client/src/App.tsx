@@ -5,6 +5,7 @@ import {
   Component,
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -478,6 +479,8 @@ export function App() {
   const fetchSidecarStatus = useSidecarStore((s) => s.fetchStatus);
   const hasAppDialogOpen = useDialogStore((s) => s.dialog !== null);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [whatsNewResolved, setWhatsNewResolved] = useState(false);
+  const handleWhatsNewResolved = useCallback(() => setWhatsNewResolved(true), []);
 
   // [#3104 diagnostic] warn on long main-thread tasks (see lib/perf-diagnostics.ts)
   useEffect(() => {
@@ -957,9 +960,12 @@ export function App() {
       <WhatsNewModal
         presentationAllowed={!hasModalOpen && !hasAppDialogOpen && (isLite || !showDownloadModal)}
         onOpenChange={setWhatsNewOpen}
+        onResolved={handleWhatsNewResolved}
       />
       <AgentUpdatePrompter
-        presentationAllowed={!hasModalOpen && !hasAppDialogOpen && !whatsNewOpen && (isLite || !showDownloadModal)}
+        presentationAllowed={
+          whatsNewResolved && !hasModalOpen && !hasAppDialogOpen && !whatsNewOpen && (isLite || !showDownloadModal)
+        }
       />
       {!isLite && <ModelDownloadModal open={showDownloadModal} onClose={() => setShowDownloadModal(false)} />}
       {hasModalOpen && (

@@ -217,14 +217,18 @@ try {
       bytes: 1,
     },
   };
-  assert.equal(getCapabilityPackageArtifactSourceIssue(canonicalArtifactEntry), null);
+  const officialCatalogUrl = resolveCapabilityCatalogUrl("development", "");
+  assert.equal(getCapabilityPackageArtifactSourceIssue(canonicalArtifactEntry, officialCatalogUrl), null);
   assert.match(
-    getCapabilityPackageArtifactSourceIssue({
-      ...canonicalArtifactEntry,
-      artifact: { ...canonicalArtifactEntry.artifact, url: "https://attacker.example/legacy-1.0.0.zip" },
-    }) ?? "",
+    getCapabilityPackageArtifactSourceIssue(
+      {
+        ...canonicalArtifactEntry,
+        artifact: { ...canonicalArtifactEntry.artifact, url: "https://attacker.example/legacy-1.0.0.zip" },
+      },
+      officialCatalogUrl,
+    ) ?? "",
     /canonical Marinara-Agents artifact URL/,
-    "The official catalog must not redirect executable packages to another host",
+    "The official catalog must not redirect executable packages to another host, regardless of any locally configured MARINARA_AGENT_CATALOG_URL",
   );
   assert.equal(
     getCapabilityPackageArtifactSourceIssue(

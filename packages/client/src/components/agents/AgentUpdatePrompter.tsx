@@ -33,7 +33,7 @@ export function AgentUpdatePrompter({ presentationAllowed }: { presentationAllow
       handledUpdates.current.add(updateKey);
       try {
         if (confirmed) {
-          const installed = await install.mutateAsync(update.id);
+          const installed = await install.mutateAsync({ id: update.id, expectedVersion: update.version });
           toast.success(
             installed.status === "restart-required"
               ? `${update.name} updated. Restart Marinara Engine to finish applying it.`

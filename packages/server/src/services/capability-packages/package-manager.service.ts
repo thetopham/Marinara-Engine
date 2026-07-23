@@ -57,6 +57,8 @@ const KNOWN_INCOMPATIBLE_RUNTIMES = new Map<string, string>([
   ),
 ]);
 
+export class CapabilityPackageVersionMismatchError extends Error {}
+
 export function normalizeArchivePath(value: string): string {
   if (!value || value.includes("\\") || value.startsWith("/") || value.includes("\0")) {
     throw new Error("Package contains an unsafe path");
@@ -641,10 +643,15 @@ export const capabilityPackageManager = {
     return true;
   },
 
-  async install(packageId: string) {
+  async install(packageId: string, expectedVersion?: string) {
     const catalog = await this.catalog();
     const entry = catalog.packages.find((candidate) => candidate.manifest.id === packageId);
     if (!entry) throw new Error("Package is not present in the official catalog");
+    if (expectedVersion && entry.manifest.version !== expectedVersion) {
+      throw new CapabilityPackageVersionMismatchError(
+        `This Agent update is no longer available; ${entry.manifest.id} now offers version ${entry.manifest.version}`,
+      );
+    }
     return installCatalogPackage(entry);
   },
 

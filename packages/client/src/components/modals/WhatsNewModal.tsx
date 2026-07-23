@@ -96,9 +96,11 @@ function hasSeenCurrentAnnouncement() {
 export function WhatsNewModal({
   presentationAllowed,
   onOpenChange,
+  onResolved,
 }: {
   presentationAllowed: boolean;
   onOpenChange?: (open: boolean) => void;
+  onResolved?: () => void;
 }) {
   const hasCompletedOnboarding = useUIStore((state) => state.hasCompletedOnboarding);
   const [open, setOpen] = useState(false);
@@ -106,13 +108,15 @@ export function WhatsNewModal({
   const releaseUrl = `${RELEASES_URL}/tag/v${encodeURIComponent(APP_VERSION)}`;
 
   useEffect(() => {
-    if (!presentationAllowed || !hasCompletedOnboarding || hasSeenCurrentAnnouncement()) return;
-
-    // Record presentation immediately so closing the app without pressing a
-    // button cannot make the same release announcement reappear next launch.
-    rememberAnnouncementWasShown();
-    setOpen(true);
-  }, [hasCompletedOnboarding, presentationAllowed]);
+    if (!presentationAllowed || !hasCompletedOnboarding) return;
+    if (!hasSeenCurrentAnnouncement()) {
+      // Record presentation immediately so closing the app without pressing a
+      // button cannot make the same release announcement reappear next launch.
+      rememberAnnouncementWasShown();
+      setOpen(true);
+    }
+    onResolved?.();
+  }, [hasCompletedOnboarding, presentationAllowed, onResolved]);
 
   useEffect(() => {
     onOpenChange?.(open);

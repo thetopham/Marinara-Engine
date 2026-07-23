@@ -279,7 +279,13 @@ async function runCapabilityPackageQueue(
 export function useInstallCapabilityPackage() {
   const invalidate = useInvalidateCapabilityState();
   return useMutation({
-    mutationFn: (id: string) => api.post<InstalledCapabilityPackage>(`/capability-packages/${id}/install`),
+    mutationFn: (variables: string | { id: string; expectedVersion: string }) => {
+      const { id, expectedVersion } = typeof variables === "string" ? { id: variables, expectedVersion: undefined } : variables;
+      return api.post<InstalledCapabilityPackage>(
+        `/capability-packages/${encodeURIComponent(id)}/install`,
+        expectedVersion ? { expectedVersion } : undefined,
+      );
+    },
     onSettled: invalidate,
   });
 }

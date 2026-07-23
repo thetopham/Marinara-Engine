@@ -86,6 +86,24 @@ try {
     "Existing CSRF_TRUSTED_ORIGINS reverse-proxy names must remain compatible",
   );
 
+  delete process.env.CSRF_TRUSTED_ORIGINS;
+  process.env.CORS_ORIGINS = "https://cors-proxy.example.com";
+  const corsOriginCompatibility = await app.inject({
+    method: "GET",
+    url: "/api/chats",
+    headers: {
+      host: "cors-proxy.example.com",
+      origin: "https://cors-proxy.example.com",
+      "x-forwarded-proto": "https",
+    },
+  });
+  assert.equal(
+    corsOriginCompatibility.statusCode,
+    200,
+    "Existing CORS_ORIGINS reverse-proxy names must remain compatible",
+  );
+  delete process.env.CORS_ORIGINS;
+
   const appSource = readFileSync(join(repositoryRoot, "packages/server/src/app.ts"), "utf8");
   assert.ok(
     appSource.indexOf('app.addHook("onRequest", hostValidationHook)') <

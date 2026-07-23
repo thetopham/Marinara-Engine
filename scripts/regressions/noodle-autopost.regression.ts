@@ -7,6 +7,7 @@ import {
   autoPostIntervalMs,
   nextAutoPostRunAt,
 } from "../../packages/server/src/services/noodle/noodle-autopost-cadence.js";
+import { normalizeScheduler } from "../../packages/server/src/services/storage/noodle.storage.js";
 
 const now = new Date("2026-07-23T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -39,6 +40,20 @@ assert.deepEqual(noodleAutoPostingSettingsSchema.parse({}), {
   intensity: 1,
   nextRunAt: null,
 });
+// Storage normalization: omitted autoPosting falls back to the disabled defaults.
+const DEFAULTS = { enabled: false, intensity: 1, nextRunAt: null } as const;
+assert.deepEqual(normalizeScheduler({}).autoPosting, DEFAULTS);
+assert.deepEqual(normalizeScheduler({ scheduler: {} }).autoPosting, DEFAULTS);
+// Malformed values fall back per field without discarding the other valid fields.
+assert.deepEqual(
+  normalizeScheduler({ autoPosting: { enabled: true, intensity: 2, nextRunAt: "not-a-date" } }).autoPosting,
+  { enabled: true, intensity: 1, nextRunAt: null },
+);
+// A valid persisted run is preserved.
+assert.deepEqual(
+  normalizeScheduler({ autoPosting: { enabled: true, intensity: 6, nextRunAt: now.toISOString() } }).autoPosting,
+  { enabled: true, intensity: 6, nextRunAt: now.toISOString() },
+);
 // Client patch cannot carry the server-owned nextRunAt.
 assert.throws(() => noodleAccountSchedulerPatchSchema.parse({ autoPosting: { nextRunAt: now.toISOString() } }));
 assert.ok(noodleAccountSchedulerPatchSchema.parse({ autoPosting: { enabled: true, intensity: 6 } }));

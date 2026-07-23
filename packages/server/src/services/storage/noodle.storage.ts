@@ -7,7 +7,7 @@ import {
   noodleAccountProfileSettingsSchema,
   noodleAccountPrivacySettingsSchema,
   noodleAccountSocialSettingsSchema,
-  noodleAutoPostingSettingsSchema,
+  noodleAutoPostingIntensitySchema,
   noodleSettingsSchema,
   readNoodlePollFromMetadata,
   type NoodleAccount,
@@ -141,10 +141,20 @@ function defaultAutoPostingSettings(): NonNullable<NoodleAccountSchedulerSetting
   return { enabled: false, intensity: 1, nextRunAt: null };
 }
 
-function normalizeScheduler(value: unknown): NoodleAccountSchedulerSettings {
-  const raw = parseRecord(value);
-  const parsed = noodleAutoPostingSettingsSchema.safeParse(parseRecord(raw.autoPosting));
-  return { autoPosting: parsed.success ? parsed.data : defaultAutoPostingSettings() };
+export function normalizeScheduler(value: unknown): NoodleAccountSchedulerSettings {
+  // Normalize each field independently so one malformed value (e.g. a bad intensity)
+  // doesn't discard the other valid persisted fields.
+  const defaults = defaultAutoPostingSettings();
+  const raw = parseRecord(parseRecord(value).autoPosting);
+  const intensity = noodleAutoPostingIntensitySchema.safeParse(raw.intensity);
+  const nextRunAtValid = typeof raw.nextRunAt === "string" && !Number.isNaN(Date.parse(raw.nextRunAt));
+  return {
+    autoPosting: {
+      enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaults.enabled,
+      intensity: intensity.success ? intensity.data : defaults.intensity,
+      nextRunAt: raw.nextRunAt === null ? null : nextRunAtValid ? (raw.nextRunAt as string) : defaults.nextRunAt,
+    },
+  };
 }
 
 function nestedOrLegacy(nested: Record<string, unknown>, legacy: Record<string, unknown>, key: string) {

@@ -601,6 +601,8 @@ export async function noodleRoutes(app: FastifyInstance) {
   });
 
   app.put("/noodler/accounts/:id/auto-post/schedule", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
     const { id } = req.params as { id: string };
     const parsed = noodleAutoPostRescheduleSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
@@ -608,7 +610,7 @@ export async function noodleRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "Choose a future time for the next automatic post." });
     }
     const updated = await noodle.rescheduleAutoPostRun(id, parsed.data.nextRunAt);
-    if (!updated) return reply.code(404).send({ error: "Noodle stage profile not found" });
+    if (!updated) return reply.code(404).send({ error: "NoodleR stage profile not found" });
     return updated;
   });
 

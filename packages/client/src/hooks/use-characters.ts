@@ -361,6 +361,7 @@ export interface CharacterGalleryImage {
   height: number | null;
   customKind: CustomKind | null;
   customName: string | null;
+  isPrimaryReference: boolean;
   createdAt: string;
   url: string;
 }
@@ -717,6 +718,20 @@ export function useSetCharacterGalleryImageAsAvatar(characterId: string) {
   return useMutation({
     mutationFn: (imageId: string) => api.post(`/characters/${characterId}/gallery/${imageId}/avatar`),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.detail(characterId) });
+      qc.invalidateQueries({ queryKey: characterKeys.list() });
+      qc.invalidateQueries({ queryKey: characterKeys.listWithBuiltIns() });
+    },
+  });
+}
+
+export function useSetCharacterVisualReference(characterId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (imageId: string | null) =>
+      api.patch<{ imageId: string | null }>(`/characters/${characterId}/visual-reference`, { imageId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: characterKeys.gallery(characterId) });
       qc.invalidateQueries({ queryKey: characterKeys.detail(characterId) });
       qc.invalidateQueries({ queryKey: characterKeys.list() });
       qc.invalidateQueries({ queryKey: characterKeys.listWithBuiltIns() });

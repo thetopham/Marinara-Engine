@@ -59,6 +59,7 @@ import { extname } from "path";
 import { pipeline } from "stream/promises";
 import { newId } from "../utils/id-generator.js";
 import { createReplyFallbackNotifier } from "./generate/fallback-notification.js";
+import { readCharacterSheetImageId } from "../services/image/character-visual-reference.js";
 
 const CHARACTER_GALLERY_ROOT = join(DATA_DIR, "gallery", "characters");
 const PERSONA_GALLERY_ROOT = join(DATA_DIR, "gallery", "personas");
@@ -884,8 +885,10 @@ export async function charactersRoutes(app: FastifyInstance) {
     if (!char) return reply.status(404).send({ error: "Character not found" });
 
     const images = await characterGallery.listByCharacterId(req.params.id);
+    const characterSheetImageId = readCharacterSheetImageId(char.data);
     return images.map((img) => ({
       ...img,
+      isPrimaryReference: img.id === characterSheetImageId,
       url: `/api/characters/${req.params.id}/gallery/file/${encodeURIComponent(img.filePath.split("/").pop()!)}`,
     }));
   });
@@ -1284,8 +1287,46 @@ export async function charactersRoutes(app: FastifyInstance) {
 
     return {
       ...image,
+      isPrimaryReference: false,
       url: `/api/characters/${id}/gallery/file/${encodeURIComponent(filename)}`,
     };
+  });
+
+  app.patch<{ Params: { id: string }; Body: { imageId?: unknown } }>("/:id/visual-reference", async (req, reply) => {
+    const { id } = req.params;
+    if (!req.body || !Object.hasOwn(req.body, "imageId")) {
+      return reply.status(400).send({ error: "imageId is required" });
+    }
+
+    const imageId = req.body.imageId;
+    if (imageId !== null && (typeof imageId !== "string" || !imageId.trim())) {
+      return reply.status(400).send({ error: "imageId must be a gallery image ID or null" });
+    }
+
+    const normalizedImageId = typeof imageId === "string" ? imageId.trim() : null;
+    if (normalizedImageId) {
+      const image = await characterGallery.getById(normalizedImageId);
+      if (!image || image.characterId !== id) {
+        return reply.status(404).send({ error: "Gallery image not found" });
+      }
+    }
+
+    const updated = await storage.update(
+      id,
+      {
+        extensions: {
+          characterSheetImageId: normalizedImageId ?? undefined,
+        },
+      } as Partial<CharacterData>,
+      undefined,
+      {
+        skipVersionSnapshot: true,
+        versionSource: "character-sheet-reference",
+        mergeExtensions: true,
+      },
+    );
+    if (!updated) return reply.status(404).send({ error: "Character not found" });
+    return { imageId: normalizedImageId };
   });
 
   app.get<{ Params: { id: string; filename: string } }>("/:id/gallery/file/:filename", async (req, reply) => {
@@ -1315,6 +1356,19 @@ export async function charactersRoutes(app: FastifyInstance) {
     }
 
     await characterGallery.remove(imageId);
+    const character = await storage.getById(id);
+    if (character && readCharacterSheetImageId(character.data) === imageId) {
+      await storage.update(
+        id,
+        { extensions: { characterSheetImageId: undefined } } as Partial<CharacterData>,
+        undefined,
+        {
+          skipVersionSnapshot: true,
+          versionSource: "character-sheet-reference-delete",
+          mergeExtensions: true,
+        },
+      );
+    }
     return { success: true };
   });
 

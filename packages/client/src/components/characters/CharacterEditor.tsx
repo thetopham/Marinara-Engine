@@ -21,6 +21,7 @@ import {
   useUploadCharacterGalleryImage,
   useDeleteCharacterGalleryImage,
   useSetCharacterGalleryImageAsAvatar,
+  useSetCharacterVisualReference,
   useDeleteCharacterGalleryClip,
   useUpdateCharacterGalleryClipTrim,
   useUploadCharacterGalleryClip,
@@ -2181,6 +2182,7 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
   const upload = useUploadCharacterGalleryImage(characterId);
   const remove = useDeleteCharacterGalleryImage(characterId);
   const setAvatar = useSetCharacterGalleryImageAsAvatar(characterId);
+  const setVisualReference = useSetCharacterVisualReference(characterId);
   const tag = useTagCharacterGalleryImage(characterId);
   const [lightbox, setLightbox] = useState<CharacterGalleryImage | null>(null);
 
@@ -2220,6 +2222,19 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
       }
     },
     [setAvatar],
+  );
+
+  const handleSetVisualReference = useCallback(
+    async (image: CharacterGalleryImage) => {
+      const nextImageId = image.isPrimaryReference ? null : image.id;
+      try {
+        await setVisualReference.mutateAsync(nextImageId);
+        toast.success(nextImageId ? "Character sheet selected." : "Character sheet cleared.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to update the character sheet.");
+      }
+    },
+    [setVisualReference],
   );
 
   return (
@@ -2269,6 +2284,11 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
             className="w-full"
           />
 
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Mark one image as the character sheet. Marinara will reuse it as the primary visual reference for
+            storyboards and generated scenes.
+          </p>
+
           {isLoading ? (
             <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -2280,8 +2300,19 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
               {images.map((image) => (
                 <div
                   key={image.id}
-                  className="group relative overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md"
+                  className={cn(
+                    "group relative overflow-hidden rounded-xl border bg-[var(--card)] transition-all hover:shadow-md",
+                    image.isPrimaryReference
+                      ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/25"
+                      : "border-[var(--border)] hover:border-[var(--primary)]/30",
+                  )}
                 >
+                  {image.isPrimaryReference ? (
+                    <span className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md bg-[var(--primary)] px-1.5 py-1 text-[0.625rem] font-semibold text-[var(--primary-foreground)] shadow-sm">
+                      <IdCard size="0.7rem" />
+                      Character sheet
+                    </span>
+                  ) : null}
                   <CustomEmojiTagButton image={image} onApply={(patch) => tag.mutate({ imageId: image.id, patch })} />
                   <button
                     type="button"
@@ -2299,6 +2330,25 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
                       {new Date(image.createdAt).toLocaleDateString()}
                     </span>
                     <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleSetVisualReference(image)}
+                        disabled={setVisualReference.isPending}
+                        className={cn(
+                          "rounded-lg p-1.5 text-white transition-colors disabled:opacity-50",
+                          image.isPrimaryReference
+                            ? "bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
+                            : "bg-white/15 hover:bg-white/25",
+                        )}
+                        title={image.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
+                        aria-label={image.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
+                      >
+                        {setVisualReference.isPending && setVisualReference.variables === image.id ? (
+                          <Loader2 size="0.75rem" className="animate-spin" />
+                        ) : (
+                          <IdCard size="0.75rem" />
+                        )}
+                      </button>
                       <button
                         type="button"
                         onClick={() => void handleSetAvatar(image)}
@@ -2363,6 +2413,25 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
               className="max-h-[85vh] w-full rounded-lg object-contain shadow-2xl"
             />
             <div className="absolute right-2 top-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void handleSetVisualReference(lightbox)}
+                disabled={setVisualReference.isPending}
+                className={cn(
+                  "rounded-lg p-2 text-white transition-colors disabled:opacity-50",
+                  lightbox.isPrimaryReference
+                    ? "bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
+                    : "bg-black/60 hover:bg-black/80",
+                )}
+                title={lightbox.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
+                aria-label={lightbox.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
+              >
+                {setVisualReference.isPending ? (
+                  <Loader2 size="0.875rem" className="animate-spin" />
+                ) : (
+                  <IdCard size="0.875rem" />
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => void handleSetAvatar(lightbox)}

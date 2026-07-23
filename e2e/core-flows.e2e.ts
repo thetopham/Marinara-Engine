@@ -529,6 +529,89 @@ test("Convo About Me keeps manual editing and native expanded-editor keyboard be
   }
 });
 
+test("Character Gallery keeps one persistent character-sheet reference", async ({ page }, testInfo) => {
+  const characterName = `Character Sheet Reference ${testInfo.project.name}`;
+  await expect.poll(async () => (await page.request.get("/api/health")).ok()).toBe(true);
+  const createResponse = await page.request.post("/api/characters", {
+    data: {
+      data: {
+        name: characterName,
+        description: "Silver hair, violet eyes, dark travel coat, engraved sword.",
+        extensions: { appearance: "Silver hair, violet eyes, dark travel coat, engraved sword." },
+      },
+    },
+  });
+  expect(createResponse.ok()).toBeTruthy();
+  const character = (await createResponse.json()) as { id: string };
+
+  try {
+    const uploadResponse = await page.request.post(`/api/characters/${character.id}/gallery/upload`, {
+      multipart: {
+        file: {
+          name: "character-sheet.gif",
+          mimeType: "image/gif",
+          buffer: Buffer.from(TRANSPARENT_GIF_BASE64, "base64"),
+        },
+      },
+    });
+    expect(uploadResponse.ok()).toBeTruthy();
+    const uploaded = (await uploadResponse.json()) as { id: string };
+
+    await page.goto("/");
+    await page.locator('[data-tour="panel-characters"]').click();
+    await page.getByText(characterName, { exact: true }).first().click();
+    await page
+      .getByRole("navigation", { name: "Editor sections" })
+      .getByRole("button", { name: "Gallery", exact: true })
+      .click();
+
+    await expect(page.getByRole("button", { name: "Create character sheet", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Create character sheet", exact: true }).click();
+    const sheetDialog = page.getByRole("dialog", { name: "Create Character Sheet" });
+    await expect(sheetDialog).toBeVisible();
+    await expect(sheetDialog.getByText("Character Sheet Prompt", { exact: true })).toBeVisible();
+    await expect(sheetDialog.getByRole("button", { name: "Save as Character Sheet", exact: true })).toBeDisabled();
+    await sheetDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    const image = page.getByRole("img", { name: characterName, exact: true });
+    await image.hover();
+    await page.getByRole("button", { name: "Use as character sheet", exact: true }).click();
+    await expect(page.getByText("Character sheet", { exact: true })).toBeVisible();
+
+    const galleryResponse = await page.request.get(`/api/characters/${character.id}/gallery`);
+    expect(galleryResponse.ok()).toBeTruthy();
+    const gallery = (await galleryResponse.json()) as Array<{ id: string; isPrimaryReference: boolean }>;
+    expect(gallery.find((entry) => entry.id === uploaded.id)?.isPrimaryReference).toBe(true);
+
+    const exportResponse = await page.request.get(`/api/characters/${character.id}/export`);
+    expect(exportResponse.ok()).toBeTruthy();
+    const exported = (await exportResponse.json()) as {
+      data: {
+        data?: { extensions?: { characterSheetImageId?: unknown } };
+        gallery?: Array<{ isPrimaryReference?: boolean }>;
+      };
+    };
+    expect(exported.data.data?.extensions?.characterSheetImageId).toBeUndefined();
+    expect(exported.data.gallery?.filter((entry) => entry.isPrimaryReference)).toHaveLength(1);
+
+    const duplicateResponse = await page.request.post(`/api/characters/${character.id}/duplicate`);
+    expect(duplicateResponse.ok()).toBeTruthy();
+    const duplicate = (await duplicateResponse.json()) as { id: string; data: string };
+    const duplicateData = JSON.parse(duplicate.data) as { extensions?: { characterSheetImageId?: unknown } };
+    expect(duplicateData.extensions?.characterSheetImageId).toBeUndefined();
+    await page.request.delete(`/api/characters/${duplicate.id}`);
+
+    const deleteResponse = await page.request.delete(`/api/characters/${character.id}/gallery/${uploaded.id}`);
+    expect(deleteResponse.ok()).toBeTruthy();
+    const characterResponse = await page.request.get(`/api/characters/${character.id}`);
+    const updatedCharacter = (await characterResponse.json()) as { data: string };
+    const updatedData = JSON.parse(updatedCharacter.data) as { extensions?: { characterSheetImageId?: unknown } };
+    expect(updatedData.extensions?.characterSheetImageId).toBeUndefined();
+  } finally {
+    await page.request.delete(`/api/characters/${character.id}`).catch(() => undefined);
+  }
+});
+
 test("Conversation membership notices begin only after the chat starts", async ({ request }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Conversation membership regression is covered on desktop.");
 

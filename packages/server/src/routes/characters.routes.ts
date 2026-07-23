@@ -46,7 +46,7 @@ import { DATA_DIR } from "../utils/data-dir.js";
 import { createWriteStream, existsSync, rmSync, unlinkSync } from "fs";
 import { normalizeTimestampOverrides } from "../services/import/import-timestamps.js";
 import { assertInsideDir, extensionFromImageMime, isAllowedImageBuffer } from "../utils/security.js";
-import { logger } from "../lib/logger.js";
+import { logger, logDebugOverride } from "../lib/logger.js";
 import { parseLibraryPageQuery } from "../utils/list-pagination.js";
 import { importSTLorebook } from "../services/import/st-lorebook.importer.js";
 import {
@@ -348,15 +348,17 @@ type AvatarGenerationBody = {
   connectionId?: string;
   name?: string;
   appearance?: string;
+  purpose?: "avatar" | "character-sheet";
   referenceImages?: string[];
   width?: number;
   height?: number;
   styleProfileId?: string | null;
+  debugMode?: boolean;
   promptOverrides?: AvatarGenerationPromptOverride[];
 };
 
-const avatarGenerationPromptId = (name: string) =>
-  `avatar:${
+const avatarGenerationPromptId = (name: string, purpose: AvatarGenerationBody["purpose"] = "avatar") =>
+  `${purpose === "character-sheet" ? "character-sheet" : "avatar"}:${
     name
       .trim()
       .toLowerCase()
@@ -368,6 +370,15 @@ const avatarGenerationPromptId = (name: string) =>
 function buildAvatarGenerationPrompt(body: AvatarGenerationBody): string {
   const name = body.name?.trim() || "Character";
   const appearance = body.appearance?.trim() || name;
+  if (body.purpose === "character-sheet") {
+    return [
+      `Create a polished production character design sheet for ${name}.`,
+      `Canonical appearance: ${appearance}.`,
+      `Layout: one large full-body hero view, consistent front side and back turnaround views in neutral poses, close-up face and costume details, important accessories, and a compact color palette on a clean neutral editorial background.`,
+      `Keep the same face, body proportions, hairstyle, outfit construction, colors, accessories, and distinguishing features in every view.`,
+      `Show only this one character. Avoid scene action, duplicate characters, extra limbs, text, captions, logos, watermarks, decorative borders, and cropped-off body parts.`,
+    ].join(" ");
+  }
   return [
     `Create a polished character avatar portrait for ${name}.`,
     `Canonical appearance: ${appearance}.`,
@@ -377,6 +388,9 @@ function buildAvatarGenerationPrompt(body: AvatarGenerationBody): string {
 }
 
 async function resolveAvatarGenerationConnection(app: FastifyInstance, body: AvatarGenerationBody) {
+  if (body.purpose !== undefined && body.purpose !== "avatar" && body.purpose !== "character-sheet") {
+    return { error: "purpose must be avatar or character-sheet" as const };
+  }
   if (!body.connectionId) {
     return { error: "connectionId is required" as const };
   }
@@ -483,6 +497,7 @@ async function readSpritesForId(id: string): Promise<Array<{ filename: string; d
 async function readGalleryForCharacter(
   characterId: string,
   galleryStorage: { listByCharacterId: (id: string) => Promise<any[]> },
+  characterSheetImageId: string | null,
 ): Promise<Array<Record<string, unknown>>> {
   const images = await galleryStorage.listByCharacterId(characterId);
   const result: Array<Record<string, unknown>> = [];
@@ -503,9 +518,21 @@ async function readGalleryForCharacter(
       model: img.model ?? "",
       width: img.width ?? null,
       height: img.height ?? null,
+      ...(img.id === characterSheetImageId ? { isPrimaryReference: true } : {}),
     });
   }
   return result;
+}
+
+function buildPortableCharacterData(data: any) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const portable = { ...data };
+  if (portable.extensions && typeof portable.extensions === "object" && !Array.isArray(portable.extensions)) {
+    const extensions = { ...(portable.extensions as Record<string, unknown>) };
+    delete extensions.characterSheetImageId;
+    portable.extensions = extensions;
+  }
+  return portable;
 }
 
 async function buildNativeCharacterEnvelope(
@@ -513,10 +540,11 @@ async function buildNativeCharacterEnvelope(
   data: any,
   galleryStorage: { listByCharacterId: (id: string) => Promise<any[]> },
 ) {
+  const characterSheetImageId = readCharacterSheetImageId(data);
   const [avatar, sprites, gallery] = await Promise.all([
     readAvatarDataUrl(char.avatarPath),
     readSpritesForId(char.id),
-    readGalleryForCharacter(char.id, galleryStorage),
+    readGalleryForCharacter(char.id, galleryStorage, characterSheetImageId),
   ]);
   return {
     type: "marinara_character",
@@ -525,7 +553,7 @@ async function buildNativeCharacterEnvelope(
     data: {
       spec: "chara_card_v2",
       spec_version: "2.0",
-      data,
+      data: buildPortableCharacterData(data),
       ...(avatar ? { avatar } : {}),
       ...(sprites.length > 0 ? { sprites } : {}),
       ...(gallery.length > 0 ? { gallery } : {}),
@@ -542,7 +570,7 @@ function buildCompatibleCharacterExport(data: any) {
   return {
     spec: "chara_card_v2",
     spec_version: "2.0",
-    data,
+    data: buildPortableCharacterData(data),
   };
 }
 
@@ -654,11 +682,12 @@ export async function charactersRoutes(app: FastifyInstance) {
     if ("error" in resolved) return reply.status(400).send({ error: resolved.error });
 
     const imageSettings = await loadImageGenerationUserSettings(app.db);
-    const width = body.width ?? imageSettings.portrait.width;
-    const height = body.height ?? imageSettings.portrait.height;
+    const isCharacterSheet = body.purpose === "character-sheet";
+    const width = body.width ?? (isCharacterSheet ? imageSettings.background.width : imageSettings.portrait.width);
+    const height = body.height ?? (isCharacterSheet ? imageSettings.background.height : imageSettings.portrait.height);
     const imageDefaults = resolveConnectionImageDefaults(resolved.conn);
     const compiled = compileImagePrompt({
-      kind: "avatar",
+      kind: isCharacterSheet ? "illustration" : "avatar",
       prompt: buildAvatarGenerationPrompt(body),
       styleProfiles: imageSettings.styleProfiles,
       styleProfileId: body.styleProfileId,
@@ -675,9 +704,9 @@ export async function charactersRoutes(app: FastifyInstance) {
     return {
       items: [
         {
-          id: avatarGenerationPromptId(body.name ?? "character"),
-          kind: "avatar",
-          title: `Avatar: ${body.name?.trim() || "Character"}`,
+          id: avatarGenerationPromptId(body.name ?? "character", body.purpose),
+          kind: isCharacterSheet ? "illustration" : "avatar",
+          title: `${isCharacterSheet ? "Character sheet" : "Avatar"}: ${body.name?.trim() || "Character"}`,
           prompt: compiled.prompt,
           negativePrompt: compiled.negativePrompt,
           width: previewSize.width,
@@ -694,8 +723,9 @@ export async function charactersRoutes(app: FastifyInstance) {
 
     const conn = resolved.conn;
     const imageSettings = await loadImageGenerationUserSettings(app.db);
-    const width = body.width ?? imageSettings.portrait.width;
-    const height = body.height ?? imageSettings.portrait.height;
+    const isCharacterSheet = body.purpose === "character-sheet";
+    const width = body.width ?? (isCharacterSheet ? imageSettings.background.width : imageSettings.portrait.width);
+    const height = body.height ?? (isCharacterSheet ? imageSettings.background.height : imageSettings.portrait.height);
     const rawPromptOverrides: unknown[] = Array.isArray(body.promptOverrides) ? body.promptOverrides : [];
     const promptOverrideById = new Map(
       rawPromptOverrides.flatMap((item) => {
@@ -714,7 +744,7 @@ export async function charactersRoutes(app: FastifyInstance) {
         ];
       }),
     );
-    const promptOverride = promptOverrideById.get(avatarGenerationPromptId(body.name ?? "character"));
+    const promptOverride = promptOverrideById.get(avatarGenerationPromptId(body.name ?? "character", body.purpose));
     const referenceImages = (body.referenceImages ?? [])
       .map((image) => image.trim())
       .filter((image) => image.startsWith("data:image/") || /^[A-Za-z0-9+/=\s]+$/.test(image))
@@ -733,12 +763,27 @@ export async function charactersRoutes(app: FastifyInstance) {
           negativePrompt: promptOverride.negativePrompt || "",
         }
       : compileImagePrompt({
-          kind: "avatar",
+          kind: isCharacterSheet ? "illustration" : "avatar",
           prompt: buildAvatarGenerationPrompt(body),
           styleProfiles: imageSettings.styleProfiles,
           styleProfileId: body.styleProfileId,
           imageDefaults,
         });
+
+    logDebugOverride(
+      body.debugMode === true,
+      "[debug/characters/%s-generation] prompt:\n%s",
+      isCharacterSheet ? "character-sheet" : "avatar",
+      compiled.prompt,
+    );
+    if (compiled.negativePrompt) {
+      logDebugOverride(
+        body.debugMode === true,
+        "[debug/characters/%s-generation] negative prompt:\n%s",
+        isCharacterSheet ? "character-sheet" : "avatar",
+        compiled.negativePrompt,
+      );
+    }
 
     try {
       const result = await generateImage(imgModel, imgBaseUrl, imgApiKey, imgServiceHint, {
@@ -760,8 +805,10 @@ export async function charactersRoutes(app: FastifyInstance) {
         prompt: compiled.prompt,
       };
     } catch (err) {
-      req.log.error(err, "Avatar generation failed");
-      return reply.status(500).send({ error: err instanceof Error ? err.message : "Avatar generation failed" });
+      req.log.error(err, "%s generation failed", isCharacterSheet ? "Character sheet" : "Avatar");
+      return reply
+        .status(500)
+        .send({ error: err instanceof Error ? err.message : `${isCharacterSheet ? "Character sheet" : "Avatar"} generation failed` });
     }
   });
 

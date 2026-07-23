@@ -575,6 +575,10 @@ import {
   suppressesReferencePromptLine,
 } from "../../packages/server/src/routes/generate/illustrator-references.js";
 import {
+  readCharacterSheetImageId,
+  selectCharacterVisualReference,
+} from "../../packages/server/src/services/image/character-visual-reference.js";
+import {
   OFFICIAL_AGENT_KNOWLEDGE_ENTRIES,
   PROFESSOR_MARI_AGENT_CATALOG_KNOWLEDGE,
 } from "../../packages/server/src/services/professor-mari/official-agent-knowledge.js";
@@ -2310,6 +2314,7 @@ const cases: RegressionCase[] = [
             },
           ],
         },
+        characterGallery: { getById: async () => null },
         chatCharacters: [
           { id: "character-maukie", name: "Maukie", avatarPath: null, appearance: "Wet brown hair." },
           { id: "character-dottore", name: "Dottore", avatarPath: null, appearance: "A masked scientist." },
@@ -2364,6 +2369,7 @@ const cases: RegressionCase[] = [
             },
           ],
         },
+        characterGallery: { getById: async () => null },
         chatCharacters: [{ id: "chat-character", name: "Chat", appearance: "Chat hair {{// hidden}}\n green eyes" }],
         persona: { id: "persona", name: "Persona", appearance: "Persona hair {{// hidden}}\n brown eyes" },
         requestedNames: ["Database", "Chat", "Persona"],
@@ -2374,6 +2380,24 @@ const cases: RegressionCase[] = [
       assert.match(normalizedResolution.appearanceBlock ?? "", /Chat's Appearance: Chat hair green eyes/u);
       assert.match(normalizedResolution.appearanceBlock ?? "", /Persona's Appearance: Persona hair brown eyes/u);
       assert.doesNotMatch(normalizedResolution.appearanceBlock ?? "", /hidden/u);
+
+      assert.equal(
+        readCharacterSheetImageId({ extensions: { characterSheetImageId: " sheet-image " } }),
+        "sheet-image",
+      );
+      assert.equal(
+        selectCharacterVisualReference({
+          characterSheet: "sheet-base64",
+          fullBodySprite: "sprite-base64",
+          avatar: "avatar-base64",
+        })?.source,
+        "character-sheet",
+      );
+      assert.equal(
+        selectCharacterVisualReference({ fullBodySprite: "sprite-base64", avatar: "avatar-base64" })?.source,
+        "sprite",
+      );
+      assert.equal(selectCharacterVisualReference({ avatar: "avatar-base64" })?.source, "avatar");
 
       const appearanceContextBlock = buildGameIllustratorAppearanceContextBlock([
         `Lyra's Appearance: ${extractCharacterAppearanceText({ extensions: { appearance }, description })}`,

@@ -8148,8 +8148,8 @@ export async function generateRoutes(app: FastifyInstance) {
 
                       logger.debug(`[illustrator] Starting image generation (${imgWidth}x${imgHeight})...`);
 
-                      // Collect optional character visual context. Prefer avatar
-                      // portraits for references, then fall back to full-body sprites.
+                      // Collect optional character visual context. Prefer the selected character sheet,
+                      // then fall back to a full-body sprite and finally the avatar.
                       const useAvatarRefs =
                         typeof chatMeta.illustratorUseAvatarReferences === "boolean"
                           ? chatMeta.illustratorUseAvatarReferences
@@ -8161,6 +8161,7 @@ export async function generateRoutes(app: FastifyInstance) {
                       let illustratorRefImages: string[] | undefined;
                       const referenceResolution = await resolveIllustratorCharacterReferences({
                         charactersStore: chars,
+                        characterGallery,
                         chatCharacters: charInfo.map((character) => ({
                           id: character.id,
                           name: character.name,

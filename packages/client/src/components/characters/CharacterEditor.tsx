@@ -185,7 +185,7 @@ const CHARACTER_ADVANCED_HELP =
   "Character-specific prompt controls. System Prompt is injected through the preset's character block, Post-History Instructions appear near generation time, and Depth Prompt inserts a reminder at a selected point in chat history.";
 
 const CHARACTER_GALLERY_HELP =
-  "These images belong to the character, so deleting a chat does not remove them. Use this for reference sheets, outfit variants, or imported ST-style character image packs. Chat gallery is still best for scene-specific illustrations and generated message attachments.";
+  "These images belong to the character, so deleting a chat does not remove them. Create or upload a character sheet, then mark it as the primary visual reference for generated scenes. Keep outfit variants and imported ST-style image packs here too. Chat gallery is still best for scene-specific illustrations and generated message attachments.";
 
 const CHARACTER_SPRITES_HELP =
   "Upload sprites one by one, or use Upload Folder to bulk-import a folder of PNGs. Each filename becomes the expression name, for example admiration.png becomes admiration. To rotate variants, share a prefix before an underscore, for example happy_01.png and happy_blush.png. Enable the Expression Engine agent so roleplay can pick matching sprites from detected emotions. Sprites appear as VN-style overlays in the chat area.";
@@ -1082,7 +1082,12 @@ export function CharacterEditor() {
               />
             )}
             {activeTab === "gallery" && characterId && (
-              <CharacterGalleryTab characterId={characterId} characterName={formData.name} />
+              <CharacterGalleryTab
+                characterId={characterId}
+                characterName={formData.name}
+                defaultAppearance={(formData.extensions.appearance as string) ?? formData.description}
+                defaultAvatarUrl={avatarPreview}
+              />
             )}
             {activeTab === "colors" && (
               <ColorsTab formData={formData} updateExtension={updateExtension} avatarUrl={avatarPreview} />
@@ -2176,8 +2181,19 @@ function characterClipTrimLabel(clip: CharacterGalleryClip) {
   return `${formatTrimSecond(start)} -> ${formatTrimSecond(end)}`;
 }
 
-function CharacterGalleryTab({ characterId, characterName }: { characterId: string; characterName?: string }) {
+function CharacterGalleryTab({
+  characterId,
+  characterName,
+  defaultAppearance,
+  defaultAvatarUrl,
+}: {
+  characterId: string;
+  characterName?: string;
+  defaultAppearance?: string;
+  defaultAvatarUrl?: string | null;
+}) {
   const [mediaTab, setMediaTab] = useState<CharacterGalleryMediaTab>("images");
+  const [sheetGeneratorOpen, setSheetGeneratorOpen] = useState(false);
   const { data: images, isLoading } = useCharacterGalleryImages(characterId);
   const upload = useUploadCharacterGalleryImage(characterId);
   const remove = useDeleteCharacterGalleryImage(characterId);
@@ -2237,8 +2253,40 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
     [setVisualReference],
   );
 
+  const handleGeneratedCharacterSheet = useCallback(
+    async (dataUrl: string) => {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const extension =
+        ({
+          "image/jpeg": "jpg",
+          "image/webp": "webp",
+          "image/gif": "gif",
+          "image/avif": "avif",
+        } as Record<string, string>)[blob.type] ?? "png";
+      const [image] = await upload.mutateAsync([
+        new File([blob], `${characterName || "character"}-sheet.${extension}`, { type: blob.type || "image/png" }),
+      ]);
+      if (!image) throw new Error("The generated character sheet could not be saved.");
+      await setVisualReference.mutateAsync(image.id);
+      toast.success("Character sheet created and selected.");
+    },
+    [characterName, setVisualReference, upload],
+  );
+
   return (
     <div className="space-y-6">
+      <AvatarGenerationModal
+        open={sheetGeneratorOpen}
+        mode="character-sheet"
+        title="Create Character Sheet"
+        entityName={characterName || "Character"}
+        defaultAppearance={defaultAppearance}
+        defaultAvatarUrl={defaultAvatarUrl}
+        onClose={() => setSheetGeneratorOpen(false)}
+        onUseAvatar={handleGeneratedCharacterSheet}
+      />
+
       <SectionHeader
         title="Character Gallery"
         subtitle="Keep character images and generated videos attached to this character even if chats get deleted."
@@ -2274,6 +2322,17 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
 
       {mediaTab === "images" ? (
         <>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setSheetGeneratorOpen(true)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)]/15 px-3 py-2 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary)]/30 transition-colors hover:bg-[var(--primary)]/20 max-sm:w-full"
+            >
+              <Wand2 size="0.875rem" />
+              Create character sheet
+            </button>
+          </div>
+
           <ImageUploadDropzone
             label="Upload Character Images"
             pending={upload.isPending}

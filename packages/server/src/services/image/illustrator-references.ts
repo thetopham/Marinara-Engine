@@ -1,6 +1,11 @@
 import { stripMacroComments } from "@marinara-engine/shared";
 import { readPreferredFullBodySpriteBase64 } from "../game/sprite.service.js";
 import { readAvatarBase64 } from "../game/game-asset-generation.js";
+import {
+  readCharacterSheetReferenceBase64,
+  selectCharacterVisualReference,
+  type CharacterGalleryReferenceStore,
+} from "./character-visual-reference.js";
 
 type CharacterRowLike = {
   id: string;
@@ -11,6 +16,7 @@ type CharacterRowLike = {
 type CharacterReferenceSource = {
   id: string;
   name: string;
+  data: unknown;
   avatarPath: string | null;
   appearance: string | null;
   aliases: string[];
@@ -226,6 +232,7 @@ function characterRowToSource(row: CharacterRowLike, sourceOrder: number): Chara
   return {
     id: row.id,
     name: rawName,
+    data: row.data,
     avatarPath: typeof row.avatarPath === "string" ? row.avatarPath : null,
     appearance: readIllustratorAppearance(data),
     aliases: buildNameAliases(rawName),
@@ -234,12 +241,31 @@ function characterRowToSource(row: CharacterRowLike, sourceOrder: number): Chara
   };
 }
 
-function readBestReferenceImage(characterId: string | null | undefined, avatarPath: string | null | undefined) {
-  return readAvatarBase64(avatarPath) ?? readPreferredFullBodySpriteBase64(characterId)?.base64;
+async function readBestCharacterReferenceImage(args: {
+  source: CharacterReferenceSource;
+  characterGallery: CharacterGalleryReferenceStore;
+}) {
+  return selectCharacterVisualReference({
+    characterSheet: await readCharacterSheetReferenceBase64({
+      characterId: args.source.id,
+      characterData: args.source.data,
+      characterGallery: args.characterGallery,
+    }),
+    fullBodySprite: readPreferredFullBodySpriteBase64(args.source.id)?.base64,
+    avatar: readAvatarBase64(args.source.avatarPath),
+  })?.base64;
+}
+
+function readBestPersonaReferenceImage(personaId: string | null | undefined, avatarPath: string | null | undefined) {
+  return selectCharacterVisualReference({
+    fullBodySprite: readPreferredFullBodySpriteBase64(personaId)?.base64,
+    avatar: readAvatarBase64(avatarPath),
+  })?.base64;
 }
 
 export async function resolveIllustratorCharacterReferences(args: {
   charactersStore: { list: () => Promise<CharacterRowLike[]> };
+  characterGallery: CharacterGalleryReferenceStore;
   chatCharacters: IllustratorChatCharacterReference[];
   persona?: IllustratorPersonaReference | null;
   requestedNames: string[];
@@ -261,6 +287,7 @@ export async function resolveIllustratorCharacterReferences(args: {
     sourcesById.set(character.id, {
       id: character.id,
       name: character.name,
+      data: fromDb?.data ?? {},
       avatarPath: character.avatarPath ?? fromDb?.avatarPath ?? null,
       appearance: normalizeIllustratorAppearance(character.appearance) ?? fromDb?.appearance ?? null,
       aliases: buildNameAliases(character.name),
@@ -330,7 +357,7 @@ export async function resolveIllustratorCharacterReferences(args: {
 
   for (const source of orderedSources) {
     if (args.includeReferenceImages === false) continue;
-    const b64 = readBestReferenceImage(source.id, source.avatarPath);
+    const b64 = await readBestCharacterReferenceImage({ source, characterGallery: args.characterGallery });
     if (!b64) continue;
     referenceImages.push(b64);
     referenceNames.push(source.name);
@@ -342,7 +369,7 @@ export async function resolveIllustratorCharacterReferences(args: {
     personaRequested &&
     referenceImages.length < maxReferences
   ) {
-    const b64 = readBestReferenceImage(args.persona.id, args.persona.avatarPath ?? null);
+    const b64 = readBestPersonaReferenceImage(args.persona.id, args.persona.avatarPath ?? null);
     if (b64) {
       referenceImages.push(b64);
       referenceNames.push(args.persona.name);

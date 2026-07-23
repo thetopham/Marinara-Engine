@@ -3106,8 +3106,8 @@ async function applyRetryResultEffects(args: {
             });
             const requestedNegativePrompt = [negativePrompt, savedNegativePrompt].filter(Boolean).join(", ");
 
-            // Collect optional character visual context. Prefer avatar portraits
-            // for references, then fall back to full-body sprites.
+            // Collect optional character visual context. Prefer the selected character sheet,
+            // then fall back to a full-body sprite and finally the avatar.
             const useAvatarRefs =
               typeof chatMeta.illustratorUseAvatarReferences === "boolean"
                 ? chatMeta.illustratorUseAvatarReferences
@@ -3119,6 +3119,7 @@ async function applyRetryResultEffects(args: {
             let referenceImages: string[] | undefined;
             const referenceResolution = await resolveIllustratorCharacterReferences({
               charactersStore: chars,
+              characterGallery: createCharacterGalleryStorage(app.db),
               chatCharacters: agentContext.characters.map((character) => ({
                 id: character.id,
                 name: character.name,

@@ -13,6 +13,19 @@ export type CharacterGalleryReferenceStore = {
   getById: (id: string) => Promise<CharacterGalleryImageLike | null>;
 };
 
+export type CharacterVisualReferenceSource = "character-sheet" | "sprite" | "avatar";
+
+export function selectCharacterVisualReference(args: {
+  characterSheet?: string;
+  fullBodySprite?: string;
+  avatar?: string;
+}): { base64: string; source: CharacterVisualReferenceSource } | null {
+  if (args.characterSheet) return { base64: args.characterSheet, source: "character-sheet" };
+  if (args.fullBodySprite) return { base64: args.fullBodySprite, source: "sprite" };
+  if (args.avatar) return { base64: args.avatar, source: "avatar" };
+  return null;
+}
+
 function parseRecord(value: unknown): Record<string, unknown> {
   if (!value) return {};
   if (typeof value === "string") {

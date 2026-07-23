@@ -12,6 +12,7 @@ import { logger, logDebugOverride } from "../lib/logger.js";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
+import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
 import { createGalleryStorage } from "../services/storage/gallery.storage.js";
 import { createGameSceneVideosStorage } from "../services/storage/game-scene-videos.storage.js";
 import { createGameStoryboardsStorage } from "../services/storage/game-storyboards.storage.js";
@@ -49,6 +50,10 @@ import {
 import { buildPartySystemPrompt } from "../services/game/party-prompts.js";
 import { buildPromptMacroContext, resolveMacrosWithVariableSnapshot } from "../services/prompt/index.js";
 import { listPartySprites, readPreferredFullBodySpriteBase64 } from "../services/game/sprite.service.js";
+import {
+  readCharacterSheetReferenceBase64,
+  selectCharacterVisualReference,
+} from "../services/image/character-visual-reference.js";
 import {
   buildSceneAnalyzerSystemPrompt,
   buildSceneAnalyzerUserPrompt,
@@ -396,6 +401,7 @@ export function extractCharacterAppearanceText(characterData: Record<string, unk
 
 type IllustrationCharacterAssetMaps = {
   charReferenceByName: Map<string, string>;
+  charReferenceSourceByName: Map<string, string>;
   charAvatarByName: Map<string, string>;
   charDescriptionByName: Map<string, string>;
 };
@@ -403,7 +409,7 @@ type IllustrationCharacterAssetMaps = {
 type IllustrationCharacterAssetDetail = {
   name: string;
   referenceAttached: boolean;
-  referenceSource?: "sprite" | "avatar";
+  referenceSource?: "character-sheet" | "sprite" | "avatar";
   appearanceAttached: boolean;
 };
 
@@ -424,6 +430,7 @@ type StoryboardCharacterContext = IllustrationCharacterAssetMaps & {
 function emptyIllustrationCharacterAssetMaps(): IllustrationCharacterAssetMaps {
   return {
     charReferenceByName: new Map<string, string>(),
+    charReferenceSourceByName: new Map<string, string>(),
     charAvatarByName: new Map<string, string>(),
     charDescriptionByName: new Map<string, string>(),
   };
@@ -442,17 +449,29 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean) : [];
 }
 
-function addCharacterRowIllustrationAssets(
+async function addCharacterRowIllustrationAssets(
   maps: IllustrationCharacterAssetMaps,
   character: { id: string; data: string; avatarPath?: string | null },
-): string | null {
+  characterGallery: ReturnType<typeof createCharacterGalleryStorage>,
+): Promise<string | null> {
   try {
     const parsed = JSON.parse(character.data) as Record<string, unknown> & { name?: string };
     const name = typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : null;
     if (!name) return null;
 
-    const fullBodyReference = readPreferredFullBodySpriteBase64(character.id);
-    if (fullBodyReference) addNameLookupEntry(maps.charReferenceByName, name, fullBodyReference.base64);
+    const characterSheetReference = await readCharacterSheetReferenceBase64({
+      characterId: character.id,
+      characterData: parsed,
+      characterGallery,
+    });
+    const preferredReference = selectCharacterVisualReference({
+      characterSheet: characterSheetReference,
+      fullBodySprite: readPreferredFullBodySpriteBase64(character.id)?.base64,
+    });
+    if (preferredReference) {
+      addNameLookupEntry(maps.charReferenceByName, name, preferredReference.base64);
+      addNameLookupEntry(maps.charReferenceSourceByName, name, preferredReference.source);
+    }
     if (character.avatarPath) addNameLookupEntry(maps.charAvatarByName, name, character.avatarPath);
 
     const appearanceText = extractCharacterAppearanceText(parsed);
@@ -479,7 +498,10 @@ function addPersonaIllustrationAssets(
   if (!persona || !name) return null;
 
   const fullBodyReference = readPreferredFullBodySpriteBase64(persona.id);
-  if (fullBodyReference) addNameLookupEntry(maps.charReferenceByName, name, fullBodyReference.base64);
+  if (fullBodyReference) {
+    addNameLookupEntry(maps.charReferenceByName, name, fullBodyReference.base64);
+    addNameLookupEntry(maps.charReferenceSourceByName, name, "sprite");
+  }
   if (persona.avatarPath) addNameLookupEntry(maps.charAvatarByName, name, persona.avatarPath);
 
   const appearanceText = extractCharacterAppearanceText({ appearance: persona.appearance });
@@ -518,6 +540,7 @@ function storyboardTrackedNpcsFromState(latestState: unknown): Array<Record<stri
 
 async function buildStoryboardCharacterContext(args: {
   characters: ReturnType<typeof createCharactersStorage>;
+  characterGallery: ReturnType<typeof createCharacterGalleryStorage>;
   chat: { characterIds?: unknown; personaId?: string | null };
   meta: Record<string, unknown>;
   setupConfig: Record<string, unknown> | null;
@@ -534,7 +557,7 @@ async function buildStoryboardCharacterContext(args: {
     try {
       const character = await args.characters.getById(id);
       if (!character) continue;
-      const name = addCharacterRowIllustrationAssets(maps, character);
+      const name = await addCharacterRowIllustrationAssets(maps, character, args.characterGallery);
       addUniqueCharacterName(allowedCharacterNames, seenAllowedNames, name);
     } catch {
       /* skip unresolvable game character */
@@ -578,12 +601,25 @@ async function buildStoryboardCharacterContext(args: {
   return { ...maps, allowedCharacterNames: cappedAllowedCharacterNames, personaName, trackedNpcs };
 }
 
+async function buildAllCharacterIllustrationAssetMaps(args: {
+  characters: ReturnType<typeof createCharactersStorage>;
+  characterGallery: ReturnType<typeof createCharacterGalleryStorage>;
+}): Promise<IllustrationCharacterAssetMaps> {
+  const maps = emptyIllustrationCharacterAssetMaps();
+  const allCharacters = await args.characters.list();
+  for (const character of allCharacters) {
+    await addCharacterRowIllustrationAssets(maps, character, args.characterGallery);
+  }
+  return maps;
+}
+
 function collectIllustrationCharacterAssets(opts: {
   illustration: SceneIllustrationRequest;
   characterNames: string[];
   trackedNpcs: Array<Record<string, unknown>>;
   gameNpcs: GameNpc[];
   charReferenceByName: Map<string, string>;
+  charReferenceSourceByName?: Map<string, string>;
   charAvatarByName: Map<string, string>;
   charDescriptionByName: Map<string, string>;
   includeReferenceImages?: boolean;
@@ -633,7 +669,10 @@ function collectIllustrationCharacterAssets(opts: {
         seen.add(preferredReference);
         references.push(preferredReference);
         referenceAttached = true;
-        referenceSource = "sprite";
+        referenceSource =
+          findCharAvatarFuzzy(name, opts.charReferenceSourceByName ?? new Map()) === "character-sheet"
+            ? "character-sheet"
+            : "sprite";
       } else {
         const avatarPath =
           findCharAvatarFuzzy(name, opts.charAvatarByName) ?? findCharAvatarFuzzy(name, npcAvatarByName);
@@ -10366,6 +10405,7 @@ export async function gameRoutes(app: FastifyInstance) {
       const charStore = createCharactersStorage(app.db);
       const storyboardCharacterContext = await buildStoryboardCharacterContext({
         characters: charStore,
+        characterGallery: createCharacterGalleryStorage(app.db),
         chat,
         meta,
         setupConfig: setupCfg,
@@ -10387,6 +10427,7 @@ export async function gameRoutes(app: FastifyInstance) {
         trackedNpcs: storyboardCharacterContext.trackedNpcs,
         gameNpcs: Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as GameNpc[]) : [],
         charReferenceByName: storyboardCharacterContext.charReferenceByName,
+        charReferenceSourceByName: storyboardCharacterContext.charReferenceSourceByName,
         charAvatarByName: storyboardCharacterContext.charAvatarByName,
         charDescriptionByName: storyboardCharacterContext.charDescriptionByName,
         includeReferenceImages: false,
@@ -10506,7 +10547,8 @@ export async function gameRoutes(app: FastifyInstance) {
           : "";
       const useAvatarReferences = meta.gameImageUseAvatarReferences !== false;
       const useStoryboardPromptTemplate = meta.gameStoryboardUsePromptTemplate !== false;
-      const { charReferenceByName, charAvatarByName, charDescriptionByName } = storyboardCharacterContext;
+      const { charReferenceByName, charReferenceSourceByName, charAvatarByName, charDescriptionByName } =
+        storyboardCharacterContext;
       const storyboardPromptOverrideById = new Map(
         (input.promptOverrides ?? []).map((item) => [
           item.id,
@@ -10543,6 +10585,7 @@ export async function gameRoutes(app: FastifyInstance) {
           trackedNpcs: storyboardCharacterContext.trackedNpcs,
           gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
           charReferenceByName,
+          charReferenceSourceByName,
           charAvatarByName,
           charDescriptionByName,
           includeReferenceImages: useAvatarReferences,
@@ -11357,28 +11400,11 @@ export async function gameRoutes(app: FastifyInstance) {
       const sessionNumber = currentGameSessionNumber(meta);
       if (input.forceIllustration === true || isIllustrationAllowed(meta, approxTurnNumber, sessionNumber)) {
         const charStore = createCharactersStorage(app.db);
-        const allChars = await charStore.list();
-        const charReferenceByName = new Map<string, string>();
-        const charAvatarByName = new Map<string, string>();
-        const charDescriptionByName = new Map<string, string>();
-        for (const ch of allChars) {
-          try {
-            const parsed = JSON.parse(ch.data) as Record<string, unknown> & { name?: string };
-            const fullBodyReference = parsed.name ? readPreferredFullBodySpriteBase64(ch.id) : null;
-            if (parsed.name && fullBodyReference) {
-              addNameLookupEntry(charReferenceByName, parsed.name, fullBodyReference.base64);
-            }
-            if (parsed.name && ch.avatarPath) {
-              addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
-            }
-            const appearanceText = extractCharacterAppearanceText(parsed);
-            if (parsed.name && appearanceText) {
-              addNameLookupEntry(charDescriptionByName, parsed.name, appearanceText);
-            }
-          } catch {
-            /* skip */
-          }
-        }
+        const { charReferenceByName, charReferenceSourceByName, charAvatarByName, charDescriptionByName } =
+          await buildAllCharacterIllustrationAssetMaps({
+            characters: charStore,
+            characterGallery: createCharacterGalleryStorage(app.db),
+          });
 
         const originalIllustration = input.illustration as SceneIllustrationRequest;
         const illustrationReviewKey =
@@ -11389,6 +11415,7 @@ export async function gameRoutes(app: FastifyInstance) {
           trackedNpcs: [],
           gameNpcs: Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as GameNpc[]) : [],
           charReferenceByName,
+          charReferenceSourceByName,
           charAvatarByName,
           charDescriptionByName,
           includeReferenceImages: false,
@@ -11417,6 +11444,7 @@ export async function gameRoutes(app: FastifyInstance) {
           trackedNpcs: [],
           gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
           charReferenceByName,
+          charReferenceSourceByName,
           charAvatarByName,
           charDescriptionByName,
           includeReferenceImages: useAvatarReferences,
@@ -11771,28 +11799,11 @@ export async function gameRoutes(app: FastifyInstance) {
           logger.info("[game/generate-assets] illustration skipped: cooldown active");
         } else {
           const charStore = createCharactersStorage(app.db);
-          const allChars = await charStore.list();
-          const charReferenceByName = new Map<string, string>();
-          const charAvatarByName = new Map<string, string>();
-          const charDescriptionByName = new Map<string, string>();
-          for (const ch of allChars) {
-            try {
-              const parsed = JSON.parse(ch.data) as Record<string, unknown> & { name?: string };
-              const fullBodyReference = parsed.name ? readPreferredFullBodySpriteBase64(ch.id) : null;
-              if (parsed.name && fullBodyReference) {
-                addNameLookupEntry(charReferenceByName, parsed.name, fullBodyReference.base64);
-              }
-              if (parsed.name && ch.avatarPath) {
-                addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
-              }
-              const appearanceText = extractCharacterAppearanceText(parsed);
-              if (parsed.name && appearanceText) {
-                addNameLookupEntry(charDescriptionByName, parsed.name, appearanceText);
-              }
-            } catch {
-              /* skip */
-            }
-          }
+          const { charReferenceByName, charReferenceSourceByName, charAvatarByName, charDescriptionByName } =
+            await buildAllCharacterIllustrationAssetMaps({
+              characters: charStore,
+              characterGallery: createCharacterGalleryStorage(app.db),
+            });
 
           const originalIllustration = input.illustration as SceneIllustrationRequest;
           const illustrationReviewKey =
@@ -11803,6 +11814,7 @@ export async function gameRoutes(app: FastifyInstance) {
             trackedNpcs: [],
             gameNpcs: Array.isArray(meta.gameNpcs) ? (meta.gameNpcs as GameNpc[]) : [],
             charReferenceByName,
+            charReferenceSourceByName,
             charAvatarByName,
             charDescriptionByName,
             includeReferenceImages: false,
@@ -11833,6 +11845,7 @@ export async function gameRoutes(app: FastifyInstance) {
             trackedNpcs: [],
             gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
             charReferenceByName,
+            charReferenceSourceByName,
             charAvatarByName,
             charDescriptionByName,
             includeReferenceImages: useAvatarReferences,

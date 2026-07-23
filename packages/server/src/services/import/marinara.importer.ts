@@ -156,10 +156,11 @@ async function restoreCharacterGallery(
   gallery: unknown,
   characterId: string,
   galleryStorage: ReturnType<typeof createCharacterGalleryStorage>,
-): Promise<void> {
-  if (!Array.isArray(gallery) || gallery.length === 0) return;
+): Promise<string | null> {
+  if (!Array.isArray(gallery) || gallery.length === 0) return null;
   const dir = join(DATA_DIR, "gallery", "characters", characterId);
   await mkdir(dir, { recursive: true });
+  let primaryReferenceImageId: string | null = null;
   for (const item of gallery) {
     if (!item || typeof item !== "object") continue;
     const entry = item as Record<string, unknown>;
@@ -169,7 +170,7 @@ async function restoreCharacterGallery(
     try {
       const filepath = assertInsideDir(dir, join(dir, safeFilename));
       await writeFile(filepath, decoded.buffer);
-      await galleryStorage.create({
+      const created = await galleryStorage.create({
         characterId,
         filePath: `characters/${characterId}/${safeFilename}`,
         prompt: typeof entry.prompt === "string" ? entry.prompt : "",
@@ -178,10 +179,14 @@ async function restoreCharacterGallery(
         width: typeof entry.width === "number" ? entry.width : undefined,
         height: typeof entry.height === "number" ? entry.height : undefined,
       });
+      if (entry.isPrimaryReference === true && created?.id) {
+        primaryReferenceImageId = created.id;
+      }
     } catch {
       // skip this image
     }
   }
+  return primaryReferenceImageId;
 }
 
 function readTimestampOverrides(value: unknown): TimestampOverrides | undefined {
@@ -305,6 +310,10 @@ async function importCharacter(data: unknown, db: DB) {
     charData.extensions && typeof charData.extensions === "object"
       ? ({ ...(charData.extensions as Record<string, unknown>) } as Record<string, unknown>)
       : {};
+  // This field points to a gallery row in the exporting database. Native
+  // exports mark the matching embedded image so it can be remapped below.
+  delete extensions.characterSheetImageId;
+  charData.extensions = extensions;
   const existingImportMetadata =
     extensions.importMetadata && typeof extensions.importMetadata === "object"
       ? ({ ...(extensions.importMetadata as Record<string, unknown>) } as Record<string, unknown>)
@@ -359,7 +368,15 @@ async function importCharacter(data: unknown, db: DB) {
       await storage.updateAvatar(result.id, avatarPath);
     }
     await restoreSprites(d.sprites, result.id);
-    await restoreCharacterGallery(d.gallery, result.id, galleryStorage);
+    const characterSheetImageId = await restoreCharacterGallery(d.gallery, result.id, galleryStorage);
+    if (characterSheetImageId) {
+      await storage.update(
+        result.id,
+        { extensions: { characterSheetImageId } },
+        undefined,
+        { skipVersionSnapshot: true, versionSource: "native-import", mergeExtensions: true },
+      );
+    }
   }
   return {
     success: true,

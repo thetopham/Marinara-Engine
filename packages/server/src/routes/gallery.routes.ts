@@ -1000,6 +1000,7 @@ export async function galleryRoutes(app: FastifyInstance) {
     if (selfieUseAvatarReferences || selfieIncludeCharacterAppearance) {
       const referenceResolution = await resolveIllustratorCharacterReferences({
         charactersStore: characters,
+        characterGallery,
         chatCharacters: [
           {
             id: character.id,

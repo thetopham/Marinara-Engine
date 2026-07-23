@@ -209,6 +209,7 @@ async function generateSelfie(
   if (selfieUseAvatarReferences || selfieIncludeCharacterAppearance) {
     const referenceResolution = await resolveIllustratorCharacterReferences({
       charactersStore: args.chars,
+      characterGallery: createCharacterGalleryStorage(args.db),
       chatCharacters: args.charInfo.map((character) => ({
         id: character.id,
         name: character.name,

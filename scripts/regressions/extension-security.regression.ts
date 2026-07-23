@@ -311,4 +311,45 @@ try {
   rmSync(storageDir, { recursive: true, force: true });
 }
 
+// Constrained browser UI capability — assert the security invariants of the
+// generated worker/bootstrap source so a regression cannot silently widen the
+// sandbox (e.g. reintroduce innerHTML or leak DOM/network to the extension).
+{
+  const { browserWorkerSource, sandboxDocument } = await import(
+    "../../packages/server/src/routes/personal-extensions.routes.js"
+  );
+  const uiExtension = {
+    id: "ui-demo",
+    name: "UI Demo",
+    contentHash: "sha256:demo",
+    runtime: "client" as const,
+    css: "",
+    js: "const w = marinara.ui.showWindow({ title: 'Bunny', elements: [{ kind: 'pre', text: '(\\u2022_\\u2022)' }] });",
+    serverJs: null,
+    description: "",
+    version: null,
+    enabled: true,
+    approvedHash: "sha256:demo",
+    source: "professor_mari" as const,
+    revisions: [],
+    installedAt: "",
+    createdAt: "",
+    updatedAt: "",
+  };
+  const worker = browserWorkerSource(uiExtension);
+  assert.match(worker, /ui:\s*Object\.freeze\(\{\s*showWindow/u, "Worker must expose marinara.ui.showWindow");
+  assert.match(worker, /"ui-show"/u, "Worker must send a ui-show descriptor message");
+  assert.match(worker, /"ui-event"/u, "Worker must receive button events via ui-event");
+  assert.doesNotMatch(worker, /\bdocument\b/u, "Worker source must never touch the DOM");
+
+  const doc = sandboxDocument(uiExtension, "test-nonce");
+  assert.match(doc, /textContent/u, "Sandbox bootstrap must render window text via textContent");
+  assert.doesNotMatch(doc, /innerHTML/u, "Sandbox bootstrap must never assign innerHTML");
+  assert.match(doc, /ui-window-open/u, "Sandbox reveals the iframe only through the ui-window-open signal");
+  assert.ok(
+    doc.includes("new Worker(") && doc.includes("marinara.ui.showWindow"),
+    "Extension JS must run in the worker embedded by the bootstrap, not in the document",
+  );
+}
+
 console.log("Personal Extension sandbox and policy regression passed.");

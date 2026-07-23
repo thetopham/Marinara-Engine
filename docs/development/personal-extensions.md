@@ -54,7 +54,10 @@ The worker receives only:
 - namespaced logging;
 - private extension storage brokered by the parent;
 - managed timers;
-- cleanup registration.
+- cleanup registration;
+- a constrained window UI through `marinara.ui.showWindow(...)`.
+
+`marinara.ui.showWindow({ title, elements, onEvent, onClose })` returns a handle with `update({ title?, elements? })` and `close()`. Each element is one of a fixed whitelist — `heading`, `text`, `pre`, `button`, `input`, `spacer` — with plain-string fields; `button` and `input` require an `id`. The worker only sends these descriptors. The trusted iframe bootstrap renders them with `textContent` (never `innerHTML`), so no markup, event handlers, or styles cross from the extension into the rendered DOM. A button click posts `{ windowId, elementId, values }` back to `onEvent`, where `values` maps each input `id` to its current string value. The host reveals the otherwise-hidden sandbox iframe as a centered overlay only while a window is open, and hides it again on close; the extension still has no access to Marinara's DOM, network, or the host window. Window count, element count, and text length are capped, and window messages count toward the same rate limit as everything else.
 
 There is no DOM helper, Marinara API fetch, parent event access, or arbitrary network capability. The iframe validates and rate-limits messages. A heartbeat watchdog terminates an unresponsive or busy-looping worker.
 

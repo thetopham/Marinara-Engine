@@ -124,4 +124,34 @@ try {
   rmSync(fixtureBackupRoot, { recursive: true, force: true });
 }
 
+// Issue #3997 — the run-directly guard must build its comparison URL with
+// pathToFileURL. new URL(process.argv[1], "file:") parses a Windows drive
+// prefix such as "D:" as the URL scheme, so fileURLToPath threw
+// ERR_INVALID_URL_SCHEME at module load and the launcher skipped the update
+// snapshot on Windows.
+for (const script of ["scripts/protect-launcher-data.mjs", "scripts/read-launcher-env.mjs"]) {
+  const source = readFileSync(resolve(repositoryRoot, script), "utf8");
+  assert.doesNotMatch(
+    source,
+    /new URL\(process\.argv/u,
+    `${script} must not parse process.argv[1] with new URL(..., "file:")`,
+  );
+  assert.match(
+    source,
+    /import\.meta\.url === pathToFileURL\(process\.argv\[1\]\)\.href/u,
+    `${script} must compare import.meta.url against pathToFileURL(process.argv[1])`,
+  );
+}
+{
+  const { spawnSync } = await import("node:child_process");
+  // Running the script directly must evaluate the guard without throwing and
+  // reach main(), which rejects missing arguments with its usage error.
+  const direct = spawnSync(process.execPath, [resolve(repositoryRoot, "scripts/protect-launcher-data.mjs")], {
+    encoding: "utf8",
+  });
+  assert.equal(direct.status, 1, "Direct execution must reach main() and fail with the usage error");
+  assert.match(direct.stderr + direct.stdout, /Usage: node scripts\/protect-launcher-data\.mjs/u);
+  assert.doesNotMatch(direct.stderr, /ERR_INVALID_URL_SCHEME/u);
+}
+
 console.log("Launcher update reminder regressions passed.");

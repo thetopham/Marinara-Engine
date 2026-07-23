@@ -28,6 +28,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed the Windows launcher crash `ERR_INVALID_URL_SCHEME` in `protect-launcher-data.mjs` (and the same latent pattern in `read-launcher-env.mjs`): the run-directly guard now resolves `process.argv[1]` with `pathToFileURL`, so drive-letter paths no longer parse as URL schemes, update snapshots are created again, and auto-update is no longer skipped (#3997).
 - Listed ComfyUI models from the DiffusionModels folder (UNETLoader) alongside StableDiffusion checkpoints in the connection editor's "Fetch models from API", so models such as Anima and zImage are selectable without typing their names manually (#3993).
 - Disabled Venice.ai's optional `safe_mode` blur in native image requests so supported generations are returned without the provider's default censoring overlay (#3990).
 - Protected launcher-driven Engine updates with a private snapshot of the configured user-data directory outside the checkout and automatic restoration if an update attempt leaves that directory missing or empty. Launcher dependency refreshes now use the pinned lockfile instead of destructive forced reinstalls, preventing the Windows Fastify plugin type failures reported after v2.3.4 updates (#3961, #3976).

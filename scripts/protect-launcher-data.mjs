@@ -3,7 +3,7 @@
 import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { parseEnv } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const serverRoot = resolve(repositoryRoot, "packages/server");
@@ -158,7 +158,9 @@ async function main() {
   throw new Error("Usage: node scripts/protect-launcher-data.mjs <snapshot|restore-if-missing>");
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(process.argv[1], "file:"))) {
+// pathToFileURL handles Windows drive letters; new URL(path, "file:") parses
+// "D:" as a URL scheme and crashes fileURLToPath with ERR_INVALID_URL_SCHEME.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(`  [ERROR] Could not protect launcher data: ${error instanceof Error ? error.message : error}`);
     process.exitCode = 1;

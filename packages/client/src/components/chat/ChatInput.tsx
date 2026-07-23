@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat: Input — mode-aware styling
 // ──────────────────────────────────────────────
-import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, memo, type FormEvent } from "react";
 import {
   Send,
   Paperclip,
@@ -51,6 +51,7 @@ import { applyTextareaQuoteFormat } from "../../lib/textarea-quotes";
 import { translateDraftText } from "../../lib/draft-translation";
 import { prepareImageAttachment } from "../../lib/chat-attachment-images";
 import { CARD_ASSET_INSERT_EVENT, type CardAssetInsertDetail } from "../../lib/card-asset-links";
+import { isGenerationSendBlocked } from "../../lib/generation-stream-policy";
 import { requestChatScrollToBottom } from "../../lib/chat-scroll-events";
 import { EmojiPicker } from "../ui/EmojiPicker";
 import { SpeechToTextButton } from "../ui/SpeechToTextButton";
@@ -90,6 +91,14 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "yml",
 ]);
 const PDF_ATTACHMENT_MIME_TYPE = "application/pdf";
+const QUOTE_INPUT_TRIGGER_RE = /["'\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f]/;
+
+function shouldFormatQuoteInput(event: FormEvent<HTMLTextAreaElement> | undefined, value: string): boolean {
+  const inputEvent = event?.nativeEvent as InputEvent | undefined;
+  const inputType = typeof inputEvent?.inputType === "string" ? inputEvent.inputType : "";
+  if (inputType.startsWith("delete")) return false;
+  return QUOTE_INPUT_TRIGGER_RE.test(inputEvent?.data ?? value);
+}
 
 function getFileExtension(fileName: string): string {
   const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -220,10 +229,9 @@ export const ChatInput = memo(function ChatInput({
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const inputBarRef = useRef<HTMLDivElement>(null);
   const focusAfterMobileRestoreRef = useRef(false);
-  const textareaFocusedRef = useRef(false);
-  const restoreFocusAfterBusyRef = useRef(false);
-  const wasInputBusyRef = useRef(false);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentInputFrameRef = useRef<number | null>(null);
+  const pendingCurrentInputRef = useRef("");
   const attachmentsRef = useRef<Attachment[]>([]);
   const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
   const activeChatId = useChatStore((s) => s.activeChatId);
@@ -237,8 +245,16 @@ export const ChatInput = memo(function ChatInput({
   const professorMariSuggestionsEnabled = useUIStore((s) => s.professorMariSuggestionsEnabled);
   const streamingChatId = useChatStore((s) => s.streamingChatId);
   const isStreamingGlobal = useChatStore((s) => s.isStreaming);
-  const isStreaming = isStreamingGlobal && streamingChatId === activeChatId;
-  const isInputBusy = isStreaming || interactionsLocked;
+  const isBackgroundIllustration = useChatStore((s) =>
+    activeChatId ? s.backgroundIllustrationChatIds.has(activeChatId) : false,
+  );
+  const hasActiveStream = isStreamingGlobal && streamingChatId === activeChatId;
+  const isStreaming = hasActiveStream && !isBackgroundIllustration;
+  const isInputBusy = isGenerationSendBlocked({
+    streamActive: hasActiveStream,
+    agentsProcessing: interactionsLocked,
+    backgroundIllustration: isBackgroundIllustration,
+  });
   const responseQueue = useChatStore((s) =>
     activeChatId ? (s.responseQueues.get(activeChatId) ?? EMPTY_RESPONSE_QUEUE) : EMPTY_RESPONSE_QUEUE,
   );
@@ -340,8 +356,18 @@ export const ChatInput = memo(function ChatInput({
 
   const syncInputState = useCallback(
     (value: string) => {
-      setHasInput(value.trim().length > 0);
-      setCurrentInput(value);
+      const nextHasInput = value.trim().length > 0;
+      setHasInput((current) => (current === nextHasInput ? current : nextHasInput));
+      pendingCurrentInputRef.current = value;
+      if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        setCurrentInput(value);
+        return;
+      }
+      if (currentInputFrameRef.current !== null) return;
+      currentInputFrameRef.current = window.requestAnimationFrame(() => {
+        currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
+      });
     },
     [setCurrentInput],
   );
@@ -463,6 +489,11 @@ export const ChatInput = memo(function ChatInput({
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       // Cancel pending resize rAF
       if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+      if (currentInputFrameRef.current !== null) {
+        cancelAnimationFrame(currentInputFrameRef.current);
+        currentInputFrameRef.current = null;
+        useChatStore.getState().setCurrentInput(pendingCurrentInputRef.current);
+      }
       // Flush draft synchronously
       if (chatId && textarea) {
         const text = textarea.value;
@@ -596,11 +627,11 @@ export const ChatInput = memo(function ChatInput({
   const isReadingAttachments = pendingAttachmentReads > 0;
   const hasPendingAttachments = isReadingAttachments || attachments.length > 0;
   const requiresManualGuideTarget = groupResponseOrder === "manual" && activeCharacterNames.length > 1;
-  const inputBusyReason = isStreaming
-    ? "Wait for the current stream to finish."
-    : interactionsLocked
-      ? "Wait for agents to finish."
-      : null;
+  const inputBusyReason = isInputBusy
+    ? isStreaming
+      ? "Wait for the current stream to finish."
+      : "Wait for agents to finish."
+    : null;
 
   const removeAttachment = (idx: number) => {
     updateAttachments((prev) => prev.filter((_, i) => i !== idx));
@@ -1369,19 +1400,17 @@ export const ChatInput = memo(function ChatInput({
     }
   };
 
-  const handleInput = () => {
+  const handleInput = (event?: FormEvent<HTMLTextAreaElement>) => {
     const el = textareaRef.current;
     if (!el) return;
-    const fixed = applyTextareaQuoteFormat(el, quoteFormat);
-    const nowHasInput = fixed.trim().length > 0;
-    setHasInput((prev) => (prev === nowHasInput ? prev : nowHasInput));
+    const fixed = shouldFormatQuoteInput(event, el.value) ? applyTextareaQuoteFormat(el, quoteFormat) : el.value;
+    syncInputState(fixed);
 
     // Keep draft in sync so it survives remounts (debounced to avoid store churn)
     if (activeChatId) {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       const chatId = activeChatId;
       const text = fixed;
-      setCurrentInput(text);
       draftTimerRef.current = setTimeout(() => {
         if (text.trim()) {
           setInputDraft(chatId, text);
@@ -1564,32 +1593,6 @@ export const ChatInput = memo(function ChatInput({
     };
     requestAnimationFrame(scroll);
   }, []);
-
-  useEffect(() => {
-    const wasInputBusy = wasInputBusyRef.current;
-    wasInputBusyRef.current = isInputBusy;
-
-    if (isInputBusy) {
-      if (textareaFocusedRef.current) restoreFocusAfterBusyRef.current = true;
-      return;
-    }
-
-    if (!wasInputBusy || !restoreFocusAfterBusyRef.current) return;
-    restoreFocusAfterBusyRef.current = false;
-    if (!activeChatId || shouldShowMobileCollapsedComposer) return;
-
-    const focus = () => {
-      const textarea = textareaRef.current;
-      if (!textarea || textarea.disabled) return;
-      const activeElement = document.activeElement;
-      if (activeElement && activeElement !== document.body && activeElement !== textarea) return;
-      textarea.focus({ preventScroll: true });
-      textareaFocusedRef.current = true;
-      ensureInputVisible();
-    };
-
-    requestAnimationFrame(focus);
-  }, [activeChatId, ensureInputVisible, isInputBusy, shouldShowMobileCollapsedComposer]);
 
   useEffect(() => {
     if (mobileHistoryCollapsed || !focusAfterMobileRestoreRef.current) return;
@@ -1816,14 +1819,10 @@ export const ChatInput = memo(function ChatInput({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onFocus={() => {
-            textareaFocusedRef.current = true;
             ensureInputVisible();
           }}
-          onBlur={() => {
-            if (!isInputBusy) textareaFocusedRef.current = false;
-          }}
           placeholder={inputPlaceholder}
-          disabled={!activeChatId || isInputBusy}
+          disabled={!activeChatId}
           rows={1}
           spellCheck
           autoCorrect="on"

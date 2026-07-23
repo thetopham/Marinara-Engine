@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // View: File Browser (full-page overlay)
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, Folder, Upload, Pencil, Info, FileText, Move, Copy, Minus, RotateCcw, Trash2, X } from "lucide-react";
 import {
   useGameAssetTree,
@@ -61,6 +62,10 @@ function sameFolderSelection(a: readonly string[], b: readonly string[]): boolea
   return a.length === b.length && a.every((folder, index) => folder === b[index]);
 }
 
+function AssetMenuPortal({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body);
+}
+
 /**
  * Browser for previewing and managing game assets.
  *
@@ -77,9 +82,11 @@ function sameFolderSelection(a: readonly string[], b: readonly string[]): boolea
 export function GameAssetsBrowserView({
   embedded = false,
   onClose,
+  selectFoldersByDefault = false,
 }: {
   embedded?: boolean;
   onClose?: () => void;
+  selectFoldersByDefault?: boolean;
 } = {}) {
   const { data: tree, isLoading } = useGameAssetTree();
   const createFolder = useCreateGameAssetFolder();
@@ -108,7 +115,7 @@ export function GameAssetsBrowserView({
   const [imageInfoNode, setImageInfoNode] = useState<TreeNode | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [listColumns, setListColumns] = useState({ size: true, modified: false });
-  const [assetSelectionMode, setAssetSelectionMode] = useState(false);
+  const [assetSelectionMode, setAssetSelectionMode] = useState(selectFoldersByDefault);
   const [optimisticAssetExcludedFolders, setOptimisticAssetExcludedFolders] = useState<string[] | null>(null);
   const [folderSelectionMenu, setFolderSelectionMenu] = useState<{
     node: TreeNode;
@@ -177,7 +184,7 @@ export function GameAssetsBrowserView({
     setFolderSelectionMenu({
       node,
       x: Math.max(8, Math.min(rect.left, window.innerWidth - 288)),
-      y: rect.bottom + 6,
+      y: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 360)),
     });
   }, []);
 
@@ -218,10 +225,13 @@ export function GameAssetsBrowserView({
   );
 
   useEffect(() => {
-    if (canSelectGameAssets) return;
-    setAssetSelectionMode(false);
-    setFolderSelectionMenu(null);
-  }, [canSelectGameAssets]);
+    if (!canSelectGameAssets) {
+      setAssetSelectionMode(false);
+      setFolderSelectionMenu(null);
+      return;
+    }
+    if (selectFoldersByDefault) setAssetSelectionMode(true);
+  }, [canSelectGameAssets, selectFoldersByDefault]);
 
   useEffect(() => {
     setOptimisticAssetExcludedFolders(null);
@@ -295,7 +305,7 @@ export function GameAssetsBrowserView({
     setSelectedPaths(new Set());
   }, []);
 
-  const isBrowserVisible = useUIStore((s) => s.gameAssetsBrowserOpen);
+  const isBrowserVisible = useUIStore((s) => s.gameAssetsBrowserOpen) || embedded;
 
   // Modal Escape handler
   useEffect(() => {
@@ -881,11 +891,13 @@ export function GameAssetsBrowserView({
       </div>
 
       {canSelectGameAssets && assetSelectionMode && folderSelectionMenu && (
-        <div
-          ref={folderSelectionMenuRef}
-          className="fixed z-[60] w-72 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
-          style={{ left: folderSelectionMenu.x, top: folderSelectionMenu.y }}
-        >
+        <AssetMenuPortal>
+          <div
+            data-chat-floating-panel
+            ref={folderSelectionMenuRef}
+            className="fixed z-[9999] w-72 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+            style={{ left: folderSelectionMenu.x, top: folderSelectionMenu.y }}
+          >
           {(() => {
             const status = getFolderSelectionStatus(folderSelectionMenu.node);
             const subfolders = folderSelectionMenu.node.children?.filter((child) => child.type === "folder") ?? [];
@@ -974,7 +986,8 @@ export function GameAssetsBrowserView({
               </>
             );
           })()}
-        </div>
+          </div>
+        </AssetMenuPortal>
       )}
 
       {/* Hidden upload input */}

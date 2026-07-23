@@ -1,7 +1,8 @@
 // ──────────────────────────────────────────────
 // File Browser — Action dropdown (3-dot menu)
 // ──────────────────────────────────────────────
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ContextMenuItem } from "../ui/ContextMenu";
 import { cn } from "../../lib/utils";
 
@@ -26,6 +27,17 @@ export function ActionDropdown({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useEffect(() => {
+    const menu = ref.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    setPosition({
+      left: Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)),
+      top: Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)),
+    });
+  }, [x, y]);
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
@@ -43,16 +55,19 @@ export function ActionDropdown({
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
+      data-chat-floating-panel
       ref={ref}
-      className="fixed z-50 min-w-[10rem] rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
-      style={{ left: x, top: y }}
+      role="menu"
+      className="fixed z-[9999] min-w-[10rem] rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
+      style={{ left: position.left, top: position.top }}
     >
       {items.map((item, i) => (
         <button
           key={`${item.label}-${i}`}
           type="button"
+          role="menuitem"
           disabled={item.disabled}
           onClick={() => {
             if (item.disabled) return;
@@ -72,6 +87,7 @@ export function ActionDropdown({
           <span className="flex-1 truncate">{item.label}</span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

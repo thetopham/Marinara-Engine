@@ -32,6 +32,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Kept Conversation bubbles within the mobile viewport and exposed live Model Thoughts while a response is still streaming (#3964, #3971).
 - Saved image, video, and provider-default connection parameters before the final connection refresh, preventing stale cached defaults from replacing the user's latest values (#3972).
 - Enlarged generated image attachments in Conversation and Roleplay while keeping them contained within the chat viewport (#3966).
+- Restored per-game asset-folder selection in the new-game wizard, kept existing-game selection in the Asset Browser, anchored asset action menus to their buttons without viewport clipping, and stopped bundling the unrelated generic fantasy sprite pack (#3962).
 
 ## [2.3.4]
 

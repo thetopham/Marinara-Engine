@@ -1223,6 +1223,18 @@ const gameSurfaceSource = readFileSync(
   new URL("../../packages/client/src/components/game/GameSurface.tsx", import.meta.url),
   "utf8",
 );
+const gameSetupWizardSource = readFileSync(
+  new URL("../../packages/client/src/components/game/GameSetupWizard.tsx", import.meta.url),
+  "utf8",
+);
+const gameAssetBrowserSource = readFileSync(
+  new URL("../../packages/client/src/components/game-assets/GameAssetsBrowserView.tsx", import.meta.url),
+  "utf8",
+);
+const gameAssetActionDropdownSource = readFileSync(
+  new URL("../../packages/client/src/components/game-assets/ActionDropdown.tsx", import.meta.url),
+  "utf8",
+);
 const gameAssetHooksSource = readFileSync(
   new URL("../../packages/client/src/hooks/use-game-assets.ts", import.meta.url),
   "utf8",
@@ -1317,6 +1329,15 @@ assert.equal(
 );
 assert.match(gameJournalSource, /data-game-journal-scroll/u);
 assert.match(gameSurfaceSource, /h-\[min\(42rem,calc\(100dvh-6rem\)\)\]/u);
+assert.match(gameSetupWizardSource, /Adjust Game Assets for this Game/u);
+assert.match(gameSetupWizardSource, /selectFoldersByDefault/u);
+assert.match(gameAssetBrowserSource, /createPortal/u);
+assert.match(gameAssetActionDropdownSource, /createPortal/u);
+assert.match(gameAssetActionDropdownSource, /window\.innerWidth - rect\.width/u);
+assert.equal(
+  existsSync(join(REPOSITORY_ROOT, "packages/server/src/assets/default-game-assets/sprites/generic-fantasy")),
+  false,
+);
 assert.match(gameAssetHooksSource, /export function useGameAssetManifest/u);
 assert.match(gameAssetHooksSource, /invalidateQueries\(\{ queryKey: gameAssetKeys\.all \}\)/u);
 assert.doesNotMatch(gameAssetStoreSource, /api\.|fetchManifest|rescanAssets|\/game-assets\/manifest/u);

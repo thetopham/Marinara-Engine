@@ -197,7 +197,11 @@ function CapabilityFailureState({
           className === "contents" ? undefined : className,
           "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--destructive)]/30 bg-[var(--destructive)]/10 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/60",
         )}
-        aria-label={t("capabilities.failure.load.retryLabel", { name: displayName })}
+        aria-label={
+          kind === "load"
+            ? t("capabilities.failure.load.retryLabel", { name: displayName })
+            : t("capabilities.actions.tryAgain")
+        }
         title={title}
         data-capability-client-state="error"
         data-capability-package-id={packageId}

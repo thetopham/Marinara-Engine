@@ -15,9 +15,32 @@ function canonicalizeLocale(value) {
   }
 }
 
-function extractTokens(value) {
+// Rich-text tags must be well-formed (balanced, properly nested) and use the
+// same set of tags as English. Sibling order is intentionally not compared:
+// i18next lets translations reorder <Trans> elements for grammar.
+function extractTokens(value, context) {
   const interpolation = [...value.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/gu)].map((match) => match[1]).sort();
-  const richTextTags = [...value.matchAll(/<\/?([A-Za-z][\w-]*|\d+)(?:\s[^>]*)?>/gu)].map((match) => match[1]).sort();
+  const richTextTags = [];
+  const openTags = [];
+  for (const match of value.matchAll(/<(\/?)([A-Za-z][\w-]*|\d+)((?:\s[^>]*?)?(\/?))>/gu)) {
+    const [, closingMark, name, , selfClosingMark] = match;
+    if (selfClosingMark === "/") {
+      richTextTags.push(`${name}/`);
+      continue;
+    }
+    if (closingMark === "/") {
+      if (openTags.pop() !== name) {
+        throw new Error(`${context}: rich-text markup is not balanced`);
+      }
+      continue;
+    }
+    openTags.push(name);
+    richTextTags.push(name);
+  }
+  if (openTags.length > 0) {
+    throw new Error(`${context}: rich-text markup is not balanced`);
+  }
+  richTextTags.sort();
   return { interpolation, richTextTags };
 }
 
@@ -99,8 +122,8 @@ async function main() {
     }
 
     for (const key of localeKeys) {
-      const expected = extractTokens(canonical.messages[key]);
-      const actual = extractTokens(locale.messages[key]);
+      const expected = extractTokens(canonical.messages[key], `${canonical.filename}: ${key}`);
+      const actual = extractTokens(locale.messages[key], `${locale.filename}: ${key}`);
       if (!sameTokens(expected, actual)) {
         throw new Error(`${locale.filename}: ${key} must preserve English interpolation and rich-text tokens`);
       }

@@ -25,6 +25,9 @@ The product experience therefore needs both agency and life:
   access choices, interactions, and eventually audience response;
 - stage identity/disclosure supports open alter egos and concealed sides while server
   policy prevents accidental identity leaks.
+- Open profiles show their linked identity directly. Hinted profiles reveal the linked
+  display name and handle only through a deliberate profile-badge hint while keeping
+  exact identifiers out of generated content. Secret profiles expose no identity hint.
 
 ## Merged so far
 

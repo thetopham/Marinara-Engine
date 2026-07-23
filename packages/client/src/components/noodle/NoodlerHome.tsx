@@ -82,6 +82,7 @@ import {
   ConversationMediaPickerPanel,
   type ConversationMediaPickerTabId,
 } from "../chat/ConversationMediaPickerPanel";
+import { HelpTooltip } from "../ui/HelpTooltip";
 import { Modal } from "../ui/Modal";
 import type { NoodleNavigationState } from "./noodle-navigation.types";
 
@@ -1910,8 +1911,24 @@ function StageProfileView({
         account={profile}
         displayHandle={profile.handle}
         handleMeta={<>
-          <DisclosureBadge mode={profile.disclosureMode} />
-          {profile.publicIdentity && (
+          {profile.disclosureMode === "hinted" && profile.publicIdentity ? (
+            <HelpTooltip
+              label="Hinted"
+              side="bottom"
+              buttonClassName="border border-[var(--noodle-divider)] px-2 py-0.5 text-[0.68rem] font-bold text-[var(--muted-foreground)] opacity-100 [&_svg]:hidden"
+              text={
+                <span>
+                  <span className="block font-bold text-[var(--popover-foreground)]">Linked identity</span>
+                  <span className="mt-1 block">
+                    {profile.publicIdentity.displayName} (@{profile.publicIdentity.handle})
+                  </span>
+                </span>
+              }
+            />
+          ) : (
+            <DisclosureBadge mode={profile.disclosureMode} />
+          )}
+          {profile.disclosureMode === "open" && profile.publicIdentity && (
             <span className="text-xs text-[var(--muted-foreground)]">
               Openly linked to {profile.publicIdentity.displayName} (@{profile.publicIdentity.handle})
             </span>

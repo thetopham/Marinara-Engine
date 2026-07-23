@@ -741,7 +741,7 @@ export function createNoodleStorage(db: DB) {
         accounts.map(async (account) => {
           const disclosureMode = account.settings.privacy.identityDisclosure ?? null;
           const publicAccount =
-            disclosureMode === "open" && account.publicAccountId
+            (disclosureMode === "open" || disclosureMode === "hinted") && account.publicAccountId
               ? await this.getAccountById(account.publicAccountId)
               : null;
           return {

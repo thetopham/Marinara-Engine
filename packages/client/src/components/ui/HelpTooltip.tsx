@@ -160,6 +160,10 @@ export function HelpTooltip({
           buttonClassName,
         )}
         onMouseEnter={openSelf}
+        onFocus={openSelf}
+        onBlur={() => {
+          if (!pinned) closeSelf();
+        }}
         onPointerDown={(event) => {
           event.stopPropagation();
         }}

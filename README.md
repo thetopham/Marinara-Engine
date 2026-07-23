@@ -165,7 +165,7 @@ Preset system with drag-and-drop prompt ordering, lorebooks with keyword trigger
 
 ### Local Customization
 
-Personal Extensions keep self-authored or Professor Mari-authored CSS and JavaScript local to your Marinara server. They never download or auto-update, every executable change invalidates approval, and only the exact reviewed SHA-256 fingerprint can run. Browser and server extensions are full-trust code; see the [Personal Extensions guide](docs/extending/personal-extensions.md).
+Personal Extensions are disabled-by-default drafts authored for you by Professor Mari. Every executable change invalidates approval, and only the exact reviewed SHA-256 fingerprint can run inside Marinara's restricted browser or OS sandbox. Third-party imports stay hidden until the host and user deliberately open both External Extensions safety gates; arbitrary code still requires careful review. See the [Personal Extensions guide](docs/extending/personal-extensions.md).
 
 ### Connections & Providers
 

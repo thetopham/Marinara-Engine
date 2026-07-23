@@ -84,6 +84,7 @@ import {
   Power,
   Paintbrush,
   AlertTriangle,
+  ShieldAlert,
   Tag,
   Code,
   Plus,
@@ -125,7 +126,14 @@ import {
 import { TrackerCardColorSettings } from "./settings/TrackerCardColorSettings";
 import { PromptOverridesEditor } from "./settings/PromptOverridesEditor";
 import { BackgroundPicker } from "./settings/BackgroundPicker";
-import { PersonalExtensionsSettings } from "./settings/PersonalExtensionsSettings";
+import {
+  ExternalExtensionsSettings,
+  PersonalExtensionsSettings,
+} from "./settings/PersonalExtensionsSettings";
+import {
+  usePersonalExtensionPolicy,
+  useSetExternalExtensionsEnabled,
+} from "../../hooks/use-personal-extensions";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../lib/character-import";
@@ -393,7 +401,7 @@ const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
     id: "personal-extensions",
     tab: "addons",
     label: "Personal Extensions",
-    description: "Hash-approved local code and Professor Mari drafts.",
+    description: "Sandboxed extension drafts authored by Professor Mari.",
     aliases: ["extensions", "addons", "local code", "browser", "server", "professor mari"],
   },
   {
@@ -4964,10 +4972,12 @@ function GenerationsSettings() {
 }
 
 function AddonsSettings() {
+  const { data: extensionPolicy } = usePersonalExtensionPolicy();
   return (
     <div className="flex flex-col gap-3">
       <SettingsIntro>Private custom behavior and appearance, synced by this Marinara server.</SettingsIntro>
       <PersonalExtensionsSettings showIntro={false} />
+      {extensionPolicy?.externalExtensionsEnabled && <ExternalExtensionsSettings />}
       <ThemesSettings showIntro={false} />
     </div>
   );
@@ -5302,9 +5312,9 @@ function ThemesSettings({ showIntro = true }: { showIntro?: boolean } = {}) {
                   : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
               )}
             >
-              <Palette size="0.75rem" />
+              <Palette size="0.75rem" className="mari-chrome-accent-icon" />
               Default Theme
-              {activeCustomTheme === null && <Check size="0.75rem" className="ml-auto" />}
+              {activeCustomTheme === null && <Check size="0.75rem" className="mari-chrome-accent-icon ml-auto" />}
             </button>
 
             {/* Custom theme list */}
@@ -5329,9 +5339,11 @@ function ThemesSettings({ showIntro = true }: { showIntro?: boolean } = {}) {
                   }
                   className="flex flex-1 items-center gap-2 min-w-0"
                 >
-                  <FileCode2 size="0.75rem" className="shrink-0" />
+                  <FileCode2 size="0.75rem" className="mari-chrome-accent-icon shrink-0" />
                   <span className="mari-chrome-text truncate">{t.name}</span>
-                  {activeCustomTheme?.id === t.id && <Check size="0.75rem" className="shrink-0" />}
+                  {activeCustomTheme?.id === t.id && (
+                    <Check size="0.75rem" className="mari-chrome-accent-icon shrink-0" />
+                  )}
                 </button>
                 <button
                   onClick={() => openEditTheme(t)}
@@ -6321,6 +6333,7 @@ function ManualUpdateCommand({ command }: { command: string }) {
 }
 
 function AdvancedSettings() {
+  const { t } = useTranslation();
   const showTimestamps = useUIStore((s) => s.showTimestamps);
   const setShowTimestamps = useUIStore((s) => s.setShowTimestamps);
   const showModelName = useUIStore((s) => s.showModelName);
@@ -6343,6 +6356,8 @@ function AdvancedSettings() {
   const [exportProfileDialogOpen, setExportProfileDialogOpen] = useState(false);
   const [refreshingSpa, setRefreshingSpa] = useState(false);
   const [adminSecret, setAdminSecret] = useState(() => localStorage.getItem(ADMIN_SECRET_STORAGE_KEY) ?? "");
+  const { data: extensionPolicy, isLoading: extensionPolicyLoading } = usePersonalExtensionPolicy();
+  const setExternalExtensionsEnabled = useSetExternalExtensionsEnabled();
   const nativeConsoleBridge = getMarinaraAndroidBridge();
   const canOpenNativeConsole = typeof nativeConsoleBridge?.openConsole === "function";
   const nativeConsoleHelp = getNativeConsoleShortcutHelp();
@@ -6357,6 +6372,37 @@ function AdvancedSettings() {
     bridge.openConsole();
     toast.info("Opening Termux console…");
   }, []);
+
+  const handleExternalExtensionsToggle = useCallback(
+    async (enabled: boolean) => {
+      if (enabled) {
+        const confirmed = await showConfirmDialog({
+          title: t("settings.externalExtensions.confirm.title"),
+          message: t("settings.externalExtensions.warning"),
+          confirmLabel: t("settings.externalExtensions.confirm.action"),
+          cancelLabel: t("settings.externalExtensions.confirm.cancel"),
+          tone: "destructive",
+        });
+        if (!confirmed) return;
+      }
+      try {
+        await setExternalExtensionsEnabled.mutateAsync(enabled);
+        toast.success(
+          enabled
+            ? t("settings.externalExtensions.enabled")
+            : t("settings.externalExtensions.disabled"),
+        );
+      } catch (toggleError) {
+        toast.error(
+          getPrivilegedActionErrorMessage(
+            toggleError,
+            t("settings.externalExtensions.error"),
+          ),
+        );
+      }
+    },
+    [setExternalExtensionsEnabled, t],
+  );
 
   type ProfileExportFormat = "native" | "compatible" | "zip";
   const profileExportFallbackNames: Record<ProfileExportFormat, string> = {
@@ -7154,6 +7200,27 @@ function AdvancedSettings() {
               </div>
             </div>
           )}
+          <div className="mt-2 flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/45 p-2.5">
+            <ToggleSetting
+              label={t("settings.externalExtensions.toggle.label")}
+              checked={extensionPolicy?.externalExtensionsEnabled ?? false}
+              onChange={(enabled) => void handleExternalExtensionsToggle(enabled)}
+              disabled={
+                extensionPolicyLoading ||
+                setExternalExtensionsEnabled.isPending ||
+                !extensionPolicy?.externalExtensionsEnvEnabled
+              }
+              help={
+                extensionPolicy?.externalExtensionsEnvEnabled
+                  ? t("settings.externalExtensions.toggle.help")
+                  : t("settings.externalExtensions.toggle.locked")
+              }
+            />
+            <div className="flex items-start gap-2 text-[0.6875rem] leading-relaxed text-[var(--primary)]">
+              <ShieldAlert size="0.875rem" className="mt-0.5 shrink-0" />
+              <p>{t("settings.externalExtensions.warning")}</p>
+            </div>
+          </div>
         </div>
       </SettingsSection>
     </div>

@@ -18,7 +18,9 @@ type ExtensionInsert = typeof installedExtensions.$inferInsert;
 const MAX_REVISIONS = 10;
 
 function normalizeSource(value: unknown): PersonalExtensionSource {
-  return value === "local" || value === "professor_mari" || value === "profile_import" ? value : "legacy";
+  return value === "external" || value === "local" || value === "professor_mari" || value === "profile_import"
+    ? value
+    : "legacy";
 }
 
 function parseRevisions(value: unknown): PersonalExtensionRevision[] {
@@ -126,11 +128,13 @@ export function createPersonalExtensionsStorage(db: DB) {
     return row ? mapExtension(row) : null;
   };
 
+  const list = async () => {
+    const rows = await db.select().from(installedExtensions).orderBy(desc(installedExtensions.installedAt));
+    return rows.map(mapExtension);
+  };
+
   return {
-    async list() {
-      const rows = await db.select().from(installedExtensions).orderBy(desc(installedExtensions.installedAt));
-      return rows.map(mapExtension);
-    },
+    list,
 
     getById,
     getByName,
@@ -149,7 +153,7 @@ export function createPersonalExtensionsStorage(db: DB) {
         enabled: "false",
         contentHash,
         approvedHash: null,
-        source: options.source ?? "local",
+        source: options.source ?? "external",
         revisions: "[]",
         installedAt: options.installedAt ?? timestamp,
         createdAt: timestamp,
@@ -213,6 +217,18 @@ export function createPersonalExtensionsStorage(db: DB) {
       if (!existing) return null;
       await db.update(installedExtensions).set({ enabled: "false", updatedAt: now() }).where(eq(installedExtensions.id, id));
       return getById(id);
+    },
+
+    async disableExternal() {
+      const extensions = await list();
+      const external = extensions.filter((extension) => extension.source !== "professor_mari" && extension.enabled);
+      for (const extension of external) {
+        await db
+          .update(installedExtensions)
+          .set({ enabled: "false", updatedAt: now() })
+          .where(eq(installedExtensions.id, extension.id));
+      }
+      return external.length;
     },
 
     async rollback(id: string, contentHash: string) {

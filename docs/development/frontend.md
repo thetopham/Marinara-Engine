@@ -392,7 +392,7 @@ Synced theme CSS can request the built-in Accent Pulse engine with `--marinara-t
 
 ### Personal Extensions
 
-Personal Extensions are server-stored, local-only full-trust code. The Addons UI uses `use-personal-extensions.ts`; `PersonalExtensionInjector.tsx` loads approved Browser CSS and same-origin JavaScript. Every executable edit invalidates approval, and profile transfer cannot carry approval. Server extensions run in the server process, not in a JavaScript sandbox.
+Personal Extensions are server-stored, exact-hash-approved sandboxed code. The Addons UI uses `use-personal-extensions.ts`; `PersonalExtensionInjector.tsx` hosts approved Browser code in a dedicated Worker inside an opaque-origin sandboxed iframe. Server extensions run in a separate Node process inside macOS Seatbelt or Linux Bubblewrap and fail closed when neither backend is available. External sources require the `.env` gate plus the Danger Zone opt-in at listing, approval, and runtime boundaries.
 
 See [Personal Extension Architecture](personal-extensions.md) before changing this feature.
 
@@ -534,7 +534,7 @@ Agent memory tools use `/api/agents/memory/:agentType/:chatId`, where `agentType
 | `/api/import/*`                 | SillyTavern and Marinara profile import |
 | `/api/admin/clear-all`          | Full data clear                         |
 | `/api/themes`                   | Synced custom themes                    |
-| `/api/personal-extensions`      | Local full-trust extension drafts, approval, runtime, and storage |
+| `/api/personal-extensions`      | Sandboxed extension policy, drafts, approval, runtime, and private storage |
 | `/api/app-settings`             | Server-side app settings                |
 | `/api/sidecar`                  | Local model runtime                     |
 | `/api/chat-presets`             | Chat settings presets                   |

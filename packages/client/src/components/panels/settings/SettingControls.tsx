@@ -392,9 +392,9 @@ function CustomNotificationSoundSetting() {
         className="sr-only"
         aria-label={t("settings.notifications.customSound.actions.choose")}
       />
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+      <div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[0.6875rem] font-medium">{t("settings.notifications.customSound.label")}</span>
             <span className="rounded-full bg-[var(--background)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
               {isLoading
@@ -411,7 +411,7 @@ function CustomNotificationSoundSetting() {
             {t("settings.notifications.customSound.formats")}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5 max-sm:w-full">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => playNotificationPing()}

@@ -4,7 +4,17 @@
 
 export type PersonalExtensionRuntime = "client" | "server";
 
-export type PersonalExtensionSource = "local" | "professor_mari" | "legacy" | "profile_import";
+export type PersonalExtensionSource = "external" | "local" | "professor_mari" | "legacy" | "profile_import";
+
+export type PersonalExtensionSandboxBackend = "browser-opaque-origin" | "macos-seatbelt" | "linux-bubblewrap";
+
+export interface PersonalExtensionPolicy {
+  externalExtensionsEnvEnabled: boolean;
+  externalExtensionsEnabled: boolean;
+  serverSandboxAvailable: boolean;
+  serverSandboxBackend: Exclude<PersonalExtensionSandboxBackend, "browser-opaque-origin"> | null;
+  serverSandboxReason: string | null;
+}
 
 export interface PersonalExtensionRevision {
   contentHash: string;
@@ -19,10 +29,11 @@ export interface PersonalExtensionRevision {
 /**
  * User-owned code stored by Marinara.
  *
- * Browser code runs with the same origin and data access as Marinara's own UI.
- * Server code runs as trusted application code in the Marinara Node.js process.
- * Neither runtime is a security sandbox. Execution is allowed only when the
- * stored executable bytes still match the exact approved SHA-256 hash.
+ * Browser code runs in an opaque-origin sandboxed iframe with a message-only
+ * capability API. Server code runs in a separate OS-sandboxed process with
+ * Node permissions enabled. Unsupported server platforms fail closed.
+ * Execution is allowed only while the stored executable bytes still match the
+ * exact approved SHA-256 hash.
  */
 export interface PersonalExtension {
   id: string;
@@ -50,6 +61,5 @@ export interface PersonalClientExtensionRuntime {
   name: string;
   description: string;
   contentHash: string;
-  css: string | null;
-  hasJavaScript: boolean;
+  sandboxUrl: string;
 }

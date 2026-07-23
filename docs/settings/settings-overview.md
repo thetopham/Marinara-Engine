@@ -13,7 +13,7 @@ The panel has six tabs. The table below shows what each tab controls.
 | **General** | App behavior, notifications, responses, input, text rules, and game playback. |
 | **Appearance** | Theme, colors, fonts, chat layout, motion, and backgrounds. |
 | **Generations** | Image and video defaults, and reusable prompt templates. |
-| **Addons** | Local full-trust Personal Extensions and custom themes. |
+| **Addons** | Professor Mari's sandboxed Personal Extension drafts, optionally unlocked External Extensions, and custom themes. |
 | **Imports** | Restore full profiles and import from other apps. |
 | **Advanced** | Admin access, updates, message tools, backups, and destructive resets. |
 

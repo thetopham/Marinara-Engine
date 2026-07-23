@@ -11,7 +11,6 @@ import {
   History,
   Loader2,
   Pencil,
-  Plus,
   Power,
   PowerOff,
   RotateCcw,
@@ -20,6 +19,8 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { toast } from "sonner";
 import type { PersonalExtension } from "@marinara-engine/shared";
 import { ApiError, getPrivilegedActionErrorMessage } from "../../../lib/api-client";
@@ -70,11 +71,11 @@ function shortHash(hash: string) {
   return hash.replace(/^sha256:/, "").slice(0, 12);
 }
 
-function sourceLabel(source: PersonalExtension["source"]) {
+function sourceLabel(source: PersonalExtension["source"], t: TFunction) {
   if (source === "professor_mari") return "Professor Mari";
   if (source === "profile_import") return "Profile import";
   if (source === "legacy") return "Recovered legacy";
-  return "Local";
+  return t("settings.externalExtensions.source");
 }
 
 function extensionDraft(extension: PersonalExtension): EditorDraft {
@@ -128,12 +129,12 @@ function validateDraft(draft: EditorDraft) {
   return null;
 }
 
-function riskMessage(extension: PersonalExtension) {
-  const fingerprint = shortHash(extension.contentHash);
+function riskMessage(extension: PersonalExtension, t: TFunction) {
+  const fingerprint = extension.contentHash;
   if (extension.runtime === "server") {
-    return `Run "${extension.name}" at hash ${fingerprint}? Its server JavaScript runs as trusted Marinara application code. It can access files, network resources, environment variables, and every privilege of the Marinara server process.`;
+    return t("settings.personalExtensions.approval.server", { name: extension.name, hash: fingerprint });
   }
-  return `Run "${extension.name}" at hash ${fingerprint}? Its browser code runs with Marinara's origin and can read or change data available to this browser session.`;
+  return t("settings.personalExtensions.approval.browser", { name: extension.name, hash: fingerprint });
 }
 
 function normalizeImportedName(fileName: string) {
@@ -143,19 +144,38 @@ function normalizeImportedName(fileName: string) {
     .replace(/\.(json|css|js|mjs|cjs|zip)$/i, "");
 }
 
+type ExtensionSettingsMode = "personal" | "external";
+
 export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: boolean }) {
-  const { data: extensions = [], isLoading, error } = usePersonalExtensions();
+  return <ExtensionSettings showIntro={showIntro} mode="personal" />;
+}
+
+export function ExternalExtensionsSettings({ showIntro = false }: { showIntro?: boolean }) {
+  return <ExtensionSettings showIntro={showIntro} mode="external" />;
+}
+
+function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: ExtensionSettingsMode }) {
+  const { t } = useTranslation();
+  const { data: allExtensions = [], isLoading, error } = usePersonalExtensions();
+  const extensions = useMemo(
+    () =>
+      allExtensions.filter((extension) =>
+        mode === "personal" ? extension.source === "professor_mari" : extension.source !== "professor_mari",
+      ),
+    [allExtensions, mode],
+  );
+  const isExternal = mode === "external";
   const createExtension = useCreatePersonalExtension();
   const updateExtension = useUpdatePersonalExtension();
   const approveExtension = useApprovePersonalExtension();
   const rollbackExtension = useRollbackPersonalExtension();
   const deleteExtension = useDeletePersonalExtension();
-  const [editorId, setEditorId] = useState<string | "new" | null>(null);
+  const [editorId, setEditorId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditorDraft>(EMPTY_DRAFT);
   const [importing, setImporting] = useState(false);
 
   const editingExtension = useMemo(
-    () => (editorId && editorId !== "new" ? extensions.find((extension) => extension.id === editorId) ?? null : null),
+    () => (editorId ? extensions.find((extension) => extension.id === editorId) ?? null : null),
     [editorId, extensions],
   );
   const busy =
@@ -165,11 +185,6 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
     rollbackExtension.isPending ||
     deleteExtension.isPending ||
     importing;
-
-  const openNew = useCallback(() => {
-    setDraft({ ...EMPTY_DRAFT });
-    setEditorId("new");
-  }, []);
 
   const openExisting = useCallback((extension: PersonalExtension) => {
     setDraft(extensionDraft(extension));
@@ -182,6 +197,10 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
   }, []);
 
   const saveDraft = useCallback(async () => {
+    if (!editingExtension) {
+      toast.error("Personal Extension not found.");
+      return;
+    }
     const validation = validateDraft(draft);
     if (validation) {
       toast.error(validation);
@@ -197,30 +216,23 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
       serverJs: draft.runtime === "server" ? draft.serverJs || null : null,
     } as const;
     try {
-      if (editingExtension) {
-        const updated = await updateExtension.mutateAsync({ id: editingExtension.id, ...payload });
-        toast.success(
-          updated.approvedHash === updated.contentHash
-            ? `"${updated.name}" saved`
-            : `"${updated.name}" saved as a disabled draft. Review and run it when ready.`,
-        );
-        setDraft(extensionDraft(updated));
-      } else {
-        const created = await createExtension.mutateAsync(payload);
-        setEditorId(created.id);
-        setDraft(extensionDraft(created));
-        toast.success(`"${created.name}" saved as a disabled draft`);
-      }
+      const updated = await updateExtension.mutateAsync({ id: editingExtension.id, ...payload });
+      toast.success(
+        updated.approvedHash === updated.contentHash
+          ? `"${updated.name}" saved`
+          : `"${updated.name}" saved as a disabled draft. Review and run it when ready.`,
+      );
+      setDraft(extensionDraft(updated));
     } catch (saveError) {
       toast.error(getPrivilegedActionErrorMessage(saveError, "Failed to save Personal Extension."));
     }
-  }, [createExtension, draft, editingExtension, updateExtension]);
+  }, [draft, editingExtension, updateExtension]);
 
   const runExtension = useCallback(
     async (extension: PersonalExtension) => {
       const confirmed = await showConfirmDialog({
         title: extension.runtime === "server" ? "Run Trusted Server Code?" : "Run Personal Browser Code?",
-        message: riskMessage(extension),
+        message: riskMessage(extension, t),
         confirmLabel: "Run Exact Code",
         cancelLabel: "Keep Disabled",
         tone: "destructive",
@@ -233,7 +245,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
         toast.error(getPrivilegedActionErrorMessage(runError, "Failed to enable Personal Extension."));
       }
     },
-    [approveExtension],
+    [approveExtension, t],
   );
 
   const disableExtension = useCallback(
@@ -409,7 +421,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             className="flex min-h-9 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
           >
             <ChevronLeft size="0.875rem" />
-            Personal Extensions
+            {isExternal ? t("settings.externalExtensions.title") : "Personal Extensions"}
           </button>
           <div className="flex flex-wrap items-center gap-1.5">
             {current && (
@@ -428,15 +440,17 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
                 {current.enabled ? "Disable" : "Review and Run"}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => void saveDraft()}
-              disabled={busy}
-              className="flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? <Loader2 size="0.75rem" className="animate-spin" /> : <Save size="0.75rem" />}
-              Save Draft
-            </button>
+            {isExternal && (
+              <button
+                type="button"
+                onClick={() => void saveDraft()}
+                disabled={busy}
+                className="flex min-h-9 items-center gap-1.5 rounded-md bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? <Loader2 size="0.75rem" className="animate-spin" /> : <Save size="0.75rem" />}
+                Save Draft
+              </button>
+            )}
           </div>
         </div>
 
@@ -463,7 +477,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
                 {current.enabled ? "Running approved code" : approvalChanged ? "Disabled pending approval" : "Disabled"}
               </div>
               <div className="mt-0.5 break-all text-[0.625rem] opacity-80">
-                Hash {shortHash(current.contentHash)}, source {sourceLabel(current.source)}
+                Hash {current.contentHash}, source {sourceLabel(current.source, t)}
               </div>
               {current.serverError && <div className="mt-1 text-[var(--destructive)]">{current.serverError}</div>}
             </div>
@@ -475,6 +489,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             Name
             <input
               value={draft.name}
+              readOnly={!isExternal}
               onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
               className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
             />
@@ -483,6 +498,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             Version
             <input
               value={draft.version ?? ""}
+              readOnly={!isExternal}
               onChange={(event) => setDraft((value) => ({ ...value, version: event.target.value || null }))}
               placeholder="1.0.0"
               className="min-h-10 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
@@ -492,6 +508,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             Runtime
             <select
               value={draft.runtime}
+              disabled={!isExternal}
               onChange={(event) =>
                 setDraft((value) => ({
                   ...value,
@@ -510,6 +527,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
           Description
           <textarea
             value={draft.description}
+            readOnly={!isExternal}
             onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))}
             rows={2}
             className="resize-y rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
@@ -519,8 +537,8 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2.5 text-[0.6875rem] leading-relaxed text-amber-200">
           <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0" />
           {draft.runtime === "server"
-            ? "Server code is trusted application code, not sandboxed extension code. Saving a change disables it until you approve the new hash."
-            : "Browser code shares Marinara's origin and data access. Saving a change disables it until you approve the new hash."}
+            ? t("settings.personalExtensions.sandbox.server")
+            : t("settings.personalExtensions.sandbox.browser")}
         </div>
 
         {draft.runtime === "client" ? (
@@ -529,6 +547,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
               CSS (sanitized before use)
               <textarea
                 value={draft.css ?? ""}
+                readOnly={!isExternal}
                 onChange={(event) => setDraft((value) => ({ ...value, css: event.target.value }))}
                 spellCheck={false}
                 placeholder="/* Optional extension CSS */"
@@ -539,6 +558,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
               Browser JavaScript
               <textarea
                 value={draft.js ?? ""}
+                readOnly={!isExternal}
                 onChange={(event) => setDraft((value) => ({ ...value, js: event.target.value }))}
                 spellCheck={false}
                 placeholder="// Optional browser JavaScript"
@@ -551,6 +571,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             Server JavaScript
             <textarea
               value={draft.serverJs ?? ""}
+              readOnly={!isExternal}
               onChange={(event) => setDraft((value) => ({ ...value, serverJs: event.target.value }))}
               spellCheck={false}
               placeholder="// Trusted server JavaScript"
@@ -599,65 +620,65 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
     <div className="flex flex-col gap-3">
       {showIntro && (
         <SettingsIntro>
-          Keep private code alongside Marinara without trusting a catalog or automatic updater.
+          {isExternal
+            ? t("settings.externalExtensions.intro")
+            : t("settings.personalExtensions.empty.description")}
         </SettingsIntro>
       )}
       <SettingsSection
-        title="Personal Extensions"
-        description="Create locally, import from your device, or ask Professor Mari. Nothing runs until you approve its exact code hash."
-        icon={<Code2 size="0.875rem" />}
-        anchorId="settings-section-personal-extensions"
+        title={isExternal ? t("settings.externalExtensions.title") : "Personal Extensions"}
+        description={
+          isExternal
+            ? t("settings.externalExtensions.description")
+            : t("settings.personalExtensions.empty.description")
+        }
+        icon={isExternal ? <ShieldAlert size="0.875rem" /> : <Code2 size="0.875rem" />}
+        anchorId={isExternal ? "settings-section-external-extensions" : "settings-section-personal-extensions"}
       >
         <div className="flex flex-col gap-3">
-          <div className="grid gap-2">
-            <button
-              type="button"
-              onClick={openNew}
-              disabled={busy}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--primary)]/35 bg-[var(--primary)]/8 px-3 text-xs font-semibold text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/12 disabled:opacity-50"
-            >
-              <Plus size="0.875rem" />
-              New Draft
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                triggerFilePicker({
-                  accept:
-                    ".zip,.json,.css,.js,.mjs,.cjs,.server.js,.server.mjs,.server.cjs,application/zip,application/json",
-                  onSelect: (files) => {
-                    const file = files[0];
-                    if (file) void importFile(file);
-                  },
-                })
-              }
-              disabled={busy}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/55 px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
-            >
-              {importing ? <Loader2 size="0.875rem" className="animate-spin" /> : <FileArchive size="0.875rem" />}
-              Import Local File
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                triggerFilePicker({
-                  multiple: true,
-                  webkitdirectory: true,
-                  onSelect: (files) => void importFolder(files),
-                })
-              }
-              disabled={busy}
-              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/55 px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
-            >
-              <FolderOpen size="0.875rem" />
-              Import Local Folder
-            </button>
-          </div>
+          {isExternal && (
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  triggerFilePicker({
+                    accept:
+                      ".zip,.json,.css,.js,.mjs,.cjs,.server.js,.server.mjs,.server.cjs,application/zip,application/json",
+                    onSelect: (files) => {
+                      const file = files[0];
+                      if (file) void importFile(file);
+                    },
+                  })
+                }
+                disabled={busy}
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/55 px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
+              >
+                {importing ? <Loader2 size="0.875rem" className="animate-spin" /> : <FileArchive size="0.875rem" />}
+                {t("settings.externalExtensions.import.file")}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  triggerFilePicker({
+                    multiple: true,
+                    webkitdirectory: true,
+                    onSelect: (files) => void importFolder(files),
+                  })
+                }
+                disabled={busy}
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/55 px-3 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
+              >
+                <FolderOpen size="0.875rem" />
+                {t("settings.externalExtensions.import.folder")}
+              </button>
+            </div>
+          )}
 
           <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/45 px-3 py-2.5 text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
             <ShieldAlert size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" />
-            Personal Extensions never download or update themselves. Imported manifests cannot enable code. Every code
-            change creates a new fingerprint and returns the extension to a disabled draft.
+            {isExternal
+              ? t("settings.externalExtensions.safety")
+              : t("settings.personalExtensions.safety")}
           </div>
 
           {error && (
@@ -677,10 +698,13 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
           ) : extensions.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border)] px-4 py-8 text-center">
               <Code2 size="1.25rem" className="text-[var(--muted-foreground)]" />
-              <div className="text-xs font-semibold">No Personal Extensions yet</div>
+              <div className="text-xs font-semibold">
+                {isExternal ? t("settings.externalExtensions.empty.title") : "No Personal Extensions yet"}
+              </div>
               <p className="max-w-md text-[0.6875rem] leading-relaxed text-[var(--muted-foreground)]">
-                Create a draft here, import code from your device, or ask Professor Mari to make one. It will remain
-                disabled until you review and run it.
+                {isExternal
+                  ? t("settings.externalExtensions.empty.description")
+                  : t("settings.personalExtensions.empty.description")}
               </p>
             </div>
           ) : (
@@ -744,7 +768,7 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
                           </span>
                         </span>
                         <span className="mt-1 block truncate text-[0.625rem] text-[var(--muted-foreground)]">
-                          {extension.description || `${sourceLabel(extension.source)} draft`}
+                          {extension.description || `${sourceLabel(extension.source, t)} draft`}
                         </span>
                         <span className="mt-0.5 block font-mono text-[0.5625rem] text-[var(--muted-foreground)]">
                           {shortHash(extension.contentHash)}
@@ -798,16 +822,17 @@ export function PersonalExtensionsSettings({ showIntro = true }: { showIntro?: b
             </div>
           )}
 
-          <details className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/25">
-            <summary className="flex min-h-10 cursor-pointer items-center gap-2 px-3 text-[0.6875rem] font-semibold">
-              <Download size="0.75rem" />
-              Supported local formats
-            </summary>
-            <div className="border-t border-[var(--border)] px-3 py-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-              Import `.zip`, `.json`, `.css`, `.js`, `.mjs`, `.cjs`, or `.server.js` packages. Older Marinara extension
-              manifests are accepted for recovery, but their `enabled` value is ignored.
+          {isExternal && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/25">
+              <div className="flex min-h-10 items-center gap-2 px-3 text-[0.6875rem] font-semibold">
+                <Download size="0.75rem" />
+                {t("settings.externalExtensions.formats.title")}
+              </div>
+              <div className="border-t border-[var(--border)] px-3 py-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                {t("settings.externalExtensions.formats.description")}
+              </div>
             </div>
-          </details>
+          )}
         </div>
       </SettingsSection>
     </div>

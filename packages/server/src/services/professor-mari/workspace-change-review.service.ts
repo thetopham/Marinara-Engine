@@ -481,8 +481,10 @@ export class WorkspaceChangeReviewService {
     timeout.unref?.();
     let response: Response;
     try {
+      // npm's registry addresses scoped packages as "@scope%2fname": the "@"
+      // stays literal and only the scope separator is encoded.
       const registryUrl = new URL(
-        `${encodeURIComponent(packageName)}/${encodeURIComponent(requestedVersion)}`,
+        `${packageName.replace("/", "%2f")}/${encodeURIComponent(requestedVersion)}`,
         PUBLIC_NPM_REGISTRY,
       );
       response = await this.fetchImpl(registryUrl, {

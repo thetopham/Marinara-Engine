@@ -2167,7 +2167,15 @@ ${sections.join("\n\n")}
     if (!isWithin(canonicalRoot, canonicalAncestor)) {
       throw new Error(`Path escapes the workspace through a symbolic link: ${inputPath}`);
     }
-    if (workspacePathAccessPolicy(workspaceRoot, absolute) === "forbidden") {
+    // Classify both the requested path and its canonical target: a symlink that
+    // stays inside the workspace can still point at an environment-secret file
+    // or Git internals, and reads would follow it.
+    const canonicalTarget =
+      existingAncestor === absolute ? canonicalAncestor : join(canonicalAncestor, relative(existingAncestor, absolute));
+    if (
+      workspacePathAccessPolicy(workspaceRoot, absolute) === "forbidden" ||
+      workspacePathAccessPolicy(canonicalRoot, canonicalTarget) === "forbidden"
+    ) {
       throw new Error("Professor Mari cannot access environment-secret files or Git internals.");
     }
     if (options.forbidStorageMutation) {
@@ -2547,7 +2555,7 @@ ${sections.join("\n\n")}
       cwd: this.workspaceRoot,
       sessionId: SESSION_ID,
     });
-    if (action === "personal_extension.create" || action === "personal_extension.update") {
+    if (result.ok !== false && (action === "personal_extension.create" || action === "personal_extension.update")) {
       await personalServerExtensionRuntime.reloadAll();
     }
     const printable =

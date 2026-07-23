@@ -170,6 +170,7 @@ type WorkspaceApprovalResponse = {
   history?: MariDbHistoryEntry | null;
   completed?: boolean;
   outcome?: "applied" | "discarded" | "state_changed" | "failed";
+  error?: string | null;
 };
 
 type WorkspaceSkillMutationResponse = {
@@ -1559,11 +1560,13 @@ function WorkspaceErrorEvent({ message }: { message: string }) {
 function DatabaseWorkspaceApprovalCard({
   approval,
   busy,
+  disabled,
   onKeep,
   onRestore,
 }: {
   approval: MariDbPendingApproval;
   busy: boolean;
+  disabled: boolean;
   onKeep: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
@@ -1624,7 +1627,7 @@ function DatabaseWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onRestore(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded-md border border-[var(--border)] px-2.5 py-1 text-[0.6875rem] font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span className="inline-flex items-center gap-1">
@@ -1635,7 +1638,7 @@ function DatabaseWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onKeep(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span className="inline-flex items-center gap-1">
@@ -1652,11 +1655,13 @@ function DatabaseWorkspaceApprovalCard({
 function DependencyWorkspaceApprovalCard({
   approval,
   busy,
+  disabled,
   onApprove,
   onDiscard,
 }: {
   approval: MariDependencyInstallApproval;
   busy: boolean;
+  disabled: boolean;
   onApprove: (id: string) => void;
   onDiscard: (id: string) => void;
 }) {
@@ -1699,7 +1704,7 @@ function DependencyWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onDiscard(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="min-h-9 rounded-md border border-[var(--border)] px-3 py-1.5 text-[0.6875rem] font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
           >
             Not now
@@ -1707,7 +1712,7 @@ function DependencyWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onApprove(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="min-h-9 rounded-md bg-[var(--primary)] px-3 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span className="inline-flex items-center justify-center gap-1">
@@ -1724,11 +1729,13 @@ function DependencyWorkspaceApprovalCard({
 function SensitiveFileWorkspaceApprovalCard({
   approval,
   busy,
+  disabled,
   onApprove,
   onDiscard,
 }: {
   approval: MariSensitiveFileApproval;
   busy: boolean;
+  disabled: boolean;
   onApprove: (id: string) => void;
   onDiscard: (id: string) => void;
 }) {
@@ -1747,6 +1754,11 @@ function SensitiveFileWorkspaceApprovalCard({
         <div className="mt-2 break-all rounded-lg bg-[var(--background)]/80 p-2 font-mono text-[0.75rem] font-semibold">
           {approval.path}
         </div>
+        <p className="mt-1 text-[0.6875rem] text-[var(--muted-foreground)]">
+          {approval.changeType === "create"
+            ? "This file does not exist yet; approving creates it."
+            : "This will overwrite the existing file."}
+        </p>
         <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--background)]/60 p-2">
           <summary className="cursor-pointer text-[0.6875rem] font-semibold">Review proposed content</summary>
           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.625rem] text-[var(--muted-foreground)]">
@@ -1761,7 +1773,7 @@ function SensitiveFileWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onDiscard(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="min-h-9 rounded-md border border-[var(--border)] px-3 py-1.5 text-[0.6875rem] font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-45"
           >
             Discard
@@ -1769,7 +1781,7 @@ function SensitiveFileWorkspaceApprovalCard({
           <button
             type="button"
             onClick={() => onApprove(approval.id)}
-            disabled={busy}
+            disabled={busy || disabled}
             className="min-h-9 rounded-md bg-[var(--primary)] px-3 py-1.5 text-[0.6875rem] font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span className="inline-flex items-center justify-center gap-1">
@@ -1786,11 +1798,13 @@ function SensitiveFileWorkspaceApprovalCard({
 function WorkspaceApprovalCard({
   approval,
   busy,
+  disabled,
   onKeep,
   onRestore,
 }: {
   approval: MariWorkspacePendingApproval;
   busy: boolean;
+  disabled: boolean;
   onKeep: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
@@ -1799,6 +1813,7 @@ function WorkspaceApprovalCard({
       <DependencyWorkspaceApprovalCard
         approval={approval}
         busy={busy}
+        disabled={disabled}
         onApprove={onKeep}
         onDiscard={onRestore}
       />
@@ -1809,12 +1824,21 @@ function WorkspaceApprovalCard({
       <SensitiveFileWorkspaceApprovalCard
         approval={approval}
         busy={busy}
+        disabled={disabled}
         onApprove={onKeep}
         onDiscard={onRestore}
       />
     );
   }
-  return <DatabaseWorkspaceApprovalCard approval={approval} busy={busy} onKeep={onKeep} onRestore={onRestore} />;
+  return (
+    <DatabaseWorkspaceApprovalCard
+      approval={approval}
+      busy={busy}
+      disabled={disabled}
+      onKeep={onKeep}
+      onRestore={onRestore}
+    />
+  );
 }
 
 function ProfessorMariSkillsMenu({
@@ -2739,6 +2763,13 @@ export function HomeProfessorMariChat({
           );
         } else if (result.history?.status === "kept") {
           toast.success("Kept Mari's workspace change.");
+        } else {
+          toast.error(
+            result.outcome === "state_changed"
+              ? "The workspace changed after Professor Mari staged this proposal."
+              : "Professor Mari could not apply that workspace change.",
+            { description: result.error ?? undefined, duration: 12_000 },
+          );
         }
       } catch (error) {
         console.error("[Professor Mari] Failed to keep workspace change", error);
@@ -2765,6 +2796,13 @@ export function HomeProfessorMariChat({
         } else if (result.history?.status === "restored") {
           await invalidateWorkspaceData();
           toast.success("Restored the previous app data snapshot.");
+        } else {
+          toast.error(
+            result.outcome === "state_changed"
+              ? "The workspace changed after Professor Mari staged this proposal."
+              : "Professor Mari could not restore that workspace change.",
+            { description: result.error ?? undefined, duration: 12_000 },
+          );
         }
       } catch (error) {
         console.error("[Professor Mari] Failed to restore workspace change", error);
@@ -3233,6 +3271,7 @@ export function HomeProfessorMariChat({
                 key={approval.id}
                 approval={approval}
                 busy={workspaceReviewActionId === approval.id}
+                disabled={workspaceReviewActionId !== null}
                 onKeep={(id) => void keepWorkspaceChange(id)}
                 onRestore={(id) => void restoreWorkspaceChange(id)}
               />
@@ -3844,6 +3883,7 @@ export function HomeProfessorMariChat({
                                 key={approval.id}
                                 approval={approval}
                                 busy={workspaceReviewActionId === approval.id}
+                                disabled={workspaceReviewActionId !== null}
                                 onKeep={(id) => void keepWorkspaceChange(id)}
                                 onRestore={(id) => void restoreWorkspaceChange(id)}
                               />

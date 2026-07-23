@@ -41,7 +41,7 @@
     "regression:agent-import-security": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/agent-import-security.regression.ts",
     "regression:request-security": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/request-host-security.regression.ts",
     "regression:extensions-security": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/extension-security.regression.ts",
-    "regression:professor-mari-shell-sandbox": "pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/professor-mari-shell-sandbox.regression.ts",
+    "regression:professor-mari-shell-sandbox": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/professor-mari-shell-sandbox.regression.ts",
     "regression:roleplay": "pnpm build:shared && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/roleplay-streaming.regression.ts && pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/illustrator-visual-retry.regression.ts",
     "regression:sprites": "pnpm --filter @marinara-engine/server exec tsx ../../scripts/regressions/sprite-background.regression.ts",
     "regression:static-cache": "pnpm --filter @marinara-engine/server exec tsx scripts/static-cache-headers.regression.ts",

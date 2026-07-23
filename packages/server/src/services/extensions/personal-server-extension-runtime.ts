@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DB } from "../../db/connection.js";
@@ -123,12 +123,32 @@ export class PersonalServerExtensionRuntime {
     this.active.delete(id);
     this.statuses.delete(id);
     if (active) await this.stopExtension(active);
+    await this.pruneModuleFiles(id);
   }
 
   private async stopAll() {
     const active = [...this.active.values()];
     this.active.clear();
-    for (const extension of active) await this.stopExtension(extension);
+    for (const extension of active) {
+      await this.stopExtension(extension);
+      await this.pruneModuleFiles(extension.id);
+    }
+  }
+
+  // Generated module files would otherwise accumulate one revision per edit.
+  // load() rewrites the current revision, so pruning on unload is always safe.
+  private async pruneModuleFiles(id: string) {
+    try {
+      const pattern = new RegExp(`^${id}-[0-9a-f]{64}\\.mjs$`);
+      const entries = await readdir(this.runtimeDir);
+      await Promise.all(
+        entries.filter((name) => pattern.test(name)).map((name) => rm(join(this.runtimeDir, name), { force: true })),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        logger.warn(error, "[personal-extensions] Failed to prune runtime modules for %s", id);
+      }
+    }
   }
 
   private async stopExtension(extension: ActiveExtension) {

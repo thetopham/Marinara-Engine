@@ -127,28 +127,39 @@ export async function personalExtensionsRoutes(app: FastifyInstance) {
     return rolledBack;
   });
 
-  app.get<{ Params: { id: string } }>("/:id/storage", async (req, reply) => {
-    const extension = ID_PATTERN.test(req.params.id) ? await storage.getById(req.params.id) : null;
-    if (!extension || !extension.enabled || extension.approvedHash !== extension.contentHash) {
-      return reply.status(404).send({ error: "Personal Extension not found" });
+  // The unprivileged storage surface exists only for approved, enabled
+  // client-runtime extensions running in the browser. Server-runtime
+  // extensions access their settings in-process and must not be readable
+  // or writable through unprivileged HTTP calls.
+  const browserStorageExtension = async (id: string) => {
+    const extension = ID_PATTERN.test(id) ? await storage.getById(id) : null;
+    if (
+      !extension ||
+      extension.runtime !== "client" ||
+      !extension.enabled ||
+      extension.approvedHash !== extension.contentHash
+    ) {
+      return null;
     }
+    return extension;
+  };
+
+  app.get<{ Params: { id: string } }>("/:id/storage", async (req, reply) => {
+    const extension = await browserStorageExtension(req.params.id);
+    if (!extension) return reply.status(404).send({ error: "Personal Extension not found" });
     return { value: await settings.get(extension.id) };
   });
 
   app.patch<{ Params: { id: string } }>("/:id/storage", async (req, reply) => {
-    const extension = ID_PATTERN.test(req.params.id) ? await storage.getById(req.params.id) : null;
-    if (!extension || !extension.enabled || extension.approvedHash !== extension.contentHash) {
-      return reply.status(404).send({ error: "Personal Extension not found" });
-    }
+    const extension = await browserStorageExtension(req.params.id);
+    if (!extension) return reply.status(404).send({ error: "Personal Extension not found" });
     const patch = personalExtensionStoragePatchSchema.parse(req.body ?? {});
     return { value: await settings.patch(extension.id, patch) };
   });
 
   app.delete<{ Params: { id: string } }>("/:id/storage", async (req, reply) => {
-    const extension = ID_PATTERN.test(req.params.id) ? await storage.getById(req.params.id) : null;
-    if (!extension || !extension.enabled || extension.approvedHash !== extension.contentHash) {
-      return reply.status(404).send({ error: "Personal Extension not found" });
-    }
+    const extension = await browserStorageExtension(req.params.id);
+    if (!extension) return reply.status(404).send({ error: "Personal Extension not found" });
     await settings.remove(extension.id);
     return { value: {} };
   });

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { workspacePathAccessPolicy } from "./workspace-change-review.service.js";
@@ -111,27 +111,30 @@ function uniqueExistingMountPaths(paths: Array<string | undefined>) {
   ];
 }
 
-function workspacePolicyPaths(workspaceRoot: string) {
+// The walk runs fresh on every spawn on purpose: caching would let a newly
+// created secret file slip past the deny list. It is async so a large
+// workspace scan yields to the event loop instead of blocking other requests.
+async function workspacePolicyPaths(workspaceRoot: string) {
   const forbidden: string[] = [];
   const sensitive: string[] = [];
-  const visit = (path: string) => {
+  const visit = async (path: string) => {
     const policy = workspacePathAccessPolicy(workspaceRoot, path);
     if (policy === "forbidden") {
       forbidden.push(path);
       return;
     }
+    const stats = await lstat(path);
     if (policy === "sensitive") {
       sensitive.push(path);
-      if (lstatSync(path).isDirectory()) return;
+      if (stats.isDirectory()) return;
     }
-    const stats = lstatSync(path);
     if (!stats.isDirectory() || stats.isSymbolicLink()) return;
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
       if (entry.isDirectory() && POLICY_SCAN_SKIPPED_DIRS.has(entry.name)) continue;
-      visit(join(path, entry.name));
+      await visit(join(path, entry.name));
     }
   };
-  visit(workspaceRoot);
+  await visit(workspaceRoot);
   return {
     forbidden: uniqueExistingPaths(forbidden),
     sensitive: uniqueExistingPaths(sensitive),
@@ -161,12 +164,12 @@ function macosReadRoots(workspaceRoot: string, env: NodeJS.ProcessEnv, sandboxTe
   ]);
 }
 
-export function buildMacosWorkspaceShellProfile(
+export async function buildMacosWorkspaceShellProfile(
   workspaceRoot: string,
   env: NodeJS.ProcessEnv,
   sandboxTemp: string,
 ) {
-  const policyPaths = workspacePolicyPaths(workspaceRoot);
+  const policyPaths = await workspacePolicyPaths(workspaceRoot);
   const readable = macosReadRoots(workspaceRoot, env, sandboxTemp)
     .map((path) => `    (subpath ${sandboxLiteral(path)})`)
     .join("\n");
@@ -221,13 +224,13 @@ function linuxReadRoots(workspaceRoot: string, env: NodeJS.ProcessEnv) {
   ]);
 }
 
-function linuxBubblewrapArgs(
+async function linuxBubblewrapArgs(
   workspaceRoot: string,
   env: NodeJS.ProcessEnv,
   sandboxTemp: string,
   command: string,
 ) {
-  const policyPaths = workspacePolicyPaths(workspaceRoot);
+  const policyPaths = await workspacePolicyPaths(workspaceRoot);
   const args = [
     "--die-with-parent",
     "--new-session",
@@ -249,7 +252,7 @@ function linuxBubblewrapArgs(
     args.push("--ro-bind", path, path);
   }
   for (const path of policyPaths.forbidden) {
-    if (lstatSync(path).isDirectory()) args.push("--tmpfs", path);
+    if ((await lstat(path)).isDirectory()) args.push("--tmpfs", path);
     else args.push("--ro-bind", "/dev/null", path);
   }
   args.push("--chdir", workspaceRoot);
@@ -287,7 +290,7 @@ export async function spawnWorkspaceSandboxedShell(
         MACOS_SANDBOX_EXEC,
         [
           "-p",
-          buildMacosWorkspaceShellProfile(workspaceRoot, env, sandboxTemp),
+          await buildMacosWorkspaceShellProfile(workspaceRoot, env, sandboxTemp),
           "/bin/bash",
           "--noprofile",
           "--norc",
@@ -297,7 +300,7 @@ export async function spawnWorkspaceSandboxedShell(
         { cwd: workspaceRoot, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
       );
     } else {
-      child = spawn(findBubblewrap()!, linuxBubblewrapArgs(workspaceRoot, env, sandboxTemp, input.command), {
+      child = spawn(findBubblewrap()!, await linuxBubblewrapArgs(workspaceRoot, env, sandboxTemp, input.command), {
         cwd: workspaceRoot,
         env,
         windowsHide: true,

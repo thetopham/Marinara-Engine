@@ -11,6 +11,7 @@ export interface CreateGameTurnStoryboardInput {
   sessionNumber?: number | null;
   turnNumber?: number | null;
   title?: string;
+  referenceSheetImageId?: string | null;
   sourceNarration: string;
   sourceNarrationHash: string;
   status?: string;
@@ -92,6 +93,7 @@ export function createGameStoryboardsStorage(db: DB) {
         sessionNumber: input.sessionNumber ?? null,
         turnNumber: input.turnNumber ?? null,
         title: input.title ?? "",
+        referenceSheetImageId: input.referenceSheetImageId ?? null,
         sourceNarration: input.sourceNarration,
         sourceNarrationHash: input.sourceNarrationHash,
         status: input.status ?? "planning",

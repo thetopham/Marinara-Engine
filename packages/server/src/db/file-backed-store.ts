@@ -292,6 +292,7 @@ const SET_NULL_RELATIONS: Array<{
   parentKey: string;
   childKey: string;
 }> = [
+  { parent: "chat_images", child: "game_turn_storyboards", parentKey: "id", childKey: "referenceSheetImageId" },
   { parent: "chat_images", child: "game_turn_storyboard_keyframes", parentKey: "id", childKey: "chatImageId" },
   {
     parent: "game_scene_videos",

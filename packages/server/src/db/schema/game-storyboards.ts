@@ -14,6 +14,9 @@ export const gameTurnStoryboards = fileTable("game_turn_storyboards", {
   sessionNumber: integer("session_number"),
   turnNumber: integer("turn_number"),
   title: text("title").notNull().default(""),
+  referenceSheetImageId: text("reference_sheet_image_id").references(() => chatImages.id, {
+    onDelete: "set null",
+  }),
   sourceNarration: text("source_narration").notNull().default(""),
   sourceNarrationHash: text("source_narration_hash").notNull().default(""),
   status: text("status").notNull().default("planning"),

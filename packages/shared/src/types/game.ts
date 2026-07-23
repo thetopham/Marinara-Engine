@@ -736,6 +736,8 @@ export interface GameTurnStoryboard {
   sessionNumber: number | null;
   turnNumber: number | null;
   title: string;
+  referenceSheetImageId: string | null;
+  referenceSheet: GameStoryboardMediaRef | null;
   sourceNarration: string;
   sourceNarrationHash: string;
   status: GameStoryboardStatus;

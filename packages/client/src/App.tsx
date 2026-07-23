@@ -7,6 +7,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useState,
   type CSSProperties,
   type ErrorInfo,
   type ReactNode,
@@ -19,6 +20,7 @@ import { WhatsNewModal } from "./components/modals/WhatsNewModal";
 import { AppDialogRenderer } from "./components/ui/AppDialogRenderer";
 import { ChibiProfessorMariEasterEgg } from "./components/ui/ChibiProfessorMariEasterEgg";
 import { CsrfOriginWarningBanner } from "./components/diagnostics/CsrfOriginWarningBanner";
+import { AgentUpdatePrompter } from "./components/agents/AgentUpdatePrompter";
 import { Toaster, toast } from "sonner";
 import {
   getDefaultAppAccentColor,
@@ -475,6 +477,7 @@ export function App() {
   const setShowDownloadModal = useSidecarStore((s) => s.setShowDownloadModal);
   const fetchSidecarStatus = useSidecarStore((s) => s.fetchStatus);
   const hasAppDialogOpen = useDialogStore((s) => s.dialog !== null);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   // [#3104 diagnostic] warn on long main-thread tasks (see lib/perf-diagnostics.ts)
   useEffect(() => {
@@ -951,7 +954,13 @@ export function App() {
       <Suspense fallback={null}>
         <LazyAppShell />
       </Suspense>
-      <WhatsNewModal presentationAllowed={!hasModalOpen && !hasAppDialogOpen && (isLite || !showDownloadModal)} />
+      <WhatsNewModal
+        presentationAllowed={!hasModalOpen && !hasAppDialogOpen && (isLite || !showDownloadModal)}
+        onOpenChange={setWhatsNewOpen}
+      />
+      <AgentUpdatePrompter
+        presentationAllowed={!hasModalOpen && !hasAppDialogOpen && !whatsNewOpen && (isLite || !showDownloadModal)}
+      />
       {!isLite && <ModelDownloadModal open={showDownloadModal} onClose={() => setShowDownloadModal(false)} />}
       {hasModalOpen && (
         <Suspense fallback={null}>

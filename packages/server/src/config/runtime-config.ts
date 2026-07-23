@@ -234,6 +234,10 @@ export function getHost() {
   return normalizeEnvValue(process.env.HOST) ?? DEFAULT_HOST;
 }
 
+export function getTrustedHosts() {
+  return parseCsv(process.env.TRUSTED_HOSTS);
+}
+
 export function getPort() {
   const parsed = Number.parseInt(process.env.PORT ?? "", 10);
   return Number.isFinite(parsed) ? parsed : DEFAULT_PORT;

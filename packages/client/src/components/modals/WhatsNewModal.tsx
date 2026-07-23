@@ -93,7 +93,13 @@ function hasSeenCurrentAnnouncement() {
   }
 }
 
-export function WhatsNewModal({ presentationAllowed }: { presentationAllowed: boolean }) {
+export function WhatsNewModal({
+  presentationAllowed,
+  onOpenChange,
+}: {
+  presentationAllowed: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const hasCompletedOnboarding = useUIStore((state) => state.hasCompletedOnboarding);
   const [open, setOpen] = useState(false);
   const announcement = RELEASE_ANNOUNCEMENTS[APP_VERSION] ?? FALLBACK_ANNOUNCEMENT;
@@ -107,6 +113,10 @@ export function WhatsNewModal({ presentationAllowed }: { presentationAllowed: bo
     rememberAnnouncementWasShown();
     setOpen(true);
   }, [hasCompletedOnboarding, presentationAllowed]);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [onOpenChange, open]);
 
   return (
     <Modal

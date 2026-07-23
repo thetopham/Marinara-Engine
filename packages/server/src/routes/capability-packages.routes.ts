@@ -10,6 +10,12 @@ import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
 
 const packageParams = z.object({ id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80) });
+const packageUpdateParams = packageParams.extend({
+  version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
+    .max(80),
+});
 
 function removeAgentMapEntries(value: unknown, agentIds: ReadonlySet<string>): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -40,7 +46,15 @@ export function buildCapabilityAgentCleanupPatch(
 export async function capabilityPackagesRoutes(app: FastifyInstance) {
   app.get("/catalog", async () => capabilityPackageManager.catalog());
   app.get("/installed", async () => capabilityPackageManager.installed());
+  app.get("/updates/pending", async () => capabilityPackageManager.pendingUpdates());
   app.get("/agents", async () => BUILT_IN_AGENT_MANIFESTS);
+  app.post<{ Params: { id: string; version: string } }>("/:id/updates/:version/decline", async (request, reply) => {
+    const { id, version } = packageUpdateParams.parse(request.params);
+    if (!(await capabilityPackageManager.declineUpdate(id, version))) {
+      return reply.status(409).send({ error: "This Agent update is no longer available" });
+    }
+    return { declined: true };
+  });
   app.get<{ Params: { id: string } }>("/:id/client", async (request, reply) => {
     const { id } = packageParams.parse(request.params);
     const entrypoint = await capabilityPackageManager.clientEntrypoint(id);

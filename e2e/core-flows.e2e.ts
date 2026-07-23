@@ -1832,6 +1832,139 @@ test("downloadable agent catalog is usable on desktop and mobile", async ({ page
   expect(errors).toEqual([]);
 });
 
+test("Agent updates require consent and remain available after No", async ({ page }, testInfo) => {
+  const errors = collectUnexpectedErrors(page);
+  const installedManifest = {
+    schemaVersion: 1,
+    id: "prose-guardian",
+    name: "Prose Guardian",
+    version: "1.0.0",
+    description: "Keeps generated prose focused and consistent.",
+    engine: { min: "2.3.0", maxExclusive: "3.0.0" },
+    kind: ["agent"],
+    entrypoints: { agents: "agents.json" },
+    files: [],
+    permissions: ["agent-runtime", "chat-read", "prompt-context", "ui"],
+    restartRequired: false,
+  };
+  const catalogManifest = { ...installedManifest, version: "1.1.0" };
+  let declined = false;
+  let declineRequests = 0;
+
+  await page.route("**/api/capability-packages/updates/pending", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        declined
+          ? []
+          : [
+              {
+                id: "prose-guardian",
+                name: "Prose Guardian",
+                installedVersion: "1.0.0",
+                version: "1.1.0",
+                restartRequired: false,
+              },
+            ],
+      ),
+    });
+  });
+  await page.route("**/api/capability-packages/prose-guardian/updates/1.1.0/decline", async (route) => {
+    declineRequests += 1;
+    declined = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ declined: true }),
+    });
+  });
+  await page.route("**/api/capability-packages/catalog", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: 1,
+        generatedAt: "2026-07-23T00:00:00.000Z",
+        packages: [
+          {
+            category: "writer",
+            manifest: catalogManifest,
+            artifact: {
+              url: "https://example.com/prose-guardian-1.1.0.zip",
+              sha256: "a".repeat(64),
+              bytes: 2048,
+            },
+            documentationUrl: "https://github.com/Pasta-Devs/Marinara-Agents#prose-guardian",
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/capability-packages/installed", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "prose-guardian",
+          version: "1.0.0",
+          manifest: installedManifest,
+          installedAt: "2026-07-22T00:00:00.000Z",
+          status: "active",
+          error: null,
+          readiness: "ready",
+          readinessError: null,
+          legacy: false,
+        },
+      ]),
+    });
+  });
+  await page.route("**/api/capability-packages/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+
+  await page.goto("/");
+
+  const updateDialog = page.getByRole("dialog", { name: "Agent Prose Guardian has been updated" });
+  await expect(updateDialog).toBeVisible();
+  await expect(updateDialog.getByText(/Version 1\.1\.0 is available/u)).toBeVisible();
+  await expect(updateDialog.getByText(/update it later in Download Agents/u)).toBeVisible();
+  await expect(updateDialog.getByRole("button", { name: "Yes", exact: true })).toBeVisible();
+  await expect(updateDialog.getByRole("button", { name: "No", exact: true })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const box = await updateDialog.boundingBox();
+      const viewport = page.viewportSize();
+      return Boolean(
+        box &&
+          viewport &&
+          box.x >= 0 &&
+          box.y >= 0 &&
+          box.x + box.width <= viewport.width &&
+          box.y + box.height <= viewport.height,
+      );
+    })
+    .toBe(true);
+
+  await updateDialog.getByRole("button", { name: "No", exact: true }).click();
+  await expect.poll(() => declineRequests).toBe(1);
+  await expect(updateDialog).toBeHidden();
+
+  await page.locator('[data-tour="panel-agents"]').click();
+  await page.getByLabel("Agents").getByRole("button", { name: "Download Agents", exact: true }).click();
+  const catalogView = page.locator('[data-component="AgentCatalogView"]');
+  await expect(catalogView.getByRole("heading", { name: "Download Agents" })).toBeVisible();
+  if (testInfo.project.name.includes("mobile")) {
+    await catalogView.getByRole("button", { name: /Prose Guardian/u }).click();
+  }
+  await expect(catalogView.getByRole("button", { name: "Update", exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("agent catalog reports API failures without diagnosing an internet outage", async ({ page }) => {
   await page.route("**/api/capability-packages/catalog", async (route) => {
     await route.fulfill({

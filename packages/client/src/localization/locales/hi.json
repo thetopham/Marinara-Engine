@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "locale": "hi",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "एजेंट पर वापस जाएँ",
+  "capabilities.actions.close": "बंद करें",
+  "capabilities.actions.tryAgain": "फिर से कोशिश करें",
+  "capabilities.failure.load.description": "डाउनलोड किया गया इंटरफ़ेस शुरू नहीं हो सका। आपकी चैट और सहेजा गया डेटा बदला नहीं गया है।",
+  "capabilities.failure.load.error": "डाउनलोड किया गया इंटरफ़ेस लोड नहीं हो सका।",
+  "capabilities.failure.load.retryLabel": "{{name}} को फिर से लोड करने की कोशिश करें",
+  "capabilities.failure.load.title": "{{name}} लोड नहीं हुआ",
+  "capabilities.failure.runtime.description": "डाउनलोड किए गए इंटरफ़ेस में एक त्रुटि आई। आपकी चैट और सहेजा गया डेटा बदला नहीं गया है।",
+  "capabilities.failure.runtime.error": "क्षमता क्लाइंट रनटाइम विफल हुआ",
+  "capabilities.failure.runtime.title": "{{name}} रुक गया",
+  "capabilities.loading": "{{name}} लोड हो रहा है…",
+  "settings.application.androidStatusBar.error": "Android ऐप स्टेटस बार नहीं बदल सका।",
+  "settings.application.androidStatusBar.help": "Marinara के ऊपर Android का समय, बैटरी स्तर और सूचना आइकन दिखाता है। बिना ध्यान भटकाए फ़ुलस्क्रीन दृश्य के लिए इसे बंद करें।",
+  "settings.application.androidStatusBar.label": "Android स्टेटस बार दिखाएँ",
+  "settings.application.androidStatusBar.unavailable": "Marinara Engine के Android ऐप में उपलब्ध है।",
+  "settings.application.androidStatusBar.updateRequired": "इस सेटिंग का उपयोग करने के लिए Marinara Engine का Android APK अपडेट करें।",
+  "settings.application.description": "भाषा, सुरक्षा पुष्टियाँ, उपलब्धियाँ, संगीत और मनोरंजक अतिरिक्त सुविधाएँ।",
+  "settings.application.intro": "ऐप का मुख्य व्यवहार, रोज़मर्रा के नियंत्रणों से लेकर हर मोड के विशेष समायोजन तक।",
+  "settings.application.language.fallback": "यदि कोई अनुवाद उपलब्ध नहीं है, तो Marinara अंग्रेज़ी पाठ दिखाता है।",
+  "settings.application.language.help": "इंटरफ़ेस की भाषा चुनें। इससे Marinara के नियंत्रण और मार्गदर्शन बदलते हैं, मॉडल प्रॉम्प्ट या चैट सामग्री नहीं।",
+  "settings.application.language.label": "भाषा",
+  "settings.application.title": "ऐप का व्यवहार"
+}

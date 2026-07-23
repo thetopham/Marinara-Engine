@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "locale": "en",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Back to Agents",
+  "capabilities.actions.close": "Close",
+  "capabilities.actions.tryAgain": "Try again",
+  "capabilities.failure.load.description": "The downloaded interface could not start. Your chat and saved data are unchanged.",
+  "capabilities.failure.load.error": "The downloaded interface could not be loaded.",
+  "capabilities.failure.load.retryLabel": "Try loading {{name}} again",
+  "capabilities.failure.load.title": "{{name}} didn't load",
+  "capabilities.failure.runtime.description": "The downloaded interface hit an error. Your chat and saved data are unchanged.",
+  "capabilities.failure.runtime.error": "Capability client runtime failed",
+  "capabilities.failure.runtime.title": "{{name}} stopped",
+  "capabilities.loading": "Loading {{name}}",
+  "settings.application.androidStatusBar.error": "The Android app could not change the status bar.",
+  "settings.application.androidStatusBar.help": "Shows Android's time, battery level, and notification icons above Marinara. Turn it off for the distraction-free fullscreen view.",
+  "settings.application.androidStatusBar.label": "Show Android status bar",
+  "settings.application.androidStatusBar.unavailable": "Available in the Marinara Engine Android app.",
+  "settings.application.androidStatusBar.updateRequired": "Update the Marinara Engine Android APK to use this setting.",
+  "settings.application.description": "Language, safety confirmations, achievements, music, and playful extras.",
+  "settings.application.intro": "Core app behavior, ordered from daily controls to mode-specific tuning.",
+  "settings.application.language.fallback": "If a translation is missing, Marinara displays the English text.",
+  "settings.application.language.help": "Choose the interface language. This changes Marinara's controls and guidance, not model prompts or chat content.",
+  "settings.application.language.label": "Language",
+  "settings.application.title": "App Behavior"
+}

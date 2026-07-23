@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "locale": "ar",
+    "direction": "rtl"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "العودة إلى الوكلاء",
+  "capabilities.actions.close": "إغلاق",
+  "capabilities.actions.tryAgain": "إعادة المحاولة",
+  "capabilities.failure.load.description": "تعذّر تشغيل الواجهة التي تم تنزيلها. لم تتغير محادثاتك وبياناتك المحفوظة.",
+  "capabilities.failure.load.error": "تعذّر تحميل الواجهة التي تم تنزيلها.",
+  "capabilities.failure.load.retryLabel": "إعادة محاولة تحميل {{name}}",
+  "capabilities.failure.load.title": "تعذّر تحميل {{name}}",
+  "capabilities.failure.runtime.description": "واجهت الواجهة التي تم تنزيلها خطأً. لم تتغير محادثاتك وبياناتك المحفوظة.",
+  "capabilities.failure.runtime.error": "فشل وقت تشغيل عميل الإمكانية",
+  "capabilities.failure.runtime.title": "توقف {{name}}",
+  "capabilities.loading": "جارٍ تحميل {{name}}…",
+  "settings.application.androidStatusBar.error": "تعذّر على تطبيق Android تغيير شريط الحالة.",
+  "settings.application.androidStatusBar.help": "يعرض وقت Android ومستوى البطارية وأيقونات الإشعارات أعلى Marinara. عطّله للحصول على عرض ملء الشاشة الخالي من التشتيت.",
+  "settings.application.androidStatusBar.label": "إظهار شريط حالة Android",
+  "settings.application.androidStatusBar.unavailable": "متاح في تطبيق Marinara Engine لنظام Android.",
+  "settings.application.androidStatusBar.updateRequired": "حدّث حزمة APK لتطبيق Marinara Engine على Android لاستخدام هذا الإعداد.",
+  "settings.application.description": "اللغة وتأكيدات الأمان والإنجازات والموسيقى والإضافات المرحة.",
+  "settings.application.intro": "سلوك التطبيق الأساسي، من عناصر التحكم اليومية إلى الضبط الخاص بكل وضع.",
+  "settings.application.language.fallback": "إذا كانت الترجمة مفقودة، فسيعرض Marinara النص الإنجليزي.",
+  "settings.application.language.help": "اختر لغة الواجهة. يغيّر هذا عناصر التحكم والإرشادات في Marinara، وليس مطالبات النموذج أو محتوى المحادثة.",
+  "settings.application.language.label": "اللغة",
+  "settings.application.title": "سلوك التطبيق"
+}

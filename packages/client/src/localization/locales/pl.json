@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "locale": "pl",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Wróć do Agentów",
+  "capabilities.actions.close": "Zamknij",
+  "capabilities.actions.tryAgain": "Spróbuj ponownie",
+  "capabilities.failure.load.description": "Nie udało się uruchomić pobranego interfejsu. Twoje czaty i zapisane dane pozostały bez zmian.",
+  "capabilities.failure.load.error": "Nie udało się wczytać pobranego interfejsu.",
+  "capabilities.failure.load.retryLabel": "Spróbuj ponownie wczytać {{name}}",
+  "capabilities.failure.load.title": "Nie udało się wczytać: {{name}}",
+  "capabilities.failure.runtime.description": "W pobranym interfejsie wystąpił błąd. Twoje czaty i zapisane dane pozostały bez zmian.",
+  "capabilities.failure.runtime.error": "Środowisko interfejsu funkcji przestało działać",
+  "capabilities.failure.runtime.title": "Interfejs {{name}} przestał działać",
+  "capabilities.loading": "Wczytywanie: {{name}}",
+  "settings.application.androidStatusBar.error": "Aplikacja na Androida nie mogła zmienić paska stanu.",
+  "settings.application.androidStatusBar.help": "Wyświetla nad Marinarą godzinę, poziom baterii i ikony powiadomień Androida. Wyłącz tę opcję, aby wrócić do pełnego ekranu bez rozpraszaczy.",
+  "settings.application.androidStatusBar.label": "Pokaż pasek stanu Androida",
+  "settings.application.androidStatusBar.unavailable": "Dostępne w aplikacji Marinara Engine na Androida.",
+  "settings.application.androidStatusBar.updateRequired": "Zaktualizuj pakiet APK Marinara Engine na Androida, aby użyć tego ustawienia.",
+  "settings.application.description": "Język, potwierdzenia bezpieczeństwa, osiągnięcia, muzyka i dodatkowe urozmaicenia.",
+  "settings.application.intro": "Podstawowe zachowanie aplikacji, od codziennych ustawień po opcje poszczególnych trybów.",
+  "settings.application.language.fallback": "Jeśli brakuje tłumaczenia, Marinara wyświetli tekst po angielsku.",
+  "settings.application.language.help": "Wybierz język interfejsu. Zmienia to elementy sterujące i wskazówki Marinary, ale nie polecenia dla modelu ani treść czatów.",
+  "settings.application.language.label": "Język",
+  "settings.application.title": "Działanie aplikacji"
+}

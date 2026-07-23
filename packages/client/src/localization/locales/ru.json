@@ -1,0 +1,29 @@
+{
+  "_meta": {
+    "locale": "ru",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Назад к Агентам",
+  "capabilities.actions.close": "Закрыть",
+  "capabilities.actions.tryAgain": "Повторить",
+  "capabilities.failure.load.description": "Не удалось запустить загруженный интерфейс. Ваши чаты и сохранённые данные не изменились.",
+  "capabilities.failure.load.error": "Не удалось загрузить загруженный интерфейс.",
+  "capabilities.failure.load.retryLabel": "Попробовать загрузить {{name}} снова",
+  "capabilities.failure.load.title": "Не удалось загрузить {{name}}",
+  "capabilities.failure.runtime.description": "В загруженном интерфейсе произошла ошибка. Ваши чаты и сохранённые данные не изменились.",
+  "capabilities.failure.runtime.error": "Сбой среды выполнения клиента функции",
+  "capabilities.failure.runtime.title": "Работа {{name}} остановлена",
+  "capabilities.loading": "Загрузка {{name}}…",
+  "settings.application.androidStatusBar.error": "Приложению Android не удалось изменить строку состояния.",
+  "settings.application.androidStatusBar.help": "Показывает время, заряд батареи и значки уведомлений Android над Marinara. Отключите для полноэкранного режима без отвлекающих элементов.",
+  "settings.application.androidStatusBar.label": "Показывать строку состояния Android",
+  "settings.application.androidStatusBar.unavailable": "Доступно в приложении Marinara Engine для Android.",
+  "settings.application.androidStatusBar.updateRequired": "Обновите APK Marinara Engine для Android, чтобы использовать эту настройку.",
+  "settings.application.description": "Язык, подтверждения безопасности, достижения, музыка и другие развлекательные функции.",
+  "settings.application.intro": "Основные настройки приложения, от повседневных элементов управления до параметров отдельных режимов.",
+  "settings.application.language.fallback": "Если перевод отсутствует, Marinara покажет текст на английском языке.",
+  "settings.application.language.help": "Выберите язык интерфейса. Это изменит элементы управления и подсказки Marinara, но не промпты модели и не содержимое чатов.",
+  "settings.application.language.label": "Язык",
+  "settings.application.title": "Поведение приложения"
+}

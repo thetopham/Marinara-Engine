@@ -30,6 +30,7 @@ import {
 } from "@marinara-engine/shared";
 import type {
   NoodleIdentityDisclosure,
+  NoodleAutoPostingIntensity,
   NoodleAccount,
   NoodleInteraction,
   NoodlePostAccess,
@@ -59,6 +60,8 @@ import {
   useUnlockNoodlerPost,
   useUpdateNoodlerPost,
   useUpdateNoodlerAccess,
+  useUpdateNoodlerAutoPosting,
+  useRescheduleNoodlerAutoPost,
   useUpdateNoodleSettings,
   useUpdateNoodlerStageProfile,
 } from "../../hooks/use-noodle";
@@ -1842,6 +1845,11 @@ function StageProfileView({
   onAccessChange: (access: NoodlerManagedStageProfile["access"]) => void;
 }) {
   const [accessSettingsOpen, setAccessSettingsOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [rescheduleDraft, setRescheduleDraft] = useState("");
+  const updateAutoPosting = useUpdateNoodlerAutoPosting();
+  const rescheduleAutoPost = useRescheduleNoodlerAutoPost();
+  const autoPosting = profile.autoPosting;
   const [activeTab, setActiveTab] = useState<NoodlerProfileTab>("posts");
   const [revealedManagedPostIds, setRevealedManagedPostIds] = useState<Set<string>>(() => new Set());
   const subscribersQuery = useNoodlerSubscribers(profile.id);
@@ -2058,6 +2066,13 @@ function StageProfileView({
             </button>
             <button
               type="button"
+              onClick={() => setAutomationOpen(true)}
+              className="h-9 rounded-full border border-[var(--noodle-divider)] px-4 text-xs font-bold hover:bg-[var(--accent)]"
+            >
+              {autoPosting.enabled ? "Automation · On" : "Automation"}
+            </button>
+            <button
+              type="button"
               onClick={onDelete}
               disabled={deletePending}
               aria-label={`Delete ${profile.displayName} profile`}
@@ -2154,9 +2169,111 @@ function StageProfileView({
           )}
         </div>
       </Modal>
+      <Modal
+        open={automationOpen}
+        onClose={() => setAutomationOpen(false)}
+        title="Automatic posting"
+        width="max-w-md"
+        panelStyle={{ "--noodle-blue": accent } as React.CSSProperties}
+      >
+        <div className="space-y-4">
+          <p className="text-xs leading-5 text-[var(--muted-foreground)]">
+            When on, this creator posts on its own while Marinara runs, guided by its stage
+            identity and personality. Automatic posts are subscriber-only.
+          </p>
+          <label className="flex min-h-11 items-center justify-between gap-4 rounded-md border border-[var(--noodle-divider)] px-3 py-2">
+            <span className="text-xs font-bold">Automatic posting enabled</span>
+            <input
+              type="checkbox"
+              checked={autoPosting.enabled}
+              disabled={updateAutoPosting.isPending}
+              onChange={(event) =>
+                updateAutoPosting.mutate(
+                  { accountId: profile.id, enabled: event.target.checked },
+                  { onError: (error) => toast.error(errorMessage(error, "Could not update automatic posting.")) },
+                )
+              }
+              className="h-5 w-5 accent-[var(--noodle-blue)]"
+            />
+          </label>
+          <fieldset disabled={!autoPosting.enabled || updateAutoPosting.isPending} className="disabled:opacity-50">
+            <legend className="text-xs font-bold">Cadence</legend>
+            <div className="mt-2 flex gap-2">
+              {AUTO_POST_INTENSITIES.map(({ label, value }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() =>
+                    updateAutoPosting.mutate(
+                      { accountId: profile.id, intensity: value },
+                      { onError: (error) => toast.error(errorMessage(error, "Could not update cadence.")) },
+                    )
+                  }
+                  className={cn(
+                    "h-9 flex-1 rounded-full border px-3 text-xs font-bold",
+                    autoPosting.intensity === value
+                      ? "border-transparent bg-[var(--noodle-blue)] text-zinc-950"
+                      : "border-[var(--noodle-divider)] hover:bg-[var(--accent)]",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[0.68rem] text-[var(--muted-foreground)]">
+              About {autoPosting.intensity} automatic post{autoPosting.intensity === 1 ? "" : "s"} per day.
+            </p>
+          </fieldset>
+          {autoPosting.enabled && (
+            <div className="space-y-2 rounded-md border border-[var(--noodle-divider)] px-3 py-2">
+              <p className="text-xs font-bold">Next automatic post</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {autoPosting.nextRunAt
+                  ? new Date(autoPosting.nextRunAt).toLocaleString()
+                  : "Scheduling the first run…"}
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={rescheduleDraft}
+                  onChange={(event) => setRescheduleDraft(event.target.value)}
+                  className="min-h-9 flex-1 rounded-md border border-[var(--noodle-divider)] bg-transparent px-2 text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={!rescheduleDraft || rescheduleAutoPost.isPending}
+                  onClick={() => {
+                    const next = new Date(rescheduleDraft);
+                    if (Number.isNaN(next.getTime()) || next.getTime() <= Date.now()) {
+                      toast.error("Pick a future date and time to reschedule.");
+                      return;
+                    }
+                    rescheduleAutoPost.mutate(
+                      { accountId: profile.id, nextRunAt: next.toISOString() },
+                      {
+                        onSuccess: () => setRescheduleDraft(""),
+                        onError: (error) => toast.error(errorMessage(error, "Could not reschedule the next post.")),
+                      },
+                    );
+                  }}
+                  className="h-9 rounded-full border border-[var(--noodle-divider)] px-3 text-xs font-bold hover:bg-[var(--accent)] disabled:opacity-50"
+                >
+                  Reschedule
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </>
   );
 }
+
+const AUTO_POST_INTENSITIES: { label: string; value: NoodleAutoPostingIntensity }[] = [
+  { label: "Low", value: 1 },
+  { label: "Medium", value: 3 },
+  { label: "High", value: 6 },
+];
 
 function ViewerHub({
   personas,

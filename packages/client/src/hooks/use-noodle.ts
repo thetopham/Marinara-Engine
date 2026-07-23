@@ -10,6 +10,8 @@ import type {
   NoodleAccountKind,
   NoodleAccountProfileUpdateInput,
   NoodleAccountSettingsPatchInput,
+  NoodleAutoPostingIntensity,
+  NoodleAutoPostRescheduleInput,
   NoodleBootstrap,
   NoodleCreateInteractionInput,
   NoodleCreatePostInput,
@@ -82,6 +84,10 @@ export function useNoodlerAccounts(enabled = true) {
     queryFn: () => api.get<NoodlerManagedStageProfile[]>("/noodle/noodler/accounts"),
     enabled,
     staleTime: 10_000,
+    // Autonomous scheduler writes managed-profile schedule state (nextRunAt) with no client
+    // mutation; poll while the view is visible so an open creator page stays fresh.
+    refetchInterval: enabled ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -106,6 +112,9 @@ export function useNoodlerPosts(accountId: string | null) {
     queryFn: () => api.get<NoodlerManagedPost[]>(`/noodle/noodler/accounts/${encodeURIComponent(accountId!)}/posts`),
     enabled: Boolean(accountId),
     staleTime: 10_000,
+    // Automatic posts are written server-side without a client mutation; poll while visible.
+    refetchInterval: accountId ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -218,6 +227,9 @@ export function useNoodlerViewer(personaId: string | null, enabled = true) {
     queryFn: () => api.get<NoodlerViewerScope>(`/noodle/noodler/viewer?personaId=${encodeURIComponent(personaId!)}`),
     enabled: enabled && Boolean(personaId),
     staleTime: 10_000,
+    // Automatic posts change subscriber-visible projections server-side; poll while visible.
+    refetchInterval: enabled && personaId ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -327,6 +339,35 @@ export function useUpdateNoodlerAccess() {
         qc.invalidateQueries({ queryKey: noodleKeys.privateViewers() }),
       ]);
     },
+  });
+}
+
+export function useUpdateNoodlerAutoPosting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      accountId,
+      ...autoPosting
+    }: {
+      accountId: string;
+      enabled?: boolean;
+      intensity?: NoodleAutoPostingIntensity;
+    }) =>
+      api.patch<NoodleAccount>(`/noodle/accounts/${encodeURIComponent(accountId)}/settings`, {
+        subtree: "scheduler",
+        patch: { autoPosting },
+      } satisfies NoodleAccountSettingsPatchInput),
+    // Auto-post state lives only under privateAccounts(); the /noodle bootstrap has none of it.
+    onSuccess: () => qc.invalidateQueries({ queryKey: noodleKeys.privateAccounts() }),
+  });
+}
+
+export function useRescheduleNoodlerAutoPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ accountId, ...input }: { accountId: string } & NoodleAutoPostRescheduleInput) =>
+      api.put<NoodleAccount>(`/noodle/noodler/accounts/${encodeURIComponent(accountId)}/auto-post/schedule`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: noodleKeys.privateAccounts() }),
   });
 }
 

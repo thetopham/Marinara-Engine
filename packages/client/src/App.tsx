@@ -43,7 +43,9 @@ import {
 import { normalizeThemeCss } from "./lib/theme-css";
 import { useLegacyThemeMigration, useThemes } from "./hooks/use-themes";
 import { useSettingsSync } from "./hooks/use-settings-sync";
+import { useCustomNotificationSoundStatus } from "./hooks/use-custom-notification-sound";
 import { installLongTaskWarner } from "./lib/perf-diagnostics";
+import { setCustomNotificationSoundUrl } from "./lib/notification-sound";
 
 const VERSION_RECOVERY_KEY = "marinara:pwa-version-recovery";
 const VERSION_CHECK_INTERVAL_MS = 5 * 60_000;
@@ -468,6 +470,7 @@ export function App() {
   const appearanceSettingsActive = rightPanelOpen && rightPanel === "settings" && settingsTab === "appearance";
   const pauseChromeEffectsForAppearance = appearanceSettingsActive && !appAccentRgbMode;
   const { data: syncedThemes = [] } = useThemes();
+  const { data: customNotificationSound } = useCustomNotificationSoundStatus();
   const activeCustomTheme = useMemo(() => syncedThemes.find((themeItem) => themeItem.isActive) ?? null, [syncedThemes]);
   const themeAccentPulseConfig = useMemo(
     () => getThemeAccentPulseConfig(activeCustomTheme?.css),
@@ -482,6 +485,10 @@ export function App() {
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [whatsNewResolved, setWhatsNewResolved] = useState(false);
   const handleWhatsNewResolved = useCallback(() => setWhatsNewResolved(true), []);
+
+  useEffect(() => {
+    setCustomNotificationSoundUrl(customNotificationSound?.url ?? null);
+  }, [customNotificationSound?.url]);
 
   // [#3104 diagnostic] warn on long main-thread tasks (see lib/perf-diagnostics.ts)
   useEffect(() => {

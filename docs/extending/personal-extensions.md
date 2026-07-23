@@ -20,6 +20,20 @@ A Browser Extension runs in a dedicated Worker inside an opaque-origin sandboxed
 
 A Server Extension runs in a separate permission-restricted Node process inside macOS Seatbelt or Linux Bubblewrap. It cannot access Marinara files, user files, inherited server secrets, the network, child processes, workers, or native addons. If Marinara cannot establish a supported OS sandbox, Server Extensions remain disabled.
 
+### Platform support
+
+Browser Extensions are sandboxed by the browser itself, so they work everywhere. Server Extensions need a supported OS sandbox; where none exists, they stay disabled and cannot be enabled — Marinara never falls back to running them unsandboxed.
+
+| Platform | Browser Extensions | Server Extensions |
+| --- | --- | --- |
+| macOS | ✅ Sandboxed | ✅ Sandboxed (Seatbelt) |
+| Linux (with Bubblewrap) | ✅ Sandboxed | ✅ Sandboxed (Bubblewrap) |
+| Linux (without `bwrap`) | ✅ Sandboxed | ⛔ Disabled — install `bwrap` |
+| Windows | ✅ Sandboxed | ⛔ Disabled — use a Browser Extension |
+| Android | ✅ Sandboxed | ⛔ Disabled — use a Browser Extension |
+
+On Windows and Android there is no supported OS process sandbox, so Server Extensions are unavailable by design. Use a Browser Extension instead, or run the Marinara server on macOS or Linux (with `bwrap`) if you need a Server Extension.
+
 ## External Extensions
 
 Third-party imports are locked and hidden by default. Two steps are required:

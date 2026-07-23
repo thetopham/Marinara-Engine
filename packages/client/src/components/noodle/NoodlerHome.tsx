@@ -865,7 +865,9 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
         </label>
 
         <SubscriptionSections
-          creators={viewerQuery.data?.creators ?? []}
+          creators={(viewerQuery.data?.creators ?? []).filter(
+            (creator) => creator.profile.id !== mainAuthorProfile?.id,
+          )}
           onToggleSubscription={toggleCreatorSubscription}
           togglePending={toggleSubscription.isPending}
         />
@@ -2160,7 +2162,7 @@ function ViewerHub({
       </div>
       <div className="hidden border-b border-[var(--noodle-divider)] px-4 py-3 lg:block xl:hidden">
         <SubscriptionSections
-          creators={scope?.creators ?? []}
+          creators={(scope?.creators ?? []).filter((creator) => creator.profile.id !== authorProfile?.id)}
           onToggleSubscription={onToggleSubscription}
           togglePending={togglePending}
         />
@@ -2243,7 +2245,10 @@ function ViewerHub({
                   <NoodlePostCard
                     key={post.id}
                     post={toNoodlePostCardModel(post, creator.profile)}
-                    ctx={postCardCtx}
+                    ctx={{
+                      ...postCardCtx,
+                      personaAccount: creator.profile.id === authorProfile?.id ? null : postCardCtx.personaAccount,
+                    }}
                   />
                 ),
               )}

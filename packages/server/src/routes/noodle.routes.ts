@@ -142,7 +142,9 @@ export async function noodleRoutes(app: FastifyInstance) {
       ]),
     );
     const visibleAccounts = accounts.filter(
-      (account) => account.publicAccountId !== viewer.id && !isNoodlerHiddenFromViewer(account, viewer.id),
+      (account) =>
+        account.publicAccountId === viewer.id ||
+        !isNoodlerHiddenFromViewer(account, viewer.id),
     );
     const postsByAccount = await noodle.listPrivatePostsByAccounts(
       visibleAccounts.map((account) => account.id),
@@ -150,9 +152,11 @@ export async function noodleRoutes(app: FastifyInstance) {
     );
     const viewablePostIds = new Set<string>();
     for (const account of visibleAccounts) {
+      const ownCreator = account.publicAccountId === viewer.id;
       const subscribed = subscribedIds.has(account.id);
       for (const post of postsByAccount.get(account.id) ?? []) {
         if (
+          ownCreator ||
           canViewNoodlerPost({
             post,
             subscribed,
@@ -202,8 +206,8 @@ export async function noodleRoutes(app: FastifyInstance) {
     const viewer = await resolveViewerPersona(personaId);
     const post = viewer ? await noodle.getPrivatePostById(postId) : null;
     const creator = post ? await noodle.getPrivateAccountById(post.authorAccountId) : null;
-    // Mirror the feed/subscribe/unlock rule: a viewer persona linked to the creator's own
-    // public account is not an audience member and must not persist self-interactions.
+    // A viewer persona linked to the creator's own public account may read its posts, but
+    // is not an audience member and must not persist self-interactions.
     if (
       !viewer ||
       !post ||

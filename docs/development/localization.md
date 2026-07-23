@@ -6,6 +6,30 @@ content, identifiers, protocol values, file paths, and persisted machine values 
 English is the canonical locale and the runtime fallback. A missing community translation therefore displays the
 English text instead of a translation key or an empty control.
 
+Users select their interface language in **Settings > General > App Behavior > Language**. The selection changes
+Marinara's controls and guidance, not model prompts, authored content, or chat messages.
+
+## Supported interface languages
+
+| Language | Locale file | Direction |
+| --- | --- | --- |
+| Arabic | `ar.json` | Right to left |
+| Chinese, Simplified | `zh-Hans.json` | Left to right |
+| English | `en.json` | Left to right |
+| French | `fr.json` | Left to right |
+| German | `de.json` | Left to right |
+| Hindi | `hi.json` | Left to right |
+| Japanese | `ja.json` | Left to right |
+| Korean | `ko.json` | Left to right |
+| Polish | `pl.json` | Left to right |
+| Portuguese, Brazil | `pt-BR.json` | Left to right |
+| Russian | `ru.json` | Left to right |
+| Spanish | `es.json` | Left to right |
+
+English is maintained as the source catalog. The other bundled catalogs began as machine-assisted translations and
+are open to corrections from fluent speakers. UI extraction is still in progress, so text without a translated key
+continues to appear in English.
+
 ## Locale files
 
 Client locale files live in:
@@ -32,14 +56,14 @@ English loads with the application; other locales load only when selected.
 Use semantic keys organized by interface area. Do not use an English sentence as the key because ordinary copy
 editing would then invalidate every translation.
 
-## Adding or updating a translation
+## Translation rules
 
-1. Copy `en.json` to a canonically named locale file.
-2. Keep `_meta.locale` equal to the filename and set `_meta.direction` to `ltr` or `rtl`.
-3. Translate only the values. Do not change semantic keys.
-4. Preserve interpolation tokens such as `{{name}}` and rich-text tags such as `<strong>`.
-5. Keep translation keys alphabetically sorted.
-6. Run `pnpm localization:check`.
+- Translate values only. Do not rename semantic keys.
+- Preserve interpolation tokens such as `{{name}}` and rich-text tags such as `<strong>`.
+- Keep translation keys alphabetically sorted.
+- Keep product names such as Marinara Engine unchanged unless the project adopts an official localized name.
+- Match the meaning and tone of `en.json`; avoid adding behavior or promises that the English source does not make.
+- Check that translated labels fit on desktop and mobile.
 
 Community locales may temporarily omit keys while a feature-area translation is being prepared. Missing keys fall
 back to English. Unknown keys, empty translations, malformed metadata, and changed interpolation tokens fail the
@@ -47,6 +71,60 @@ localization check.
 
 Machine-produced translations are welcome as an initial draft when the PR identifies them as such. A fluent speaker
 should review terminology, tone, truncation, and mobile layout before the locale is described as reviewed.
+
+## Submit a correction to an existing translation
+
+For a small wording correction, GitHub's web editor is enough:
+
+1. Open the locale in
+   [`packages/client/src/localization/locales/`](../../packages/client/src/localization/locales/).
+2. Select the pencil icon to edit the file. GitHub will offer to create a fork if needed.
+3. Change only the translated value. Preserve its key, punctuation-sensitive tokens such as `{{name}}`, and JSON
+   syntax.
+4. Commit the change to a focused branch in your fork.
+5. Open a pull request against the Marinara Engine **`staging`** branch, not `main`.
+6. In the PR description, name the language, explain the corrected meaning, and say whether you are a fluent speaker
+   or used machine assistance.
+
+Use a title such as `Improve French UI translation`. Several related corrections to one locale can share one PR.
+Keep unrelated code changes separate.
+
+## Submit a new localization
+
+For a new language, work from the latest `staging` branch:
+
+```bash
+git clone https://github.com/YOUR-NAME/Marinara-Engine.git
+cd Marinara-Engine
+git checkout staging
+git pull
+git checkout -b translation/LOCALE
+pnpm install
+```
+
+Then:
+
+1. Copy `en.json` to a canonically named BCP-47 locale file, such as `it.json` or `pt-PT.json`.
+2. Keep `_meta.locale` equal to the filename without `.json`.
+3. Set `_meta.direction` to `ltr` or `rtl`.
+4. Translate the values according to the rules above. Copying the complete English catalog is preferred for a new
+   locale, although an incomplete catalog can fall back to English.
+5. Run the locale validator and repository baseline:
+
+   ```bash
+   pnpm localization:check
+   pnpm check
+   ```
+
+6. Select the language in **Settings > General** and review it on both desktop and mobile. Check long labels,
+   tooltips, loading and error states, and text direction.
+7. Push the branch to your fork and
+   [open a pull request](https://github.com/Pasta-Devs/Marinara-Engine/compare), selecting
+   `Pasta-Devs/Marinara-Engine:staging` as the base.
+
+The PR description should identify the locale, translation source, fluency or review level, validation commands, and
+any areas that still need a native-speaker review. Complete the PR template honestly and only check manual items you
+personally verified.
 
 ## Using translations in client code
 

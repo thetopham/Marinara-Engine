@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "locale": "es",
+    "direction": "ltr"
+  },
+  "app.documentTitle": "Marinara Engine",
+  "capabilities.actions.backToAgents": "Volver a Agentes",
+  "capabilities.actions.close": "Cerrar",
+  "capabilities.actions.tryAgain": "Reintentar",
+  "capabilities.failure.load.description": "No se pudo iniciar la interfaz descargada. Tus chats y datos guardados no han cambiado.",
+  "capabilities.failure.load.error": "No se pudo cargar la interfaz descargada.",
+  "capabilities.failure.load.retryLabel": "Intentar cargar {{name}} de nuevo",
+  "capabilities.failure.load.title": "No se pudo cargar {{name}}",
+  "capabilities.failure.runtime.description": "La interfaz descargada encontró un error. Tus chats y datos guardados no han cambiado.",
+  "capabilities.failure.runtime.error": "Falló el entorno de ejecución del cliente de la función",
+  "capabilities.failure.runtime.title": "{{name}} se detuvo",
+  "capabilities.loading": "Cargando {{name}}…",
+  "settings.application.description": "Idioma, confirmaciones de seguridad, logros, música y extras divertidos.",
+  "settings.application.intro": "Comportamiento principal de la aplicación, desde los controles cotidianos hasta los ajustes específicos de cada modo.",
+  "settings.application.language.fallback": "Si falta una traducción, Marinara muestra el texto en inglés.",
+  "settings.application.language.help": "Elige el idioma de la interfaz. Esto cambia los controles y la ayuda de Marinara, no las instrucciones del modelo ni el contenido del chat.",
+  "settings.application.language.label": "Idioma",
+  "settings.application.title": "Comportamiento de la aplicación"
+}

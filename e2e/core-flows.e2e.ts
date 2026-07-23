@@ -1693,7 +1693,13 @@ test("UI language selection loads locale files and persists across reloads", asy
   });
 
   const openGeneralSettings = async () => {
-    if (!(await languageSelect.isVisible())) {
+    const persistedPanelOpen = await page.evaluate(() => {
+      const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+        state?: { rightPanelOpen?: unknown };
+      };
+      return persisted.state?.rightPanelOpen === true;
+    });
+    if (!(await languageSelect.isVisible()) && !persistedPanelOpen) {
       await page.locator('[data-tour="panel-settings"]').click();
     }
     await expect(languageSelect).toBeVisible({ timeout: 30_000 });
@@ -1701,9 +1707,9 @@ test("UI language selection loads locale files and persists across reloads", asy
 
   await page.goto("/");
   await openGeneralSettings();
-  await expect(languageSelect.locator('option[value="en"]')).toHaveCount(1);
-  await expect(languageSelect.locator('option[value="pl"]')).toHaveCount(1);
-  await expect(languageSelect.locator('option[value="ko"]')).toHaveCount(1);
+  for (const locale of ["en", "ar", "de", "es", "fr", "hi", "ja", "ko", "pl", "pt-BR", "ru", "zh-Hans"]) {
+    await expect(languageSelect.locator(`option[value="${locale}"]`)).toHaveCount(1);
+  }
 
   await languageSelect.selectOption("pl");
   await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
@@ -1729,14 +1735,35 @@ test("UI language selection loads locale files and persists across reloads", asy
   await expect(languageSelect).toHaveValue("pl");
   await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
 
-  await languageSelect.selectOption("ko");
-  await expect(page.getByText("앱 동작", { exact: true })).toBeVisible();
-  await expect
-    .poll(() => page.evaluate(() => document.documentElement.lang))
-    .toBe("ko");
+  const translatedApplicationTitles = [
+    { locale: "ar", direction: "rtl", title: "سلوك التطبيق" },
+    { locale: "de", direction: "ltr", title: "App-Verhalten" },
+    { locale: "es", direction: "ltr", title: "Comportamiento de la aplicación" },
+    { locale: "fr", direction: "ltr", title: "Comportement de l’application" },
+    { locale: "hi", direction: "ltr", title: "ऐप का व्यवहार" },
+    { locale: "ja", direction: "ltr", title: "アプリの動作" },
+    { locale: "ko", direction: "ltr", title: "앱 동작" },
+    { locale: "pt-BR", direction: "ltr", title: "Comportamento do aplicativo" },
+    { locale: "ru", direction: "ltr", title: "Поведение приложения" },
+    { locale: "zh-Hans", direction: "ltr", title: "应用行为" },
+  ] as const;
+
+  for (const translation of translatedApplicationTitles) {
+    await languageSelect.selectOption(translation.locale);
+    await expect(page.getByText(translation.title, { exact: true })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.lang))
+      .toBe(translation.locale);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dir))
+      .toBe(translation.direction);
+  }
 
   await languageSelect.selectOption("en");
   await expect(page.getByText("App Behavior", { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dir))
+    .toBe("ltr");
   await expect
     .poll(() =>
       page.evaluate(() => {

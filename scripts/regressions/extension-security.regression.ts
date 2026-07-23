@@ -60,6 +60,9 @@ assert.match(clientInjectorSource, /removePersonalExtensionContributions/u);
 assert.match(clientInjectorSource, /message\.contentHash === active\.contentHash/u);
 assert.match(clientContributionSource, /PERSONAL_EXTENSION_UI_LIMITS/u);
 assert.doesNotMatch(clientContributionPanelSource, /dangerouslySetInnerHTML|innerHTML/u);
+assert.match(clientContributionPanelSource, /aria-label=\{element\.label \? undefined :/u);
+assert.match(clientContributionPanelSource, /\[activePanelKey, defaultsKey\]/u);
+assert.doesNotMatch(clientContributionPanelSource, /\[activePanelKey, defaultsKey, elements\]/u);
 assert.match(clientHooksSource, /refetchInterval:\s*2_000/u);
 assert.match(clientHooksSource, /refetchIntervalInBackground:\s*true/u);
 assert.match(routeSource, /worker-src blob:/u);
@@ -68,6 +71,7 @@ assert.match(routeSource, /new Worker\(workerUrl\)/u);
 assert.match(routeSource, /sandbox became unresponsive/u);
 assert.match(routeSource, /canExecutePersonalExtension/u);
 assert.match(routeSource, /ENABLE_EXTERNAL_EXTENSIONS=true/u);
+assert.match(routeSource, /panel control id contains unsupported characters/u);
 
 assert.match(schemaSource, /acknowledgeSandboxedCode:\s*z\.literal\(true\)/u);
 assert.doesNotMatch(schemaSource, /acknowledgeFullTrust/u);

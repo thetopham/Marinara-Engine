@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PERSONAL_EXTENSION_UI_LIMITS, type PersonalExtensionUiElement } from "@marinara-engine/shared";
 import { useUIStore } from "../../stores/ui.store";
@@ -41,12 +41,15 @@ export function PersonalExtensionPanel() {
     (candidate) => candidate.key === activePanelKey && candidate.kind === "panel",
   );
   const elements = useMemo(() => contribution?.elements ?? [], [contribution?.elements]);
-  const defaultsKey = JSON.stringify(inputDefaults(elements));
-  const [values, setValues] = useState<Record<string, string>>(() => inputDefaults(elements));
+  const defaults = useMemo(() => inputDefaults(elements), [elements]);
+  const defaultsKey = JSON.stringify(defaults);
+  const defaultsRef = useRef(defaults);
+  defaultsRef.current = defaults;
+  const [values, setValues] = useState<Record<string, string>>(() => defaults);
 
   useEffect(() => {
-    setValues(inputDefaults(elements));
-  }, [activePanelKey, defaultsKey, elements]);
+    setValues(defaultsRef.current);
+  }, [activePanelKey, defaultsKey]);
 
   useEffect(() => {
     if (!activePanelKey || contribution) return;
@@ -105,6 +108,7 @@ export function PersonalExtensionPanel() {
                     rows={5}
                     maxLength={PERSONAL_EXTENSION_UI_LIMITS.textLength}
                     placeholder={element.placeholder}
+                    aria-label={element.label ? undefined : (element.placeholder ?? element.id)}
                     value={values[element.id] ?? ""}
                     onChange={(event) =>
                       setValues((current) => ({ ...current, [element.id]: event.currentTarget.value }))
@@ -116,6 +120,7 @@ export function PersonalExtensionPanel() {
                     type="text"
                     maxLength={PERSONAL_EXTENSION_UI_LIMITS.textLength}
                     placeholder={element.placeholder}
+                    aria-label={element.label ? undefined : (element.placeholder ?? element.id)}
                     value={values[element.id] ?? ""}
                     onChange={(event) =>
                       setValues((current) => ({ ...current, [element.id]: event.currentTarget.value }))
@@ -131,6 +136,7 @@ export function PersonalExtensionPanel() {
               <label key={key} className="flex flex-col gap-1.5 text-xs font-semibold text-[var(--foreground)]">
                 {element.label && <span>{element.label}</span>}
                 <select
+                  aria-label={element.label ? undefined : element.id}
                   value={values[element.id] ?? element.options[0]?.value ?? ""}
                   onChange={(event) =>
                     setValues((current) => ({ ...current, [element.id]: event.currentTarget.value }))

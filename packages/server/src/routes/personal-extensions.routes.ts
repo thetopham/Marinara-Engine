@@ -237,6 +237,9 @@ export function browserWorkerSource(extension: PersonalExtension) {
         if (!element.id || element.id.length > contributionContract.limits.idLength) {
           throw new Error("panel control id exceeds its limit");
         }
+        if (!contributionIdPattern.test(element.id)) {
+          throw new Error("panel control id contains unsupported characters");
+        }
         if (interactiveIds.has(element.id)) throw new Error("panel control ids must be unique");
         interactiveIds.add(element.id);
       }

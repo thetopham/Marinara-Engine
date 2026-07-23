@@ -88,6 +88,7 @@ import {
   rememberProfessorMariFloatingEnabled,
 } from "./professor-mari-floating-events";
 import { MariSuggestionChips } from "./MariSuggestionChips";
+import { useTranslation } from "react-i18next";
 
 const MARI_AVATAR_URL = "/sprites/mari/Mari_profile.png";
 const MARI_CHIBI_URL = "/sprites/mari/chibi-professor-mari.png";
@@ -1878,6 +1879,7 @@ function ProfessorMariSkillsMenu({
   onToggle: (skill: MariWorkspaceSkillDetail) => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const enabledCount = skills.filter((skill) => skill.enabled).length;
   const hasSkills = skills.length > 0;
 
@@ -1904,8 +1906,8 @@ function ProfessorMariSkillsMenu({
           type="button"
           onClick={onClose}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          aria-label="Close skills"
-          title="Close"
+          aria-label={t("home.professorMari.skills.close")}
+          title={t("home.professorMari.skills.close")}
         >
           <X size="0.95rem" />
         </button>
@@ -2087,6 +2089,7 @@ export function HomeProfessorMariChat({
   onChatWindowExitComplete,
   onFloatingDismiss,
 }: HomeProfessorMariChatProps) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: connectionsRaw, isLoading: connectionsLoading } = useConnections();
   const sidecarModelDownloaded = useSidecarStore((state) => state.modelDownloaded);
@@ -3414,7 +3417,7 @@ export function HomeProfessorMariChat({
               }
             }}
             rows={1}
-            placeholder="Ask Professor Mari..."
+            placeholder={t("home.professorMari.placeholder")}
             className="mari-chat-input-textarea min-h-8 max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1.5 text-sm leading-normal text-foreground/90 outline-hidden placeholder:text-foreground/30 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={isBusy}
           />
@@ -3425,8 +3428,8 @@ export function HomeProfessorMariChat({
               "mari-chat-send-btn inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white transition-all duration-200",
               canSubmitMessage && !isBusy ? "hover:text-white active:scale-90" : "cursor-not-allowed opacity-40",
             )}
-            aria-label="Send to Professor Mari"
-            title="Send"
+            aria-label={t("home.professorMari.send")}
+            title={t("home.professorMari.send")}
           >
             <Send size="0.9375rem" className={cn(canSubmitMessage && "translate-x-[1px]")} />
           </button>
@@ -3452,7 +3455,7 @@ export function HomeProfessorMariChat({
             type="button"
             onClick={handleFloatingButtonClick}
             className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-[var(--primary)]/40 bg-[var(--background)] shadow-lg shadow-black/35 ring-1 ring-black/20"
-            aria-label="Open Professor Mari chat"
+            aria-label={t("home.professorMari.open")}
           >
             <img
               src={MARI_AVATAR_URL}
@@ -3467,8 +3470,8 @@ export function HomeProfessorMariChat({
             type="button"
             onClick={onFloatingDismiss}
             className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] shadow-lg"
-            aria-label="Dismiss Professor Mari floating chat"
-            title="Dismiss"
+            aria-label={t("home.professorMari.dismiss")}
+            title={t("home.professorMari.dismiss")}
           >
             <X size="0.65rem" />
           </button>
@@ -3491,8 +3494,8 @@ export function HomeProfessorMariChat({
               type="button"
               onClick={closeChatWindow}
               className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-8 w-8 items-center justify-center rounded-md p-0"
-              aria-label="Close Professor Mari chat"
-              title="Close"
+              aria-label={t("home.professorMari.close")}
+              title={t("home.professorMari.close")}
             >
               <X size="0.9rem" />
             </button>
@@ -3519,15 +3522,15 @@ export function HomeProfessorMariChat({
           onPointerCancel={endFloatingDrag}
         >
           <div className="min-w-0 truncate text-xs font-semibold text-[var(--marinara-chat-chrome-accent)]">
-            Ask Professor Mari
+            {t("home.professorMari.ask")}
           </div>
           <button
             data-professor-mari-floating-action
             type="button"
             onClick={onFloatingDismiss}
             className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-7 w-7 items-center justify-center rounded-md p-0"
-            aria-label="Dismiss Professor Mari floating chat"
-            title="Dismiss"
+            aria-label={t("home.professorMari.dismiss")}
+            title={t("home.professorMari.dismiss")}
           >
             <X size="0.85rem" />
           </button>
@@ -3597,7 +3600,7 @@ export function HomeProfessorMariChat({
               className="mari-chrome-control mari-chrome-control--primary w-full justify-center gap-2 text-xs"
             >
               <MessageCircle size="0.9rem" />
-              Ask Professor Mari
+              {t("home.professorMari.ask")}
             </button>
           </div>
         </div>
@@ -3630,7 +3633,7 @@ export function HomeProfessorMariChat({
                       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)]/60 px-3 py-2">
                         <div className="min-w-0">
                           <div className="truncate text-xs font-semibold text-[var(--foreground)]">
-                            Professor Mari Chats
+                            {t("home.professorMari.chats")}
                           </div>
                           <div className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
                             Restart saves the current chat here.
@@ -3640,8 +3643,8 @@ export function HomeProfessorMariChat({
                           type="button"
                           onClick={() => setChatHistoryOpen(false)}
                           className="mari-chrome-control mari-chrome-control--small h-8 w-8 p-0"
-                          aria-label="Close chats"
-                          title="Close"
+                          aria-label={t("home.professorMari.closeChats")}
+                          title={t("home.professorMari.closeChats")}
                         >
                           <X size="0.85rem" />
                         </button>
@@ -3654,7 +3657,7 @@ export function HomeProfessorMariChat({
                           </div>
                         ) : chatHistory.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-6 text-center text-xs text-[var(--muted-foreground)]">
-                            No previous Professor Mari chats yet.
+                            {t("home.professorMari.noPreviousChats")}
                           </div>
                         ) : (
                           <div className="space-y-1.5">
@@ -3792,7 +3795,7 @@ export function HomeProfessorMariChat({
                               "inline-flex h-8 items-center gap-1 rounded-md px-2 text-[0.6875rem] font-semibold transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50",
                               "mari-chrome-accent-text-muted mari-accent-animated hover:text-[var(--marinara-chat-chrome-button-text-hover)]",
                             )}
-                            title="Open previous Professor Mari chats"
+                            title={t("home.professorMari.openPreviousChats")}
                             aria-expanded={chatHistoryOpen}
                           >
                             <BookOpen size="0.75rem" />
@@ -3831,8 +3834,8 @@ export function HomeProfessorMariChat({
                             onClick={() => void runRestart()}
                             disabled={isBusy}
                             className="mari-chrome-accent-text-muted mari-accent-animated inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.6875rem] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg)] hover:text-[var(--marinara-chat-chrome-button-text-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-                            aria-label="Restart Professor Mari chat"
-                            title="Restart Professor Mari chat"
+                            aria-label={t("home.professorMari.restart")}
+                            title={t("home.professorMari.restart")}
                           >
                             <RefreshCw size="0.75rem" />
                             <span className="max-[380px]:hidden">Restart</span>
@@ -3841,8 +3844,8 @@ export function HomeProfessorMariChat({
                             type="button"
                             onClick={closeChatWindow}
                             className="mari-chrome-control mari-chrome-control--small mari-accent-animated inline-flex h-8 w-8 items-center justify-center rounded-md p-0"
-                            aria-label="Close Professor Mari chat"
-                            title="Close"
+                            aria-label={t("home.professorMari.close")}
+                            title={t("home.professorMari.close")}
                           >
                             <X size="0.9rem" />
                           </button>
@@ -4038,7 +4041,7 @@ export function HomeProfessorMariChat({
                               }
                             }}
                             rows={1}
-                            placeholder="Ask Professor Mari..."
+                            placeholder={t("home.professorMari.placeholder")}
                             className="mari-chat-input-textarea min-h-8 max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-1.5 text-sm leading-normal text-foreground/90 outline-hidden placeholder:text-foreground/30 disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={isBusy}
                           />
@@ -4051,8 +4054,8 @@ export function HomeProfessorMariChat({
                                 ? "hover:text-white active:scale-90"
                                 : "cursor-not-allowed opacity-40",
                             )}
-                            aria-label="Send to Professor Mari"
-                            title="Send"
+                            aria-label={t("home.professorMari.send")}
+                            title={t("home.professorMari.send")}
                           >
                             <Send size="0.9375rem" className={cn(canSubmitMessage && "translate-x-[1px]")} />
                           </button>

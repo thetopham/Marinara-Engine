@@ -24,6 +24,7 @@ import { YouTubePlayer } from "../chat/YouTubePlayer";
 import { LocalMusicPlayer } from "../chat/LocalMusicPlayer";
 import { MusicDjUnavailablePlayer } from "../music/MusicDjUnavailablePlayer";
 import { useInstalledCapabilityPackages } from "../../hooks/use-capability-packages";
+import { useLocalizedUiText } from "../../localization/use-localized-ui-text";
 
 type RightPanelButtonPanel = "lorebooks" | "presets" | "connections" | "agents" | "personas";
 
@@ -86,6 +87,7 @@ function isMobileTopbarNavigation() {
 }
 
 export function TopBar() {
+  const localize = useLocalizedUiText();
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
@@ -280,7 +282,7 @@ export function TopBar() {
                     isTopbarHovered("chats") && cn(TOPBAR_FORCE_HOVER_CLASS, "mari-topbar-chat-gradient-icon"),
                   ),
             )}
-            title="Chats"
+            title={localize("Chats")}
           >
             <MessageSquareText size={15} className={TOPBAR_ACCENT_ICON_CLASS}>
               <defs>
@@ -321,7 +323,7 @@ export function TopBar() {
                       cn(TOPBAR_FORCE_HOVER_CLASS, "text-[var(--marinara-chat-chrome-button-text-hover)]"),
                   ),
             )}
-            title="Noodle"
+            title={localize("Noodle")}
           >
             <AtSign size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
             {noodleOpen && (
@@ -346,7 +348,7 @@ export function TopBar() {
                       cn(TOPBAR_FORCE_HOVER_CLASS, "text-[var(--marinara-chat-chrome-button-text-hover)]"),
                   ),
             )}
-            title="Home"
+            title={localize("Home")}
           >
             <Home size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
             {isHomeActive && (
@@ -369,7 +371,7 @@ export function TopBar() {
       <nav
         ref={rightNavRef}
         data-tour="panel-buttons"
-        aria-label="Panel navigation"
+        aria-label={localize("Panel navigation")}
         className="mari-topbar-panel-nav mari-rgb-icon-scope flex shrink-0 items-center justify-end gap-0.5 rounded-xl p-1 max-sm:gap-0 max-sm:p-0.5"
       >
         {/* Card Browser */}
@@ -386,7 +388,7 @@ export function TopBar() {
                   isTopbarHovered("browser") && cn(TOPBAR_FORCE_HOVER_CLASS, "text-lime-300"),
                 ),
           )}
-          title="Card Browser"
+          title={localize("Card Browser")}
         >
           <Bot size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {isBotBrowserActive && (
@@ -408,7 +410,7 @@ export function TopBar() {
                     cn(TOPBAR_FORCE_HOVER_CLASS, "text-[var(--marinara-chat-chrome-button-text-hover)]"),
                 ),
           )}
-          title="Characters"
+          title={localize("Characters")}
         >
           <Users size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {isCharactersPanelActive && (
@@ -432,7 +434,7 @@ export function TopBar() {
                 isHovered && cn(TOPBAR_FORCE_HOVER_CLASS, "mari-topbar-panel-icon--hovered"),
                 isActive && cn(TOPBAR_ACTIVE_BUTTON_CLASS, "mari-topbar-panel-icon--active"),
               )}
-              title={label}
+              title={localize(label)}
             >
               <Icon size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
               {isActive && (
@@ -461,7 +463,7 @@ export function TopBar() {
                   isTopbarHovered("settings") && cn(TOPBAR_FORCE_HOVER_CLASS, "text-gray-300"),
                 ),
           )}
-          title="Settings"
+          title={localize("Settings")}
         >
           <Settings size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {rightPanelOpen && rightPanel === "settings" && (

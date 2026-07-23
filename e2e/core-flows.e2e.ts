@@ -1763,6 +1763,10 @@ test("UI language selection loads locale files and persists across reloads", asy
 
   await languageSelect.selectOption("pl");
   await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("Szukaj w ustawieniach")).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Ogólne" })).toBeVisible();
+  await expect(page.getByText("Potwierdzaj przed usunięciem", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-tour="panel-settings"]')).toHaveAttribute("title", "Ustawienia");
   await expect
     .poll(() => page.evaluate(() => document.documentElement.lang))
     .toBe("pl");
@@ -1784,6 +1788,8 @@ test("UI language selection loads locale files and persists across reloads", asy
   await openGeneralSettings();
   await expect(languageSelect).toHaveValue("pl");
   await expect(page.getByText("Działanie aplikacji", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("Szukaj w ustawieniach")).toBeVisible();
+  await expect(page.getByText("Potwierdzaj przed usunięciem", { exact: true })).toBeVisible();
 
   const translatedApplicationTitles = [
     { locale: "ar", direction: "rtl", title: "سلوك التطبيق" },
@@ -1808,6 +1814,12 @@ test("UI language selection loads locale files and persists across reloads", asy
       .poll(() => page.evaluate(() => document.documentElement.dir))
       .toBe(translation.direction);
   }
+
+  // Community locales are intentionally partial. A newly extracted English
+  // key must render in English when the selected locale has not translated it.
+  await languageSelect.selectOption("de");
+  await expect(page.getByPlaceholder("Search settings")).toBeVisible();
+  await expect(page.getByText("Confirm before deleting", { exact: true })).toBeVisible();
 
   await languageSelect.selectOption("en");
   await expect(page.getByText("App Behavior", { exact: true })).toBeVisible();

@@ -19,10 +19,16 @@ import {
   useUploadCustomNotificationSound,
 } from "../../../hooks/use-custom-notification-sound";
 import { cn } from "../../../lib/utils";
+import { localizeStringNode, useLocalizedUiText } from "../../../localization/use-localized-ui-text";
 import { HelpTooltip } from "../../ui/HelpTooltip";
 
 export function SettingsIntro({ children }: { children: ReactNode }) {
-  return <p className="text-xs leading-relaxed text-[var(--marinara-chat-chrome-panel-muted)]">{children}</p>;
+  const localize = useLocalizedUiText();
+  return (
+    <p className="text-xs leading-relaxed text-[var(--marinara-chat-chrome-panel-muted)]">
+      {localizeStringNode(children, localize)}
+    </p>
+  );
 }
 
 export function SettingsSection({
@@ -48,6 +54,9 @@ export function SettingsSection({
   contentClassName?: string;
   tone?: "default" | "danger";
 }) {
+  const localize = useLocalizedUiText();
+  const localizedDescription = localizeStringNode(description, localize);
+
   return (
     <section
       id={anchorId}
@@ -77,12 +86,12 @@ export function SettingsSection({
               tone === "danger" ? "text-[var(--destructive)]" : "text-[var(--marinara-chat-chrome-panel-title)]",
             )}
           >
-            {title}
-            {help && <HelpTooltip text={help} />}
+            {localize(title)}
+            {help && <HelpTooltip text={localize(help)} />}
           </div>
-          {description && (
+          {localizedDescription && (
             <div className="mt-1 text-[0.625rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-muted)]">
-              {description}
+              {localizedDescription}
             </div>
           )}
         </div>
@@ -94,6 +103,7 @@ export function SettingsSection({
 }
 
 export function ConversationSoundSetting() {
+  const localize = useLocalizedUiText();
   const convoNotificationSound = useUIStore((s) => s.convoNotificationSound);
   const setConvoNotificationSound = useUIStore((s) => s.setConvoNotificationSound);
   const rpNotificationSound = useUIStore((s) => s.rpNotificationSound);
@@ -209,8 +219,10 @@ export function ConversationSoundSetting() {
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <Volume2 size="0.75rem" className="text-[var(--muted-foreground)]" />
-        <span className="text-xs font-medium">Notification Sounds</span>
-        <HelpTooltip text="Play a notification ping when you receive a new message while on a different chat." />
+        <span className="text-xs font-medium">{localize("Notification Sounds")}</span>
+        <HelpTooltip
+          text={localize("Play a notification ping when you receive a new message while on a different chat.")}
+        />
       </div>
       <ToggleSetting
         anchorId="settings-control-notification-conversation-sound"
@@ -248,8 +260,12 @@ export function ConversationSoundSetting() {
       <CustomNotificationSoundSetting />
       <div className="mt-1 flex items-center gap-1.5">
         <Bell size="0.75rem" className="text-[var(--muted-foreground)]" />
-        <span className="text-xs font-medium">Background Notifications</span>
-        <HelpTooltip text="Show a private operating-system notification when an autonomous Conversation message arrives while Marinara is not focused. Message content is hidden." />
+        <span className="text-xs font-medium">{localize("Background Notifications")}</span>
+        <HelpTooltip
+          text={localize(
+            "Show a private operating-system notification when an autonomous Conversation message arrives while Marinara is not focused. Message content is hidden.",
+          )}
+        />
       </div>
       <ToggleSetting
         anchorId="settings-control-browser-background-notifications"
@@ -284,8 +300,12 @@ export function ConversationSoundSetting() {
       />
       <div className="mt-1 flex items-center gap-1.5">
         <BellRing size="0.75rem" className="text-[var(--muted-foreground)]" />
-        <span className="text-xs font-medium">Generation Completion Notifications</span>
-        <HelpTooltip text="Show a private operating-system notification when a reply you started manually finishes in Conversation, Roleplay, Visual Novel, or Game mode while Marinara is not focused. Message content is hidden." />
+        <span className="text-xs font-medium">{localize("Generation Completion Notifications")}</span>
+        <HelpTooltip
+          text={localize(
+            "Show a private operating-system notification when a reply you started manually finishes in Conversation, Roleplay, Visual Novel, or Game mode while Marinara is not focused. Message content is hidden.",
+          )}
+        />
       </div>
       <ToggleSetting
         anchorId="settings-control-browser-generation-notifications"
@@ -498,6 +518,9 @@ export function SettingsCheckbox({
   className?: string;
   labelClassName?: string;
 }) {
+  const localize = useLocalizedUiText();
+  const localizedLabel = localizeStringNode(label, localize);
+  const localizedDescription = localizeStringNode(description, localize);
   const input = (
     <input
       type="checkbox"
@@ -514,16 +537,16 @@ export function SettingsCheckbox({
   const text = (
     <span className={cn("min-w-0 text-xs", labelClassName)}>
       <span className="inline-flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0">{label}</span>
+        <span className="min-w-0">{localizedLabel}</span>
         {align !== "between" && help && (
           <span onClick={(e) => e.preventDefault()}>
-            <HelpTooltip text={help} />
+            <HelpTooltip text={localize(help)} />
           </span>
         )}
       </span>
-      {description && (
+      {localizedDescription && (
         <span className="mt-0.5 block text-[0.625rem] leading-relaxed text-[var(--marinara-chat-chrome-panel-muted)]">
-          {description}
+          {localizedDescription}
         </span>
       )}
     </span>
@@ -532,7 +555,7 @@ export function SettingsCheckbox({
     <span className="inline-flex shrink-0 items-center gap-1.5">
       {align === "between" && help && (
         <span onClick={(e) => e.preventDefault()}>
-          <HelpTooltip text={help} />
+          <HelpTooltip text={localize(help)} />
         </span>
       )}
       {input}
@@ -599,6 +622,10 @@ export function SettingsSwitch({
   switchClassName,
 }: SettingsSwitchProps) {
   const inputId = useId();
+  const localize = useLocalizedUiText();
+  const localizedLabel = localizeStringNode(label, localize);
+  const localizedDescription = localizeStringNode(description, localize);
+  const localizedTitle = title ? localize(title) : undefined;
   const switchControl = (
     <span className="relative inline-flex h-5 w-9 shrink-0">
       <input
@@ -606,13 +633,13 @@ export function SettingsSwitch({
         type="checkbox"
         checked={checked}
         disabled={disabled}
-        aria-label={!label ? ariaLabel : undefined}
+        aria-label={!label && ariaLabel ? localize(ariaLabel) : undefined}
         onChange={(e) => onChange(e.target.checked)}
         className="peer sr-only"
       />
       <label
         htmlFor={inputId}
-        title={title}
+        title={localizedTitle}
         className={cn(
           "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--ring)]",
           checked ? "bg-[var(--primary)]/70" : "bg-[var(--border)]",
@@ -632,19 +659,19 @@ export function SettingsSwitch({
   );
   const switchCluster = (
     <span className="inline-flex shrink-0 items-center gap-1.5">
-      {help && <HelpTooltip text={help} />}
+      {help && <HelpTooltip text={localize(help)} />}
       {switchControl}
       {endAction}
     </span>
   );
-  const text = label ? (
+  const text = localizedLabel ? (
     <span className={cn("min-w-0 text-sm", labelClassName)}>
       <span className="inline-flex min-w-0 items-center gap-1.5">
         <label htmlFor={inputId} className={cn("min-w-0", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
-          {label}
+          {localizedLabel}
         </label>
       </span>
-      {description && (
+      {localizedDescription && (
         <label
           htmlFor={inputId}
           className={cn(
@@ -652,7 +679,7 @@ export function SettingsSwitch({
             disabled ? "cursor-not-allowed" : "cursor-pointer",
           )}
         >
-          {description}
+          {localizedDescription}
         </label>
       )}
     </span>
@@ -661,7 +688,7 @@ export function SettingsSwitch({
   return (
     <div
       id={anchorId}
-      title={title}
+      title={localizedTitle}
       className={cn(
         "flex scroll-mt-3 items-center gap-3 rounded-xl p-2 transition-colors hover:bg-[var(--secondary)]/50",
         disabled && "cursor-not-allowed opacity-60 hover:bg-transparent",

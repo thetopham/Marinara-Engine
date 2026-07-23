@@ -432,14 +432,18 @@ function ExtensionSettings({ showIntro, mode }: { showIntro: boolean; mode: Exte
                 onClick={() => void (current.enabled ? disableExtension(current) : runExtension(current))}
                 disabled={busy}
                 className={cn(
-                  "flex min-h-9 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  "flex min-h-9 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-semibold leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   current.enabled
                     ? "bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[var(--accent)]"
                     : "bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90",
                 )}
               >
-                {current.enabled ? <PowerOff size="0.75rem" /> : <Power size="0.75rem" />}
-                {current.enabled ? "Disable" : "Review and Run"}
+                {current.enabled ? (
+                  <PowerOff size="0.75rem" className="shrink-0" />
+                ) : (
+                  <Power size="0.75rem" className="shrink-0" />
+                )}
+                <span>{current.enabled ? "Disable" : "Review and Run"}</span>
               </button>
             )}
             {isExternal && (

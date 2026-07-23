@@ -2,7 +2,7 @@ import { mkdir, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { DATA_DIR } from "../../utils/data-dir.js";
 import { newId } from "../../utils/id-generator.js";
-import { logger } from "../../lib/logger.js";
+import { logger, logDebugOverride } from "../../lib/logger.js";
 import { assertInsideDir, safeFetch } from "../../utils/security.js";
 import { notifyGenerationFallback, type GenerationFallbackNotifier } from "../generation/fallback-notification.js";
 import { runMediaGenerationRequest } from "../image/image-generation-queue.js";
@@ -34,6 +34,8 @@ export interface VideoGenerationRequest {
   lastFrameImage?: VideoReferenceImage | null;
   publicReferenceUpload?: VideoReferencePublicUploadOptions | null;
   signal?: AbortSignal;
+  /** UI debug mode: surface provider payload logging without LOG_LEVEL=debug. */
+  debugMode?: boolean;
   /** Serialize this request with other media jobs using the same configured connection. */
   queue?: boolean;
   /** Stable configured connection ID used to scope queued media jobs. */
@@ -997,7 +999,11 @@ async function generateAtlasCloudVideo(
     resolution: request.resolution,
     referenceImageDataUrl,
   });
-  logger.debug("[video-gen/atlas-cloud] final request payload:\n%s", JSON.stringify(body, null, 2));
+  logDebugOverride(
+    request.debugMode === true,
+    "[video-gen/atlas-cloud] final request payload:\n%s",
+    JSON.stringify(body, null, 2),
+  );
   const outputUrl = await runAtlasCloudPrediction({
     baseUrl,
     apiKey,

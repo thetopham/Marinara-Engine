@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { createReadStream, existsSync } from "fs";
-import { mkdir, rename, stat, unlink, writeFile } from "fs/promises";
+import { mkdir, open, rename, stat, unlink, writeFile } from "fs/promises";
 import { extname, join } from "path";
 import { randomUUID } from "crypto";
 import { DATA_DIR } from "../utils/data-dir.js";
@@ -103,6 +102,16 @@ async function removeStoredNotificationSounds(exceptPath?: string) {
   );
 }
 
+// Replacement and deletion both rename/unlink the same fixed filenames, so
+// they must not interleave: two concurrent uploads could otherwise delete
+// each other's freshly renamed file, leaving no sound configured at all.
+let notificationSoundMutationQueue: Promise<unknown> = Promise.resolve();
+function withNotificationSoundLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = notificationSoundMutationQueue.then(task, task);
+  notificationSoundMutationQueue = run.catch(() => undefined);
+  return run;
+}
+
 function soundStatus(sound: StoredNotificationSound | null) {
   if (!sound) return { configured: false, url: null, updatedAt: null };
   return {
@@ -151,22 +160,24 @@ export async function notificationSoundRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "The uploaded file is not a supported audio container." });
     }
 
-    await mkdir(NOTIFICATION_SOUNDS_DIR, { recursive: true });
     const finalPath = soundPath(uploadedExtension);
     const tempPath = assertInsideDir(
       NOTIFICATION_SOUNDS_DIR,
       join(NOTIFICATION_SOUNDS_DIR, `.notification-${randomUUID()}.tmp`),
     );
     try {
-      await writeFile(tempPath, buffer, { flag: "wx" });
-      await rename(tempPath, finalPath);
-      await removeStoredNotificationSounds(finalPath);
-      const details = await stat(finalPath);
-      return soundStatus({
-        extension: uploadedExtension,
-        mimeType: format.mimeType,
-        path: finalPath,
-        updatedAt: details.mtime.toISOString(),
+      return await withNotificationSoundLock(async () => {
+        await mkdir(NOTIFICATION_SOUNDS_DIR, { recursive: true });
+        await writeFile(tempPath, buffer, { flag: "wx" });
+        await rename(tempPath, finalPath);
+        await removeStoredNotificationSounds(finalPath);
+        const details = await stat(finalPath);
+        return soundStatus({
+          extension: uploadedExtension,
+          mimeType: format.mimeType,
+          path: finalPath,
+          updatedAt: details.mtime.toISOString(),
+        });
       });
     } catch (error) {
       await unlink(tempPath).catch(() => undefined);
@@ -176,20 +187,31 @@ export async function notificationSoundRoutes(app: FastifyInstance) {
   });
 
   app.delete("/", async (_req, reply) => {
-    await removeStoredNotificationSounds();
+    await withNotificationSoundLock(() => removeStoredNotificationSounds());
     return reply.status(204).send();
   });
 
   app.get("/file", async (_req, reply) => {
     const sound = await findStoredNotificationSound();
-    if (!sound || !existsSync(sound.path)) return reply.status(404).send({ error: "No custom notification sound." });
-    const details = await stat(sound.path);
+    if (!sound) return reply.status(404).send({ error: "No custom notification sound." });
+    // Open a handle before replying: a concurrent replace/delete can remove
+    // the file after discovery, and an open handle keeps the bytes readable.
+    let handle;
+    try {
+      handle = await open(sound.path, "r");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return reply.status(404).send({ error: "No custom notification sound." });
+      }
+      throw error;
+    }
+    const details = await handle.stat();
     return reply
       .header("Content-Type", sound.mimeType)
       .header("Content-Length", details.size.toString())
       .header("Content-Disposition", "inline")
       .header("Cache-Control", "no-cache")
       .header("X-Content-Type-Options", "nosniff")
-      .send(createReadStream(sound.path));
+      .send(handle.createReadStream());
   });
 }

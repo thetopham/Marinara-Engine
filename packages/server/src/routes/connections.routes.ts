@@ -142,14 +142,18 @@ function describeTestMessageTarget(provider: string, baseUrl: string, model: str
 
 function resolveImageGenerationSource(conn: Record<string, unknown>, baseUrl: string): string {
   const explicitSource = typeof conn.imageGenerationSource === "string" ? conn.imageGenerationSource : "";
+  // Older connections identify their backend only through imageService.
+  const serviceHint = typeof conn.imageService === "string" ? conn.imageService : "";
   const model = typeof conn.model === "string" ? conn.model : "";
-  return inferImageSource(explicitSource || model, baseUrl);
+  return inferImageSource(explicitSource || serviceHint || model, baseUrl);
 }
 
 function resolveVideoGenerationSource(conn: Record<string, unknown>, baseUrl: string): string {
   const explicitSource = typeof conn.videoGenerationSource === "string" ? conn.videoGenerationSource : "";
+  // Older connections identify their backend only through videoService.
+  const serviceHint = typeof conn.videoService === "string" ? conn.videoService : "";
   const model = typeof conn.model === "string" ? conn.model : "";
-  return inferVideoSource(explicitSource || model, baseUrl);
+  return inferVideoSource(explicitSource || serviceHint || model, baseUrl);
 }
 
 function localUrlPolicyForProvider(provider: string, imageSource: string) {
@@ -1071,6 +1075,7 @@ export async function connectionsRoutes(app: FastifyInstance) {
       const result = await generateVideo(videoSource, baseUrl, videoApiKey, videoServiceHint, {
         prompt,
         model: videoModel,
+        debugMode: readDebugMode(req.body),
         durationSeconds: activeDefaults.durationSeconds,
         aspectRatio: activeDefaults.aspectRatio,
         resolution: isXaiVideo

@@ -12,7 +12,7 @@ import {
   type LocalNotificationPermission,
   type NativeNotificationPermission,
 } from "../../../lib/local-notifications";
-import { playNotificationPing } from "../../../lib/notification-sound";
+import { playNotificationPing, setCustomNotificationSoundUrl } from "../../../lib/notification-sound";
 import {
   useCustomNotificationSoundStatus,
   useRemoveCustomNotificationSound,
@@ -341,7 +341,10 @@ function CustomNotificationSoundSetting() {
       return;
     }
     try {
-      await uploadSound.mutateAsync(file);
+      const status = await uploadSound.mutateAsync(file);
+      // Prime the playback state directly — App's sync effect only runs after
+      // the next render, and the preview below must already use the new sound.
+      setCustomNotificationSoundUrl(status.url);
       toast.success(t("settings.notifications.customSound.toasts.uploaded"));
       playNotificationPing();
     } catch {
@@ -352,6 +355,7 @@ function CustomNotificationSoundSetting() {
   const handleRemove = async () => {
     try {
       await removeSound.mutateAsync();
+      setCustomNotificationSoundUrl(null);
       toast.success(t("settings.notifications.customSound.toasts.removed"));
     } catch {
       toast.error(t("settings.notifications.customSound.toasts.removeFailed"));

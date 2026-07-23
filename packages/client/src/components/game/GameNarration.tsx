@@ -1012,12 +1012,9 @@ export function GameNarration({
   const gameDialogueDisplayMode = useUIStore((s) => s.gameDialogueDisplayMode);
   const gameTextEffectsEnabled = useUIStore((s) => s.gameTextEffectsEnabled);
   const quoteFormat = useUIStore((s) => s.quoteFormat);
-  const defaultDialogueColorEnabled = useUIStore((s) => s.defaultDialogueColorEnabled);
   const defaultDialogueColor = useUIStore((s) => s.defaultDialogueColor);
   const theme = useUIStore((s) => s.theme);
-  const fallbackDialogueColor = defaultDialogueColorEnabled
-    ? defaultDialogueColor || getDefaultChatTextColor(theme)
-    : undefined;
+  const fallbackDialogueColor = defaultDialogueColor || getDefaultChatTextColor(theme);
   const personaDialogueColor =
     personaInfo?.dialogueColor || fallbackDialogueColor || personaInfo?.nameColor || "#a5b4fc";
   const useStackedLogDisplay = gameDialogueDisplayMode === "stacked";

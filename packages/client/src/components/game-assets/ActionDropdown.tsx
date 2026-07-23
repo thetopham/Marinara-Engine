@@ -84,7 +84,7 @@ export function ActionDropdown({
             item.disabled
               ? "cursor-not-allowed text-[var(--muted-foreground)] opacity-50"
               : item.destructive
-                ? "text-[var(--destructive)] hover:bg-[var(--destructive)]/10"
+                ? "text-[var(--primary)] hover:bg-[var(--primary)]/10"
                 : "text-[var(--foreground)] hover:bg-[var(--accent)]",
           )}
         >

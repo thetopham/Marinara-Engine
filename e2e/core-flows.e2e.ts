@@ -140,6 +140,27 @@ test("turning off the custom mouse pointer persists immediately and after reload
     .toBeNull();
 });
 
+test("gradient Accent Pulse keeps animating while Appearance settings are open", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Accent Pulse preview is covered on desktop.");
+
+  await page.goto("/");
+  await page.locator('[data-tour="panel-settings"]').click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
+  const accentColorControl = page.locator("#settings-control-app-accent-color");
+  await accentColorControl.getByRole("button", { name: /Default/ }).click();
+  await accentColorControl.getByRole("button", { name: "Gradient", exact: true }).click();
+  await page.getByText("Accent Pulse", { exact: true }).click();
+  await expect(page.getByLabel("Accent Pulse")).toBeChecked();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.marinaraAccentAnimation ?? null))
+    .toBe("gradient");
+
+  const firstAccent = await page.evaluate(() => document.documentElement.style.getPropertyValue("--primary"));
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--primary")))
+    .not.toBe(firstAccent);
+});
+
 test("Android status bar setting reads and updates the native bridge", async ({ page }) => {
   await page.addInitScript(() => {
     const nativeWindow = window as Window & {
@@ -257,9 +278,7 @@ test("default dialogue color fills only cards without their own dialogue color",
     await page.getByRole("tab", { name: "Appearance" }).click();
     const dialogueColorControl = page.locator("#settings-control-default-dialogue-color");
     await dialogueColorControl.scrollIntoViewIfNeeded();
-    const dialogueColorToggle = dialogueColorControl.locator('input[type="checkbox"]');
-    await dialogueColorControl.locator("label[for]").first().click();
-    await expect(dialogueColorToggle).toBeChecked();
+    await expect(dialogueColorControl.locator('input[type="checkbox"]')).toHaveCount(0);
     await dialogueColorControl.getByRole("button", { name: /Scheme default/ }).click();
     await dialogueColorControl.getByLabel("Default Dialogue Color hex or CSS color").fill("#d946ef");
 
@@ -271,20 +290,127 @@ test("default dialogue color fills only cards without their own dialogue color",
           const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
             state?: { defaultDialogueColorEnabled?: unknown; defaultDialogueColor?: unknown };
           };
-          return [persisted.state?.defaultDialogueColorEnabled, persisted.state?.defaultDialogueColor];
+          return [persisted.state?.defaultDialogueColorEnabled ?? null, persisted.state?.defaultDialogueColor];
         }),
       )
-      .toEqual([true, "#d946ef"]);
-
-    await dialogueColorControl.locator("label[for]").first().click();
-    await expect(dialogueColorToggle).not.toBeChecked();
-    await expect(uncoloredDialogue).not.toHaveCSS("color", "rgb(217, 70, 239)");
-    await expect(coloredDialogue).toHaveCSS("color", "rgb(34, 197, 94)");
+      .toEqual([null, "#d946ef"]);
   } finally {
     await page.request.delete(`/api/chats/${chat.id}`).catch(() => undefined);
     await Promise.all([
       page.request.delete(`/api/characters/${uncoloredCharacter.id}`).catch(() => undefined),
       page.request.delete(`/api/characters/${coloredCharacter.id}`).catch(() => undefined),
+    ]);
+  }
+});
+
+test("Character and Persona avatar actions stay separated and visually balanced", async ({ page }) => {
+  const suffix = Date.now().toString(36);
+  const connectionResponse = await page.request.post("/api/connections", {
+    data: {
+      name: `Avatar Actions ${suffix}`,
+      provider: "image_generation",
+      imageGenerationSource: "openai",
+    },
+  });
+  expect(connectionResponse.ok()).toBeTruthy();
+  const connection = (await connectionResponse.json()) as { id: string };
+
+  const characterName = `Avatar Character ${suffix}`;
+  const characterResponse = await page.request.post("/api/characters", {
+    data: { data: { name: characterName } },
+  });
+  expect(characterResponse.ok()).toBeTruthy();
+  const character = (await characterResponse.json()) as { id: string };
+
+  const personaName = `Avatar Persona ${suffix}`;
+  const personaResponse = await page.request.post("/api/characters/personas", {
+    data: { name: personaName },
+  });
+  expect(personaResponse.ok()).toBeTruthy();
+  const persona = (await personaResponse.json()) as { id: string };
+
+  const verifyEditor = async (panel: "characters" | "personas", resourceName: string) => {
+    await page.locator(`[data-tour="panel-${panel}"]`).click();
+    await page.getByText(resourceName, { exact: true }).first().click();
+
+    const editor = page.locator(".mari-editor-shell");
+    await expect(editor).toBeVisible();
+    const tile = editor.locator(".mari-editor-avatar-tile");
+    const generateButton = tile.getByRole("button", { name: "Generate avatar with AI" });
+    const cameraIcon = tile.locator("div.absolute.inset-0 svg");
+    await expect(generateButton).toBeVisible();
+    await expect(cameraIcon).toHaveCount(1);
+
+    const [tileBox, generateBox, cameraBox] = await Promise.all([
+      tile.boundingBox(),
+      generateButton.boundingBox(),
+      cameraIcon.boundingBox(),
+    ]);
+    expect(tileBox).not.toBeNull();
+    expect(generateBox).not.toBeNull();
+    expect(cameraBox).not.toBeNull();
+    if (!tileBox || !generateBox || !cameraBox) return;
+
+    expect(generateBox.width).toBeGreaterThanOrEqual(11.5);
+    expect(generateBox.width).toBeLessThanOrEqual(14);
+    expect(generateBox.x + generateBox.width).toBeLessThanOrEqual(tileBox.x + tileBox.width + 1);
+    expect(generateBox.y).toBeGreaterThanOrEqual(tileBox.y - 1);
+    const overlapsCamera =
+      generateBox.x < cameraBox.x + cameraBox.width &&
+      generateBox.x + generateBox.width > cameraBox.x &&
+      generateBox.y < cameraBox.y + cameraBox.height &&
+      generateBox.y + generateBox.height > cameraBox.y;
+    expect(overlapsCamera).toBe(false);
+
+    await editor
+      .getByRole("navigation", { name: "Editor sections" })
+      .getByRole("button", { name: "Metadata", exact: true })
+      .click();
+    const uploadButton = editor.getByRole("button", { name: "Upload avatar", exact: true });
+    const metadataGenerateButton = editor.getByRole("button", { name: "Generate with AI", exact: true });
+    await expect(uploadButton).toBeVisible();
+    await expect(metadataGenerateButton).toBeVisible();
+    await page.mouse.move(1, 1);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(uploadButton).toHaveClass(/mari-chrome-control--small/);
+    await expect(metadataGenerateButton).toHaveClass(/mari-chrome-control--small/);
+    const touchHoverActive = await metadataGenerateButton.evaluate((element) => element.matches(":hover"));
+    if (!touchHoverActive) {
+      await expect
+        .poll(async () => {
+          const [uploadStyles, generateStyles] = await Promise.all(
+            [uploadButton, metadataGenerateButton].map((button) =>
+              button.evaluate((element) => {
+                const styles = getComputedStyle(element);
+                return {
+                  backgroundColor: styles.backgroundColor,
+                  borderColor: styles.borderColor,
+                  color: styles.color,
+                };
+              }),
+            ),
+          );
+          return JSON.stringify(uploadStyles) === JSON.stringify(generateStyles);
+        })
+        .toBe(true);
+    }
+
+    await editor
+      .locator(".mari-editor-header .mari-editor-action")
+      .first()
+      .evaluate((button: HTMLButtonElement) => button.click());
+    await expect(editor).toHaveCount(0);
+  };
+
+  try {
+    await page.goto("/");
+    await verifyEditor("characters", characterName);
+    await verifyEditor("personas", personaName);
+  } finally {
+    await Promise.all([
+      page.request.delete(`/api/characters/${character.id}`).catch(() => undefined),
+      page.request.delete(`/api/characters/personas/${persona.id}`).catch(() => undefined),
+      page.request.delete(`/api/connections/${connection.id}`).catch(() => undefined),
     ]);
   }
 });
@@ -1043,7 +1169,7 @@ test("legacy browser records are cleaned while extension imports stay locked", a
         };
       }),
     )
-    .toEqual({ version: 81, hasExtensionRecords: false, hasCleanupFlag: false });
+    .toEqual({ version: 82, hasExtensionRecords: false, hasCleanupFlag: false });
 
   expect(
     await page.evaluate(
@@ -1817,7 +1943,7 @@ test("UI language selection loads locale files and persists across reloads", asy
 
   // Community locales are intentionally partial. A newly extracted English
   // key must render in English when the selected locale has not translated it.
-  await languageSelect.selectOption("de");
+  await languageSelect.selectOption("es");
   await expect(page.getByPlaceholder("Search settings")).toBeVisible();
   await expect(page.getByText("Confirm before deleting", { exact: true })).toBeVisible();
 

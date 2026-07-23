@@ -1203,7 +1203,6 @@ export const ChatMessage = memo(function ChatMessage({
   const {
     chatFontSize,
     chatFontColor,
-    defaultDialogueColorEnabled,
     defaultDialogueColor,
     theme,
     chatFontOpacity,
@@ -1225,7 +1224,6 @@ export const ChatMessage = memo(function ChatMessage({
     useShallow((s) => ({
       chatFontSize: s.chatFontSize,
       chatFontColor: s.chatFontColor,
-      defaultDialogueColorEnabled: s.defaultDialogueColorEnabled,
       defaultDialogueColor: s.defaultDialogueColor,
       theme: s.theme,
       chatFontOpacity: s.chatFontOpacity,
@@ -1887,9 +1885,7 @@ export const ChatMessage = memo(function ChatMessage({
         }
       : personaInfo
     : resolvedCharacterInfo;
-  const fallbackDialogueColor = defaultDialogueColorEnabled
-    ? defaultDialogueColor || getDefaultChatTextColor(theme)
-    : undefined;
+  const fallbackDialogueColor = defaultDialogueColor || getDefaultChatTextColor(theme);
   const dialogueColor = msgColors?.dialogueColor || fallbackDialogueColor;
   const boxBgColor = msgColors?.boxColor;
   const msgNameColor = msgColors?.nameColor;

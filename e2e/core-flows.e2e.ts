@@ -819,7 +819,17 @@ for (const mode of ["roleplay", "conversation"] as const) {
       await expect(thoughtsDialog).toBeVisible();
       await expect(thoughtsDialog).toContainText("Second reasoning chunk.");
       await expect(liveMessage.getByRole("button", { name: "View model thoughts" })).toBeVisible();
-      await thoughtsDialog.getByRole("button", { name: "Close thoughts" }).click();
+      const closeThoughtsButton = thoughtsDialog.getByRole("button", { name: "Close Model Thoughts" });
+      await expect
+        .poll(() => thoughtsDialog.evaluate((dialog) => dialog.contains(document.activeElement)))
+        .toBe(true);
+      await page.keyboard.press("Tab");
+      await expect(closeThoughtsButton).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(closeThoughtsButton).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(thoughtsDialog).toBeHidden();
+      await expect(liveThoughtsButton).toBeFocused();
 
       await updateLiveReasoningState(page, chat.id, "stop");
       await expect(liveMessage).toHaveCount(0);

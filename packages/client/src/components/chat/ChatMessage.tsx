@@ -1278,6 +1278,7 @@ export const ChatMessage = memo(function ChatMessage({
   const [imageLightbox, setImageLightbox] = useState<ChatMessageImageLightboxState | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
   const msgRef = useRef<HTMLDivElement>(null);
+  const thinkingButtonRef = useRef<HTMLButtonElement>(null);
   const editSwipeIndexRef = useRef<number | null>(null);
   const lastQuickTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const openImageLightbox = useCallback(
@@ -2744,6 +2745,7 @@ export const ChatMessage = memo(function ChatMessage({
                   onClick={() => setShowThinking(true)}
                   title={t("chat.message.thoughts.view")}
                   thinkingAction
+                  buttonRef={thinkingButtonRef}
                   dark
                 />
               )}
@@ -2826,7 +2828,11 @@ export const ChatMessage = memo(function ChatMessage({
 
         {/* Thinking modal */}
         {showThinking && thinking && (
-          <MessageThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />
+          <MessageThinkingModal
+            thinking={thinking}
+            onClose={() => setShowThinking(false)}
+            restoreFocusRef={thinkingButtonRef}
+          />
         )}
         {generationReplay && (
           <GenerationReplayDetailsModal
@@ -3191,6 +3197,7 @@ export const ChatMessage = memo(function ChatMessage({
                 onClick={() => setShowThinking(true)}
                 title={t("chat.message.thoughts.view")}
                 thinkingAction
+                buttonRef={thinkingButtonRef}
               />
             )}
             {onBranch && (
@@ -3276,7 +3283,13 @@ export const ChatMessage = memo(function ChatMessage({
       </div>
 
       {/* Thinking modal */}
-      {showThinking && thinking && <MessageThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
+      {showThinking && thinking && (
+        <MessageThinkingModal
+          thinking={thinking}
+          onClose={() => setShowThinking(false)}
+          restoreFocusRef={thinkingButtonRef}
+        />
+      )}
       {generationReplay && (
         <GenerationReplayDetailsModal
           open={showGenerationReplay}
@@ -3402,6 +3415,7 @@ function ActionBtn({
   disabled,
   ariaPressed,
   thinkingAction,
+  buttonRef,
 }: {
   icon: React.ReactNode;
   onClick: () => void;
@@ -3411,9 +3425,11 @@ function ActionBtn({
   disabled?: boolean;
   ariaPressed?: boolean;
   thinkingAction?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       title={title}

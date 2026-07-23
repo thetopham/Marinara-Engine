@@ -64,6 +64,7 @@ export function ConversationMessageGrouped({
     canRegenerate,
     isLastAssistantMessage,
     thinking,
+    thinkingButtonRef,
     generationReplay,
     isGuided,
     regenerateButtonTitle,
@@ -428,6 +429,7 @@ export function ConversationMessageGrouped({
           canRegenerate={canRegenerate}
           isLastAssistantMessage={isLastAssistantMessage}
           thinking={thinking}
+          thinkingButtonRef={thinkingButtonRef}
           generationReplay={generationReplay}
           isGuided={isGuided}
           regenerateButtonTitle={regenerateButtonTitle}

@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { MessageExtra } from "@marinara-engine/shared";
+import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import { MsgAction } from "./ConversationMessageShared";
@@ -35,6 +36,7 @@ export interface ConversationMessageActionsProps {
   canRegenerate: boolean;
   isLastAssistantMessage?: boolean;
   thinking?: string | null;
+  thinkingButtonRef: RefObject<HTMLButtonElement | null>;
   generationReplay: MessageExtra["generationReplay"] | null;
   isGuided: boolean;
   regenerateButtonTitle: string;
@@ -66,6 +68,7 @@ export function ConversationMessageActions({
   canRegenerate,
   isLastAssistantMessage,
   thinking,
+  thinkingButtonRef,
   generationReplay,
   regenerateButtonTitle,
   regenerateGuidedClass,
@@ -148,6 +151,7 @@ export function ConversationMessageActions({
           title={t("chat.message.thoughts.view")}
           tabIndex={tabIdx}
           className="mari-message-thinking-action"
+          buttonRef={thinkingButtonRef}
         />
       )}
       {onDelete && (

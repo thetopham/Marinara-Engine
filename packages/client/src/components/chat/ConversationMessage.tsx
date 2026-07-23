@@ -155,6 +155,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   const [imageLightbox, setImageLightbox] = useState<{ url: string; prompt?: string | null } | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   const msgRef = useRef<HTMLDivElement>(null);
+  const thinkingButtonRef = useRef<HTMLButtonElement>(null);
   const editSwipeIndexRef = useRef<number | null>(null);
 
   // ── Store selectors ──
@@ -201,6 +202,11 @@ export const ConversationMessage = memo(function ConversationMessage({
   const canRegenerate = !isUser || generationReplay !== null;
   const thinking =
     typeof extra?.thinking === "string" && extra.thinking.trim().length > 0 ? (extra.thinking as string) : null;
+
+  useEffect(() => {
+    if (!thinking) setShowThinking(false);
+  }, [thinking]);
+
   const reactions = useMemo<MessageReaction[]>(
     () => (Array.isArray(extra.reactions) ? extra.reactions : []),
     [extra.reactions],
@@ -752,6 +758,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     regenerateButtonTitle,
     regenerateGuidedClass,
     thinking,
+    thinkingButtonRef,
     generationReplay,
     canRegenerate,
     isLastAssistantMessage,
@@ -821,7 +828,13 @@ export const ConversationMessage = memo(function ConversationMessage({
   // ── Shared modals (portals, rendered outside the layout) ──
   const modals = (
     <>
-      {showThinking && thinking && <MessageThinkingModal thinking={thinking} onClose={() => setShowThinking(false)} />}
+      {showThinking && thinking && (
+        <MessageThinkingModal
+          thinking={thinking}
+          onClose={() => setShowThinking(false)}
+          restoreFocusRef={thinkingButtonRef}
+        />
+      )}
       {generationReplay && (
         <GenerationReplayDetailsModal
           open={showGenerationReplay}
@@ -994,6 +1007,7 @@ export const ConversationMessage = memo(function ConversationMessage({
             canRegenerate={canRegenerate}
             isLastAssistantMessage={isLastAssistantMessage}
             thinking={thinking}
+            thinkingButtonRef={thinkingButtonRef}
             generationReplay={generationReplay}
             isGuided={isGuided}
             regenerateButtonTitle={regenerateButtonTitle}

@@ -61,7 +61,7 @@ export function Modal({
   const [mounted, setMounted] = useState(false);
   const [animating, setAnimating] = useState<"enter" | "exit" | null>(null);
   const enterRafRef = useRef<number | null>(null);
-  useDialogFocusScope(open, panelRef, initialFocusRef, restoreFocusRef, focusScopePortalSelector);
+  useDialogFocusScope(open && mounted, panelRef, initialFocusRef, restoreFocusRef, focusScopePortalSelector);
 
   useEffect(() => {
     if (enterRafRef.current !== null) {

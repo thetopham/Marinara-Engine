@@ -136,6 +136,7 @@ import {
   parseTrackerFieldLocks,
   parseTrackerHiddenFields,
   normalizeRpgStatPools,
+  normalizeIllustratorImagesPerGeneration,
   resolveGameSetupArtStylePrompt,
   SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
   createTacticalCombat,
@@ -11931,44 +11932,50 @@ export async function gameRoutes(app: FastifyInstance) {
               imgService: imgServiceHint,
             }),
           });
-          let sentIllustrationPrompt: string | null = null;
-          const tag = await generateSceneIllustration({
-            chatId: input.chatId,
-            title: illustration.title,
-            prompt: illustration.prompt,
-            reason: illustration.reason,
-            characters: illustration.characters,
-            characterDescriptions: illustrationAssets.characterDescriptions,
-            slug: illustration.slug,
-            genre,
-            setting,
-            artStyle,
-            imagePromptInstructions,
-            referenceImages: illustrationAssets.referenceImages,
-            imgSource,
-            imgModel,
-            imgBaseUrl,
-            imgApiKey,
-            imgService: imgServiceHint,
-            imgEndpointId,
-            imgComfyWorkflow,
-            imgDefaults,
-            imgFallback,
-            styleProfiles,
-            styleProfileId,
-            debugLog: debugLogsEnabled ? debugLog : undefined,
-            promptOverridesStorage,
-            dynamicPromptGenerator,
-            size: backgroundSize,
-            promptOverride: promptOverride?.prompt,
-            negativePromptOverride: promptOverride?.negativePrompt,
-            onCompiledPrompt: (compiled) => {
-              sentIllustrationPrompt = compiled.prompt;
-            },
-            signal: assetAbortSignal,
-          });
+          const illustrationCount = normalizeIllustratorImagesPerGeneration(meta.illustratorImagesPerGeneration);
+          const generatedTags: string[] = [];
+          for (let variantIndex = 0; variantIndex < illustrationCount; variantIndex += 1) {
+            let sentIllustrationPrompt: string | null = null;
+            const tag = await generateSceneIllustration({
+              chatId: input.chatId,
+              title: illustration.title,
+              prompt: illustration.prompt,
+              reason: illustration.reason,
+              characters: illustration.characters,
+              characterDescriptions: illustrationAssets.characterDescriptions,
+              slug:
+                illustrationCount > 1
+                  ? `${illustration.slug || "scene-illustration"}-variant-${variantIndex + 1}`
+                  : illustration.slug,
+              genre,
+              setting,
+              artStyle,
+              imagePromptInstructions,
+              referenceImages: illustrationAssets.referenceImages,
+              imgSource,
+              imgModel,
+              imgBaseUrl,
+              imgApiKey,
+              imgService: imgServiceHint,
+              imgEndpointId,
+              imgComfyWorkflow,
+              imgDefaults,
+              imgFallback,
+              styleProfiles,
+              styleProfileId,
+              debugLog: debugLogsEnabled ? debugLog : undefined,
+              promptOverridesStorage,
+              dynamicPromptGenerator,
+              size: backgroundSize,
+              promptOverride: promptOverride?.prompt,
+              negativePromptOverride: promptOverride?.negativePrompt,
+              onCompiledPrompt: (compiled) => {
+                sentIllustrationPrompt = compiled.prompt;
+              },
+              signal: assetAbortSignal,
+            });
 
-          if (tag) {
+            if (!tag) continue;
             await addGeneratedIllustrationToGallery({
               app,
               chatId: input.chatId,
@@ -11977,8 +11984,13 @@ export async function gameRoutes(app: FastifyInstance) {
               model: imgModel,
               prompt: sentIllustrationPrompt,
             });
+            generatedTags.push(tag);
+          }
+
+          const primaryTag = generatedTags[0];
+          if (primaryTag) {
             generatedIllustration = {
-              tag,
+              tag: primaryTag,
               ...(illustration.segment !== undefined ? { segment: illustration.segment } : {}),
             };
             const latestChat = await chats.getById(input.chatId);
@@ -11988,7 +12000,7 @@ export async function gameRoutes(app: FastifyInstance) {
                 ...latestMeta,
                 gameLastIllustrationTurn: approxTurnNumber,
                 gameLastIllustrationSessionNumber: sessionNumber,
-                gameLastIllustrationTag: tag,
+                gameLastIllustrationTag: primaryTag,
               });
             }
           }

@@ -2,7 +2,7 @@ import { stripMacroComments } from "@marinara-engine/shared";
 import { readPreferredFullBodySpriteBase64 } from "../game/sprite.service.js";
 import { readAvatarBase64 } from "../game/game-asset-generation.js";
 import {
-  readCharacterSheetReferenceBase64,
+  readCharacterVisualReferenceBase64,
   selectCharacterVisualReference,
   type CharacterGalleryReferenceStore,
 } from "./character-visual-reference.js";
@@ -246,7 +246,7 @@ async function readBestCharacterReferenceImage(args: {
   characterGallery: CharacterGalleryReferenceStore;
 }) {
   return selectCharacterVisualReference({
-    characterSheet: await readCharacterSheetReferenceBase64({
+    visualReference: await readCharacterVisualReferenceBase64({
       characterId: args.source.id,
       characterData: args.source.data,
       characterGallery: args.characterGallery,

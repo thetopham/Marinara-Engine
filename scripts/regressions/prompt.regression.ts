@@ -575,7 +575,7 @@ import {
   suppressesReferencePromptLine,
 } from "../../packages/server/src/routes/generate/illustrator-references.js";
 import {
-  readCharacterSheetImageId,
+  readCharacterVisualReferenceImageId,
   selectCharacterVisualReference,
 } from "../../packages/server/src/services/image/character-visual-reference.js";
 import {
@@ -583,6 +583,7 @@ import {
   PROFESSOR_MARI_AGENT_CATALOG_KNOWLEDGE,
 } from "../../packages/server/src/services/professor-mari/official-agent-knowledge.js";
 import { filterEnabledConversationCommands } from "../../packages/server/src/services/generation/conversation-command-runtime.js";
+import { dataImageUrlToFile } from "../../packages/client/src/lib/data-image-file.js";
 
 type RegressionCase = {
   name: string;
@@ -2297,6 +2298,19 @@ const cases: RegressionCase[] = [
     },
   },
   {
+    name: "generated character sheets decode without fetching their data URL",
+    run() {
+      const file = dataImageUrlToFile(
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+        "Mara Venn-sheet",
+      );
+      assert.equal(file.name, "Mara-Venn-sheet.gif");
+      assert.equal(file.type, "image/gif");
+      assert.ok(file.size > 0);
+      assert.throws(() => dataImageUrlToFile("not-an-image", "sheet"), /not valid image data/u);
+    },
+  },
+  {
     name: "Illustrator resolves depicted character and persona gallery targets without loading references",
     async run() {
       const resolution = await resolveIllustratorCharacterReferences({
@@ -2382,16 +2396,20 @@ const cases: RegressionCase[] = [
       assert.doesNotMatch(normalizedResolution.appearanceBlock ?? "", /hidden/u);
 
       assert.equal(
-        readCharacterSheetImageId({ extensions: { characterSheetImageId: " sheet-image " } }),
-        "sheet-image",
+        readCharacterVisualReferenceImageId({ extensions: { visualReferenceImageId: " reference-image " } }),
+        "reference-image",
+      );
+      assert.equal(
+        readCharacterVisualReferenceImageId({ extensions: { characterSheetImageId: " legacy-image " } }),
+        "legacy-image",
       );
       assert.equal(
         selectCharacterVisualReference({
-          characterSheet: "sheet-base64",
+          visualReference: "reference-base64",
           fullBodySprite: "sprite-base64",
           avatar: "avatar-base64",
         })?.source,
-        "character-sheet",
+        "visual-reference",
       );
       assert.equal(
         selectCharacterVisualReference({ fullBodySprite: "sprite-base64", avatar: "avatar-base64" })?.source,

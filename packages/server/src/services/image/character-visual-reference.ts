@@ -13,14 +13,14 @@ export type CharacterGalleryReferenceStore = {
   getById: (id: string) => Promise<CharacterGalleryImageLike | null>;
 };
 
-export type CharacterVisualReferenceSource = "character-sheet" | "sprite" | "avatar";
+export type CharacterVisualReferenceSource = "visual-reference" | "sprite" | "avatar";
 
 export function selectCharacterVisualReference(args: {
-  characterSheet?: string;
+  visualReference?: string;
   fullBodySprite?: string;
   avatar?: string;
 }): { base64: string; source: CharacterVisualReferenceSource } | null {
-  if (args.characterSheet) return { base64: args.characterSheet, source: "character-sheet" };
+  if (args.visualReference) return { base64: args.visualReference, source: "visual-reference" };
   if (args.fullBodySprite) return { base64: args.fullBodySprite, source: "sprite" };
   if (args.avatar) return { base64: args.avatar, source: "avatar" };
   return null;
@@ -39,19 +39,19 @@ function parseRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-export function readCharacterSheetImageId(characterData: unknown): string | null {
+export function readCharacterVisualReferenceImageId(characterData: unknown): string | null {
   const data = parseRecord(characterData);
   const extensions = parseRecord(data.extensions);
-  const imageId = extensions.characterSheetImageId;
+  const imageId = extensions.visualReferenceImageId ?? extensions.characterSheetImageId;
   return typeof imageId === "string" && imageId.trim() ? imageId.trim() : null;
 }
 
-export async function readCharacterSheetReferenceBase64(args: {
+export async function readCharacterVisualReferenceBase64(args: {
   characterId: string;
   characterData: unknown;
   characterGallery: CharacterGalleryReferenceStore;
 }): Promise<string | undefined> {
-  const imageId = readCharacterSheetImageId(args.characterData);
+  const imageId = readCharacterVisualReferenceImageId(args.characterData);
   if (!imageId) return undefined;
 
   try {

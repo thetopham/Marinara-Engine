@@ -59,7 +59,7 @@ import { extname } from "path";
 import { pipeline } from "stream/promises";
 import { newId } from "../utils/id-generator.js";
 import { createReplyFallbackNotifier } from "./generate/fallback-notification.js";
-import { readCharacterSheetImageId } from "../services/image/character-visual-reference.js";
+import { readCharacterVisualReferenceImageId } from "../services/image/character-visual-reference.js";
 
 const CHARACTER_GALLERY_ROOT = join(DATA_DIR, "gallery", "characters");
 const PERSONA_GALLERY_ROOT = join(DATA_DIR, "gallery", "personas");
@@ -497,7 +497,7 @@ async function readSpritesForId(id: string): Promise<Array<{ filename: string; d
 async function readGalleryForCharacter(
   characterId: string,
   galleryStorage: { listByCharacterId: (id: string) => Promise<any[]> },
-  characterSheetImageId: string | null,
+  visualReferenceImageId: string | null,
 ): Promise<Array<Record<string, unknown>>> {
   const images = await galleryStorage.listByCharacterId(characterId);
   const result: Array<Record<string, unknown>> = [];
@@ -518,7 +518,7 @@ async function readGalleryForCharacter(
       model: img.model ?? "",
       width: img.width ?? null,
       height: img.height ?? null,
-      ...(img.id === characterSheetImageId ? { isPrimaryReference: true } : {}),
+      ...(img.id === visualReferenceImageId ? { isVisualReference: true } : {}),
     });
   }
   return result;
@@ -529,6 +529,7 @@ function buildPortableCharacterData(data: any) {
   const portable = { ...data };
   if (portable.extensions && typeof portable.extensions === "object" && !Array.isArray(portable.extensions)) {
     const extensions = { ...(portable.extensions as Record<string, unknown>) };
+    delete extensions.visualReferenceImageId;
     delete extensions.characterSheetImageId;
     portable.extensions = extensions;
   }
@@ -540,11 +541,11 @@ async function buildNativeCharacterEnvelope(
   data: any,
   galleryStorage: { listByCharacterId: (id: string) => Promise<any[]> },
 ) {
-  const characterSheetImageId = readCharacterSheetImageId(data);
+  const visualReferenceImageId = readCharacterVisualReferenceImageId(data);
   const [avatar, sprites, gallery] = await Promise.all([
     readAvatarDataUrl(char.avatarPath),
     readSpritesForId(char.id),
-    readGalleryForCharacter(char.id, galleryStorage, characterSheetImageId),
+    readGalleryForCharacter(char.id, galleryStorage, visualReferenceImageId),
   ]);
   return {
     type: "marinara_character",
@@ -932,10 +933,10 @@ export async function charactersRoutes(app: FastifyInstance) {
     if (!char) return reply.status(404).send({ error: "Character not found" });
 
     const images = await characterGallery.listByCharacterId(req.params.id);
-    const characterSheetImageId = readCharacterSheetImageId(char.data);
+    const visualReferenceImageId = readCharacterVisualReferenceImageId(char.data);
     return images.map((img) => ({
       ...img,
-      isPrimaryReference: img.id === characterSheetImageId,
+      isVisualReference: img.id === visualReferenceImageId,
       url: `/api/characters/${req.params.id}/gallery/file/${encodeURIComponent(img.filePath.split("/").pop()!)}`,
     }));
   });
@@ -1334,7 +1335,7 @@ export async function charactersRoutes(app: FastifyInstance) {
 
     return {
       ...image,
-      isPrimaryReference: false,
+      isVisualReference: false,
       url: `/api/characters/${id}/gallery/file/${encodeURIComponent(filename)}`,
     };
   });
@@ -1362,13 +1363,14 @@ export async function charactersRoutes(app: FastifyInstance) {
       id,
       {
         extensions: {
-          characterSheetImageId: normalizedImageId ?? undefined,
+          visualReferenceImageId: normalizedImageId ?? undefined,
+          characterSheetImageId: undefined,
         },
       } as Partial<CharacterData>,
       undefined,
       {
         skipVersionSnapshot: true,
-        versionSource: "character-sheet-reference",
+        versionSource: "visual-reference",
         mergeExtensions: true,
       },
     );
@@ -1404,14 +1406,19 @@ export async function charactersRoutes(app: FastifyInstance) {
 
     await characterGallery.remove(imageId);
     const character = await storage.getById(id);
-    if (character && readCharacterSheetImageId(character.data) === imageId) {
+    if (character && readCharacterVisualReferenceImageId(character.data) === imageId) {
       await storage.update(
         id,
-        { extensions: { characterSheetImageId: undefined } } as Partial<CharacterData>,
+        {
+          extensions: {
+            visualReferenceImageId: undefined,
+            characterSheetImageId: undefined,
+          },
+        } as Partial<CharacterData>,
         undefined,
         {
           skipVersionSnapshot: true,
-          versionSource: "character-sheet-reference-delete",
+          versionSource: "visual-reference-delete",
           mergeExtensions: true,
         },
       );

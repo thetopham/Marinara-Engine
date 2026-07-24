@@ -361,7 +361,7 @@ export interface CharacterGalleryImage {
   height: number | null;
   customKind: CustomKind | null;
   customName: string | null;
-  isPrimaryReference: boolean;
+  isVisualReference: boolean;
   createdAt: string;
   url: string;
 }

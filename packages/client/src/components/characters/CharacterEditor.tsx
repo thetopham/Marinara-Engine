@@ -50,6 +50,7 @@ import { lorebookKeys, useLorebook } from "../../hooks/use-lorebooks";
 import { useConnections } from "../../hooks/use-connections";
 import { useInstalledCapabilityPackages } from "../../hooks/use-capability-packages";
 import { showConfirmDialog } from "../../lib/app-dialogs";
+import { dataImageUrlToFile } from "../../lib/data-image-file";
 import { SpriteGenerationModal } from "../ui/SpriteGenerationModal";
 import { AvatarGenerationModal } from "../ui/AvatarGenerationModal";
 import { AvatarCropWidget } from "../ui/AvatarCropWidget";
@@ -185,7 +186,7 @@ const CHARACTER_ADVANCED_HELP =
   "Character-specific prompt controls. System Prompt is injected through the preset's character block, Post-History Instructions appear near generation time, and Depth Prompt inserts a reminder at a selected point in chat history.";
 
 const CHARACTER_GALLERY_HELP =
-  "These images belong to the character, so deleting a chat does not remove them. Create or upload a character sheet, then mark it as the primary visual reference for generated scenes. Keep outfit variants and imported ST-style image packs here too. Chat gallery is still best for scene-specific illustrations and generated message attachments.";
+  "These images belong to the character, so deleting a chat does not remove them. Create a character sheet or upload any useful image, then open it to set it as the visual reference for generated scenes. Keep outfit variants and imported ST-style image packs here too. Chat gallery is still best for scene-specific illustrations and generated message attachments.";
 
 const CHARACTER_SPRITES_HELP =
   "Upload sprites one by one, or use Upload Folder to bulk-import a folder of PNGs. Each filename becomes the expression name, for example admiration.png becomes admiration. To rotate variants, share a prefix before an underscore, for example happy_01.png and happy_blush.png. Enable the Expression Engine agent so roleplay can pick matching sprites from detected emotions. Sprites appear as VN-style overlays in the chat area.";
@@ -2201,6 +2202,7 @@ function CharacterGalleryTab({
   const setVisualReference = useSetCharacterVisualReference(characterId);
   const tag = useTagCharacterGalleryImage(characterId);
   const [lightbox, setLightbox] = useState<CharacterGalleryImage | null>(null);
+  const activeLightbox = lightbox ? (images?.find((image) => image.id === lightbox.id) ?? lightbox) : null;
 
   const handleUpload = useCallback(
     (files: File[]) => {
@@ -2242,12 +2244,12 @@ function CharacterGalleryTab({
 
   const handleSetVisualReference = useCallback(
     async (image: CharacterGalleryImage) => {
-      const nextImageId = image.isPrimaryReference ? null : image.id;
+      const nextImageId = image.isVisualReference ? null : image.id;
       try {
         await setVisualReference.mutateAsync(nextImageId);
-        toast.success(nextImageId ? "Character sheet selected." : "Character sheet cleared.");
+        toast.success(nextImageId ? "Visual reference selected." : "Visual reference cleared.");
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to update the character sheet.");
+        toast.error(error instanceof Error ? error.message : "Failed to update the visual reference.");
       }
     },
     [setVisualReference],
@@ -2255,21 +2257,11 @@ function CharacterGalleryTab({
 
   const handleGeneratedCharacterSheet = useCallback(
     async (dataUrl: string) => {
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      const extension =
-        ({
-          "image/jpeg": "jpg",
-          "image/webp": "webp",
-          "image/gif": "gif",
-          "image/avif": "avif",
-        } as Record<string, string>)[blob.type] ?? "png";
-      const [image] = await upload.mutateAsync([
-        new File([blob], `${characterName || "character"}-sheet.${extension}`, { type: blob.type || "image/png" }),
-      ]);
+      const file = dataImageUrlToFile(dataUrl, `${characterName || "character"}-sheet`);
+      const [image] = await upload.mutateAsync([file]);
       if (!image) throw new Error("The generated character sheet could not be saved.");
       await setVisualReference.mutateAsync(image.id);
-      toast.success("Character sheet created and selected.");
+      toast.success("Character sheet created and set as the visual reference.");
     },
     [characterName, setVisualReference, upload],
   );
@@ -2344,8 +2336,8 @@ function CharacterGalleryTab({
           />
 
           <p className="text-xs text-[var(--muted-foreground)]">
-            Mark one image as the character sheet. Marinara will reuse it as the primary visual reference for
-            storyboards and generated scenes.
+            Open an image to use it as the visual reference for storyboards and generated scenes. If none is selected,
+            Marinara uses the full-body sprite, then the avatar.
           </p>
 
           {isLoading ? (
@@ -2361,15 +2353,15 @@ function CharacterGalleryTab({
                   key={image.id}
                   className={cn(
                     "group relative overflow-hidden rounded-xl border bg-[var(--card)] transition-all hover:shadow-md",
-                    image.isPrimaryReference
+                    image.isVisualReference
                       ? "border-[var(--primary)] ring-2 ring-[var(--primary)]/25"
                       : "border-[var(--border)] hover:border-[var(--primary)]/30",
                   )}
                 >
-                  {image.isPrimaryReference ? (
+                  {image.isVisualReference ? (
                     <span className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md bg-[var(--primary)] px-1.5 py-1 text-[0.625rem] font-semibold text-[var(--primary-foreground)] shadow-sm">
                       <IdCard size="0.7rem" />
-                      Character sheet
+                      Visual reference
                     </span>
                   ) : null}
                   <CustomEmojiTagButton image={image} onApply={(patch) => tag.mutate({ imageId: image.id, patch })} />
@@ -2389,25 +2381,6 @@ function CharacterGalleryTab({
                       {new Date(image.createdAt).toLocaleDateString()}
                     </span>
                     <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => void handleSetVisualReference(image)}
-                        disabled={setVisualReference.isPending}
-                        className={cn(
-                          "rounded-lg p-1.5 text-white transition-colors disabled:opacity-50",
-                          image.isPrimaryReference
-                            ? "bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
-                            : "bg-white/15 hover:bg-white/25",
-                        )}
-                        title={image.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
-                        aria-label={image.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
-                      >
-                        {setVisualReference.isPending && setVisualReference.variables === image.id ? (
-                          <Loader2 size="0.75rem" className="animate-spin" />
-                        ) : (
-                          <IdCard size="0.75rem" />
-                        )}
-                      </button>
                       <button
                         type="button"
                         onClick={() => void handleSetAvatar(image)}
@@ -2460,40 +2433,40 @@ function CharacterGalleryTab({
         <CharacterVideosGallery characterId={characterId} characterName={characterName} />
       )}
 
-      {lightbox && (
+      {activeLightbox && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 max-md:pt-[env(safe-area-inset-top)]"
           onClick={() => setLightbox(null)}
         >
           <div className="relative max-h-[90vh] max-w-[90vw] w-[min(90vw,90vh)]" onClick={(e) => e.stopPropagation()}>
             <img
-              src={lightbox.url}
-              alt={lightbox.prompt || characterName || "Character image"}
+              src={activeLightbox.url}
+              alt={activeLightbox.prompt || characterName || "Character image"}
               className="max-h-[85vh] w-full rounded-lg object-contain shadow-2xl"
             />
             <div className="absolute right-2 top-2 flex gap-2">
               <button
                 type="button"
-                onClick={() => void handleSetVisualReference(lightbox)}
+                onClick={() => void handleSetVisualReference(activeLightbox)}
                 disabled={setVisualReference.isPending}
                 className={cn(
-                  "rounded-lg p-2 text-white transition-colors disabled:opacity-50",
-                  lightbox.isPrimaryReference
+                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-white transition-colors disabled:opacity-50",
+                  activeLightbox.isVisualReference
                     ? "bg-[var(--primary)] text-[var(--primary-foreground)] hover:brightness-110"
                     : "bg-black/60 hover:bg-black/80",
                 )}
-                title={lightbox.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
-                aria-label={lightbox.isPrimaryReference ? "Clear character sheet" : "Use as character sheet"}
+                title={activeLightbox.isVisualReference ? "Clear visual reference" : "Use as visual reference"}
               >
                 {setVisualReference.isPending ? (
                   <Loader2 size="0.875rem" className="animate-spin" />
                 ) : (
                   <IdCard size="0.875rem" />
                 )}
+                {activeLightbox.isVisualReference ? "Clear reference" : "Use as visual reference"}
               </button>
               <button
                 type="button"
-                onClick={() => void handleSetAvatar(lightbox)}
+                onClick={() => void handleSetAvatar(activeLightbox)}
                 disabled={setAvatar.isPending}
                 className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
                 title="Set as avatar"
@@ -2505,7 +2478,7 @@ function CharacterGalleryTab({
                 )}
               </button>
               <a
-                href={lightbox.url}
+                href={activeLightbox.url}
                 download
                 className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
               >

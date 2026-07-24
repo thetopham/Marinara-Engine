@@ -574,30 +574,34 @@ test("Character Gallery keeps one persistent character-sheet reference", async (
     await sheetDialog.getByRole("button", { name: "Cancel", exact: true }).click();
 
     const image = page.getByRole("img", { name: characterName, exact: true });
-    await image.hover();
-    await page.getByRole("button", { name: "Use as character sheet", exact: true }).click();
-    await expect(page.getByText("Character sheet", { exact: true })).toBeVisible();
+    await image.click();
+    await page.getByRole("button", { name: "Use as visual reference", exact: true }).click();
+    await expect(page.getByText("Visual reference", { exact: true })).toBeVisible();
 
     const galleryResponse = await page.request.get(`/api/characters/${character.id}/gallery`);
     expect(galleryResponse.ok()).toBeTruthy();
-    const gallery = (await galleryResponse.json()) as Array<{ id: string; isPrimaryReference: boolean }>;
-    expect(gallery.find((entry) => entry.id === uploaded.id)?.isPrimaryReference).toBe(true);
+    const gallery = (await galleryResponse.json()) as Array<{ id: string; isVisualReference: boolean }>;
+    expect(gallery.find((entry) => entry.id === uploaded.id)?.isVisualReference).toBe(true);
 
     const exportResponse = await page.request.get(`/api/characters/${character.id}/export`);
     expect(exportResponse.ok()).toBeTruthy();
     const exported = (await exportResponse.json()) as {
       data: {
-        data?: { extensions?: { characterSheetImageId?: unknown } };
-        gallery?: Array<{ isPrimaryReference?: boolean }>;
+        data?: { extensions?: { visualReferenceImageId?: unknown; characterSheetImageId?: unknown } };
+        gallery?: Array<{ isVisualReference?: boolean }>;
       };
     };
+    expect(exported.data.data?.extensions?.visualReferenceImageId).toBeUndefined();
     expect(exported.data.data?.extensions?.characterSheetImageId).toBeUndefined();
-    expect(exported.data.gallery?.filter((entry) => entry.isPrimaryReference)).toHaveLength(1);
+    expect(exported.data.gallery?.filter((entry) => entry.isVisualReference)).toHaveLength(1);
 
     const duplicateResponse = await page.request.post(`/api/characters/${character.id}/duplicate`);
     expect(duplicateResponse.ok()).toBeTruthy();
     const duplicate = (await duplicateResponse.json()) as { id: string; data: string };
-    const duplicateData = JSON.parse(duplicate.data) as { extensions?: { characterSheetImageId?: unknown } };
+    const duplicateData = JSON.parse(duplicate.data) as {
+      extensions?: { visualReferenceImageId?: unknown; characterSheetImageId?: unknown };
+    };
+    expect(duplicateData.extensions?.visualReferenceImageId).toBeUndefined();
     expect(duplicateData.extensions?.characterSheetImageId).toBeUndefined();
     await page.request.delete(`/api/characters/${duplicate.id}`);
 
@@ -605,7 +609,10 @@ test("Character Gallery keeps one persistent character-sheet reference", async (
     expect(deleteResponse.ok()).toBeTruthy();
     const characterResponse = await page.request.get(`/api/characters/${character.id}`);
     const updatedCharacter = (await characterResponse.json()) as { data: string };
-    const updatedData = JSON.parse(updatedCharacter.data) as { extensions?: { characterSheetImageId?: unknown } };
+    const updatedData = JSON.parse(updatedCharacter.data) as {
+      extensions?: { visualReferenceImageId?: unknown; characterSheetImageId?: unknown };
+    };
+    expect(updatedData.extensions?.visualReferenceImageId).toBeUndefined();
     expect(updatedData.extensions?.characterSheetImageId).toBeUndefined();
   } finally {
     await page.request.delete(`/api/characters/${character.id}`).catch(() => undefined);

@@ -179,7 +179,7 @@ async function restoreCharacterGallery(
         width: typeof entry.width === "number" ? entry.width : undefined,
         height: typeof entry.height === "number" ? entry.height : undefined,
       });
-      if (entry.isPrimaryReference === true && created?.id) {
+      if ((entry.isVisualReference === true || entry.isPrimaryReference === true) && created?.id) {
         primaryReferenceImageId = created.id;
       }
     } catch {
@@ -312,6 +312,7 @@ async function importCharacter(data: unknown, db: DB) {
       : {};
   // This field points to a gallery row in the exporting database. Native
   // exports mark the matching embedded image so it can be remapped below.
+  delete extensions.visualReferenceImageId;
   delete extensions.characterSheetImageId;
   charData.extensions = extensions;
   const existingImportMetadata =
@@ -368,11 +369,11 @@ async function importCharacter(data: unknown, db: DB) {
       await storage.updateAvatar(result.id, avatarPath);
     }
     await restoreSprites(d.sprites, result.id);
-    const characterSheetImageId = await restoreCharacterGallery(d.gallery, result.id, galleryStorage);
-    if (characterSheetImageId) {
+    const visualReferenceImageId = await restoreCharacterGallery(d.gallery, result.id, galleryStorage);
+    if (visualReferenceImageId) {
       await storage.update(
         result.id,
-        { extensions: { characterSheetImageId } },
+        { extensions: { visualReferenceImageId } },
         undefined,
         { skipVersionSnapshot: true, versionSource: "native-import", mergeExtensions: true },
       );

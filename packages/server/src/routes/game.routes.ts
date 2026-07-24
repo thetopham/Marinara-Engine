@@ -51,7 +51,7 @@ import { buildPartySystemPrompt } from "../services/game/party-prompts.js";
 import { buildPromptMacroContext, resolveMacrosWithVariableSnapshot } from "../services/prompt/index.js";
 import { listPartySprites, readPreferredFullBodySpriteBase64 } from "../services/game/sprite.service.js";
 import {
-  readCharacterSheetReferenceBase64,
+  readCharacterVisualReferenceBase64,
   selectCharacterVisualReference,
 } from "../services/image/character-visual-reference.js";
 import {
@@ -409,7 +409,7 @@ type IllustrationCharacterAssetMaps = {
 type IllustrationCharacterAssetDetail = {
   name: string;
   referenceAttached: boolean;
-  referenceSource?: "character-sheet" | "sprite" | "avatar";
+  referenceSource?: "visual-reference" | "sprite" | "avatar";
   appearanceAttached: boolean;
 };
 
@@ -459,13 +459,13 @@ async function addCharacterRowIllustrationAssets(
     const name = typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : null;
     if (!name) return null;
 
-    const characterSheetReference = await readCharacterSheetReferenceBase64({
+    const visualReference = await readCharacterVisualReferenceBase64({
       characterId: character.id,
       characterData: parsed,
       characterGallery,
     });
     const preferredReference = selectCharacterVisualReference({
-      characterSheet: characterSheetReference,
+      visualReference,
       fullBodySprite: readPreferredFullBodySpriteBase64(character.id)?.base64,
     });
     if (preferredReference) {
@@ -670,8 +670,8 @@ function collectIllustrationCharacterAssets(opts: {
         references.push(preferredReference);
         referenceAttached = true;
         referenceSource =
-          findCharAvatarFuzzy(name, opts.charReferenceSourceByName ?? new Map()) === "character-sheet"
-            ? "character-sheet"
+          findCharAvatarFuzzy(name, opts.charReferenceSourceByName ?? new Map()) === "visual-reference"
+            ? "visual-reference"
             : "sprite";
       } else {
         const avatarPath =

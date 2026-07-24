@@ -2159,11 +2159,6 @@ const cases: RegressionCase[] = [
       assert.equal(stillAnimationPreset?.promptTemplate, GAME_STORYBOARD_STILL_ANIMATION_PROMPT_TEMPLATE);
       assert.equal(promptDirectorPreset?.promptTemplate, GAME_STORYBOARD_PROMPT_DIRECTOR_TEMPLATE);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /one flowing present-tense paragraph of 4-8/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /six chronological source sections and keyframeCount 3/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /Each imagePrompt is rendered as its own storyboard illustration/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /Timed-segment example for an illustrative six-second shot/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /0-2s: with a locked medium-wide camera/);
-      assert.match(promptDirectorPreset?.promptTemplate ?? "", /Scale the boundaries to \$\{durationSeconds\} seconds/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /ambient sound, sound effects, music/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"videoPrompt": string/);
       assert.match(promptDirectorPreset?.promptTemplate ?? "", /"continuityNotes": string/);

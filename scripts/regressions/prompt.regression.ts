@@ -2273,7 +2273,7 @@ const cases: RegressionCase[] = [
     },
   },
   {
-    name: "LTX Director Storyboard keeps stable context, temporal prompts, and media guides separate",
+    name: "LTX 2.3 Storyboard keeps image context separate from duration-aware video direction",
     run() {
       const plannerPreset = GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES.find(
         (template) => template.id === GAME_STORYBOARD_LTX_DIRECTOR_PROMPT_TEMPLATE_ID,
@@ -2284,10 +2284,14 @@ const cases: RegressionCase[] = [
 
       assert.equal(plannerPreset?.name, "LTX Director Storyboard");
       assert.equal(plannerPreset?.promptTemplate, GAME_STORYBOARD_LTX_DIRECTOR_PROMPT_TEMPLATE);
-      assert.match(plannerPreset?.promptTemplate ?? "", /2-4 ordered local prompts/);
-      assert.match(plannerPreset?.promptTemplate ?? "", /3 for 5-8 seconds/);
-      assert.match(plannerPreset?.promptTemplate ?? "", /exact delimiter \|/);
-      assert.match(plannerPreset?.promptTemplate ?? "", /exact spoken dialogue in quotation marks/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /LTX 2\.3 Image-to-Video Storyboard Planner/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /strict screen-time budget/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /For 1-6 seconds, use one primary action, one camera setup/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /For 7-10 seconds, use up to two connected action phases/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /For 11-15 seconds, use up to three connected action phases/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /hard cuts, or anime music-video editing/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /narrationBeat is the complete prompt sent to LTX 2\.3/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /Put exact spoken dialogue in quotation marks/);
       assert.equal(videoPreset?.name, "LTX Director Video");
       assert.equal(videoPreset?.promptTemplate, LTX_DIRECTOR_GAME_VIDEO_PROMPT_TEMPLATE);
       assert.doesNotMatch(LTX_DIRECTOR_GAME_VIDEO_PROMPT_TEMPLATE, /\$\{narrationSummary\}/);
@@ -2298,9 +2302,9 @@ const cases: RegressionCase[] = [
         LTX_DIRECTOR_GAME_VIDEO_PROMPT_TEMPLATE,
         /\$\{charactersLine\}|\$\{settingLine\}|\$\{artStyleLine\}/,
       );
-      assert.match(plannerPreset?.promptTemplate ?? "", /4-8 descriptive sentences total/);
-      assert.match(plannerPreset?.promptTemplate ?? "", /one primary subject or object movement/);
-      assert.match(plannerPreset?.promptTemplate ?? "", /Do not ask LTX to render exact readable text/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /Do not repeat static imagePrompt details in narrationBeat/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /The supplied first-frame image defines static appearance/);
+      assert.match(plannerPreset?.promptTemplate ?? "", /Exact readable text, captions, subtitles, logos/);
 
       assert.deepEqual(sanitizeLtxDirectorStoryboardSegments(" first beat | | second beat | third beat "), [
         "first beat",

@@ -91,12 +91,15 @@ export async function loadGameVideoPrompt(args: {
   promptOverridesStorage: PromptOverridesStorage;
   meta: Record<string, unknown>;
   templateId?: string | null;
+  customTemplates?: unknown;
   ctx: GameVideoCtx;
   debugMode?: boolean;
 }): Promise<string> {
   const options = [
     ...GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES,
-    ...normalizeGameVideoPromptTemplates(args.meta.gameVideoPromptTemplates),
+    ...normalizeGameVideoPromptTemplates(
+      args.customTemplates === undefined ? args.meta.gameVideoPromptTemplates : args.customTemplates,
+    ),
   ];
   const explicitTemplateId = readTrimmedString(args.templateId) ?? readTrimmedString(args.meta.gameVideoPromptTemplateId);
   const hasExplicitTemplateSelection =

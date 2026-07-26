@@ -224,6 +224,7 @@ import {
   type PromptOverridesStorage,
 } from "../services/storage/prompt-overrides.storage.js";
 import { createAppSettingsStorage } from "../services/storage/app-settings.storage.js";
+import { applyGlobalStoryboardPromptPresetSettings } from "../services/game/storyboard-prompt-preset-settings.js";
 import {
   GAME_NARRATION_SUMMARIZER,
   GAME_IMAGE_PROMPT_DIRECTOR,
@@ -1549,6 +1550,7 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
   const promptDraft = await loadGameVideoPrompt({
     promptOverridesStorage: args.promptOverridesStorage,
     meta: args.meta,
+    customTemplates: args.meta.gameStoryboardVideoPromptTemplates,
     templateId:
       typeof args.meta.gameStoryboardVideoPromptTemplateId === "string"
         ? args.meta.gameStoryboardVideoPromptTemplateId
@@ -5518,7 +5520,12 @@ async function loadStoryboardIllustratorSystemPrompt(args: {
   const selectedTemplate =
     options.find((template) => template.id === templateId) ??
     builtInTemplates.find((template) => template.id === fallbackTemplateId);
-  if (templateId === fallbackTemplateId || !selectedTemplate?.promptTemplate.trim()) {
+  const configuredTemplateId = readTrimmedString(
+    args.generateVideos
+      ? args.meta.gameStoryboardAnimationPromptTemplateId
+      : args.meta.gameStoryboardIllustrationPromptTemplateId,
+  );
+  if (!configuredTemplateId || !selectedTemplate?.promptTemplate.trim()) {
     return loadPrompt(
       args.promptOverridesStorage,
       args.generateVideos ? GAME_STORYBOARD_ANIMATION_DIRECTOR : GAME_STORYBOARD_ILLUSTRATION_DIRECTOR,
@@ -10702,7 +10709,10 @@ export async function gameRoutes(app: FastifyInstance) {
       if (!sourceNarration) return reply.status(400).send({ error: "This GM turn has no narration to storyboard." });
       const sourceSections = normalizeStoryboardSections(input.sections, sourceNarration);
 
-      const meta = parseMeta(chat.metadata);
+      const meta = await applyGlobalStoryboardPromptPresetSettings(
+        parseMeta(chat.metadata),
+        createAppSettingsStorage(app.db),
+      );
       if (meta.gameStoryboardsEnabled === false) {
         return reply.status(400).send({ error: "Storyboards are disabled for this game." });
       }

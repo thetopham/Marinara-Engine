@@ -76,6 +76,8 @@ import {
   resolveDeferredCharacterMacros,
   selectConditionalPayloadBranch,
   SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
+  STORYBOARD_PROMPT_PRESET_SETTINGS_KEY,
+  normalizeStoryboardPromptPresetSettings,
 } from "../../packages/shared/src/index.js";
 import { replaceBuiltInAgentDefinitions as replaceBuiltInAgentDefinitionsDist } from "../../packages/shared/dist/index.js";
 import {
@@ -265,6 +267,7 @@ import {
   resolveLtxDirectorPromptInput,
 } from "../../packages/server/src/services/video/video-generation.js";
 import { loadGameStoryboardImagePrompt } from "../../packages/server/src/services/image/game-storyboard-image-prompt.js";
+import { applyGlobalStoryboardPromptPresetSettings } from "../../packages/server/src/services/game/storyboard-prompt-preset-settings.js";
 import { formatAgentFailuresToast, toAgentFailure } from "../../packages/client/src/lib/agent-failures.js";
 import { formatGenerationParameterError } from "../../packages/client/src/lib/generation-parameter-errors.js";
 import { normalizeCustomMusicSource } from "../../packages/client/src/components/chat/AgentAddSetupFields.js";
@@ -2380,8 +2383,10 @@ const cases: RegressionCase[] = [
       );
       assert.match(drawerSource, /options=\{gameStoryboardImagePromptOptions\}/);
       assert.match(drawerSource, /label=\{localizeUi\("ui\.chat\.chatsettingsdrawer\.storyboardVideoPrompt"\)\}/);
-      assert.doesNotMatch(drawerSource, /GameStoryboardPromptLibrary/u);
-      assert.doesNotMatch(drawerSource, /GameProviderPromptLibrary/u);
+      assert.match(drawerSource, /GameStoryboardPromptLibrary/u);
+      assert.match(drawerSource, /GameProviderPromptLibrary/u);
+      assert.match(drawerSource, /useStoryboardPromptPresetSettings/u);
+      assert.match(drawerSource, /globalGameStoryboardPromptTemplates/u);
       assert.match(settingsSource, /"game\.storyboardIllustrationDirector"/u);
       assert.match(settingsSource, /"game\.storyboardAnimationDirector"/u);
       assert.match(gameAssetRegistrySource, /key: "game\.storyboardIllustrationDirector"/u);
@@ -2410,6 +2415,150 @@ const cases: RegressionCase[] = [
       assert.match(gameSurfaceSource, /setStoryboardViewerPlayingVideoId\(activeStoryboardKeyframe\.video\.id\)/);
       assert.match(backgroundViewerSource, /onEnded=\{\(\) =>/);
       assert.doesNotMatch(backgroundViewerSource, /\bloop\b/);
+    },
+  },
+  {
+    name: "storyboard prompt libraries and active selections are global",
+    async run() {
+      const storedSettings = JSON.stringify({
+        plannerTemplates: [
+          {
+            id: "custom-illustration-global",
+            name: "Global Illustration Planner",
+            description: "Shared planner",
+            promptTemplate: "GLOBAL PLANNER: ${sourceNarration}",
+          },
+          {
+            id: "custom-animation-global",
+            name: "Global Animation Planner",
+            description: "Shared animation planner",
+            promptTemplate: "GLOBAL ANIMATION: ${durationSeconds} ${sourceNarration}",
+          },
+        ],
+        illustrationTemplates: [
+          {
+            id: "custom-storyboard-image-global",
+            name: "Global Storyboard Image",
+            description: "Shared image formatter",
+            promptTemplate: "GLOBAL IMAGE: ${scenePrompt}",
+          },
+        ],
+        videoTemplates: [
+          {
+            id: "custom-storyboard-video-global",
+            name: "Global Storyboard Video",
+            description: "Shared video formatter",
+            promptTemplate: "GLOBAL VIDEO: ${narrationSummary}",
+          },
+        ],
+        illustrationPlannerTemplateId: "custom-illustration-global",
+        animationPlannerTemplateId: "custom-animation-global",
+        illustrationTemplateId: "custom-storyboard-image-global",
+        videoTemplateId: "custom-storyboard-video-global",
+      });
+      const normalized = normalizeStoryboardPromptPresetSettings(storedSettings);
+      assert.equal(normalized.plannerTemplates[0]?.id, "custom-illustration-global");
+      assert.equal(normalized.illustrationTemplates[0]?.id, "custom-storyboard-image-global");
+      assert.equal(normalized.videoTemplates[0]?.id, "custom-storyboard-video-global");
+      assert.equal(normalized.illustrationPlannerTemplateId, "custom-illustration-global");
+      assert.equal(normalized.animationPlannerTemplateId, "custom-animation-global");
+      assert.equal(normalized.illustrationTemplateId, "custom-storyboard-image-global");
+      assert.equal(normalized.videoTemplateId, "custom-storyboard-video-global");
+
+      const mergedMeta = await applyGlobalStoryboardPromptPresetSettings(
+        {
+          gameStoryboardIllustrationPromptTemplateId: "custom-illustration-legacy",
+          gameStoryboardAnimationPromptTemplateId: "custom-animation-legacy",
+          gameStoryboardImagePromptTemplateId: "custom-storyboard-image-legacy",
+          gameStoryboardVideoPromptTemplateId: "custom-storyboard-video-legacy",
+          gameStoryboardPromptTemplates: [
+            {
+              id: "custom-illustration-legacy",
+              name: "Legacy Chat Planner",
+              promptTemplate: "LEGACY PLANNER: ${sourceNarration}",
+            },
+          ],
+          gameVideoPromptTemplates: [
+            {
+              id: "custom-storyboard-video-legacy",
+              name: "Legacy Chat Video",
+              promptTemplate: "LEGACY VIDEO: ${narrationSummary}",
+            },
+          ],
+        },
+        {
+          get: async (key: string) => (key === STORYBOARD_PROMPT_PRESET_SETTINGS_KEY ? storedSettings : null),
+          set: async () => undefined,
+          remove: async () => undefined,
+        } as any,
+      );
+      assert.equal(mergedMeta.gameStoryboardIllustrationPromptTemplateId, "custom-illustration-global");
+      assert.equal(mergedMeta.gameStoryboardAnimationPromptTemplateId, "custom-animation-global");
+      assert.equal(mergedMeta.gameStoryboardImagePromptTemplateId, "custom-storyboard-image-global");
+      assert.equal(mergedMeta.gameStoryboardVideoPromptTemplateId, "custom-storyboard-video-global");
+      assert.deepEqual(
+        (mergedMeta.gameStoryboardPromptTemplates as Array<{ id: string }>).map((template) => template.id),
+        ["custom-illustration-global", "custom-animation-global", "custom-illustration-legacy"],
+      );
+      assert.deepEqual(
+        (mergedMeta.gameStoryboardVideoPromptTemplates as Array<{ id: string }>).map((template) => template.id),
+        ["custom-storyboard-video-global", "custom-storyboard-video-legacy"],
+      );
+      assert.deepEqual(
+        (mergedMeta.gameVideoPromptTemplates as Array<{ id: string }>).map((template) => template.id),
+        ["custom-storyboard-video-legacy"],
+        "global Storyboard Video presets should not alter ordinary Game Video presets",
+      );
+
+      const storyboardMessages = await buildStoryboardIllustratorMessages({
+        promptOverridesStorage: {} as never,
+        meta: mergedMeta,
+        setupConfig: null,
+        latestState: null,
+        sourceNarration: "A dragon enters the moonlit courtyard.",
+        sections: [],
+        keyframeCount: 1,
+        durationSeconds: 6,
+        aspectRatio: "16:9",
+        generateVideos: false,
+      });
+      assert.match(storyboardMessages.systemPrompt, /GLOBAL PLANNER: A dragon enters the moonlit courtyard\./u);
+
+      const storyboardImagePrompt = await loadGameStoryboardImagePrompt({
+        templateId: "custom-storyboard-image-global",
+        customTemplates: mergedMeta.gameStoryboardImagePromptTemplates,
+        ctx: {
+          sceneTitleLine: "Dragon arrival.",
+          scenePrompt: "a dragon enters the moonlit courtyard",
+          finalVisibilityRuleLine: "",
+          narrativePurposeLine: "",
+          charactersLine: "",
+          referenceHandlingLine: "",
+          appearanceNotesBlock: "",
+          artDirectionLine: "",
+          imagePromptInstructionsLine: "",
+        },
+      });
+      assert.equal(storyboardImagePrompt, "GLOBAL IMAGE: a dragon enters the moonlit courtyard");
+
+      const storyboardVideoPrompt = await loadGameVideoPrompt({
+        promptOverridesStorage: { get: async () => null } as any,
+        meta: mergedMeta,
+        templateId: "custom-storyboard-video-global",
+        customTemplates: mergedMeta.gameStoryboardVideoPromptTemplates,
+        ctx: {
+          sceneTitle: "Dragon arrival",
+          narrationSummary: "the dragon lands in the courtyard",
+          illustrationPrompt: "moonlit dragon courtyard",
+          charactersLine: "dragon",
+          settingLine: "moonlit courtyard",
+          artStyleLine: "fantasy illustration",
+          durationSeconds: 6,
+          aspectRatio: "16:9",
+          sourceIllustrationLine: "Use the supplied first frame.",
+        },
+      });
+      assert.equal(storyboardVideoPrompt, "GLOBAL VIDEO: the dragon lands in the courtyard");
     },
   },
   {
@@ -3066,7 +3215,7 @@ const cases: RegressionCase[] = [
         drawerSource,
         /kind === "animation" \? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES/u,
       );
-      assert.doesNotMatch(drawerSource, /GameStoryboardPromptLibrary/u);
+      assert.match(drawerSource, /GameStoryboardPromptLibrary/u);
       assert.match(gameRouteSource, /meta\.gameStoryboardUseNovelAiCharacterPrompts !== false/);
       assert.match(gameRouteSource, /useNovelAiCharacterPrompts\s*&&\s*providerSupportsStructuredCharacterPrompts/);
     },

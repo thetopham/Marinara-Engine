@@ -552,11 +552,11 @@ export interface ChatMetadata {
   gameVideoPromptTemplateId?: string | null;
   /** Selected Game Mode prompt template for storyboard keyframe clips only. */
   gameStoryboardVideoPromptTemplateId?: string | null;
-  /** Chat-local Game Mode scene/storyboard video prompt templates. */
+  /** Legacy chat-local Game Mode video prompt templates. New Storyboard copies are global. */
   gameVideoPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
   /** Selected provider-facing image prompt template for storyboard keyframes. */
   gameStoryboardImagePromptTemplateId?: string | null;
-  /** Chat-local provider-facing storyboard image prompt templates. */
+  /** Legacy chat-local provider-facing storyboard image prompt templates. New copies are global. */
   gameStoryboardImagePromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
   /** When true, completed Game Mode GM turns automatically create storyboard keyframe illustrations. */
   gameStoryboardAutoIllustrationsEnabled?: boolean;
@@ -574,7 +574,7 @@ export interface ChatMetadata {
   gameStoryboardIllustrationPromptTemplateId?: string | null;
   /** Selected Game Mode storyboard prompt template for animation-ready auto storyboards. */
   gameStoryboardAnimationPromptTemplateId?: string | null;
-  /** Chat-local storyboard prompt templates, merged with built-in storyboard prompt modes. */
+  /** Legacy chat-local storyboard planner templates. New copies are global. */
   gameStoryboardPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
   /** Use native NovelAI V4/V4.5 per-character captions for multi-character storyboard illustrations. Defaults to true. */
   gameStoryboardUseNovelAiCharacterPrompts?: boolean;

@@ -162,6 +162,10 @@ import { blurActiveChatFloatingUiControl, isDesktopShellNavigationTarget } from 
 import { useDialogFocusScope } from "../../hooks/use-dialog-focus-scope";
 import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import {
+  useStoryboardPromptPresetSettings,
+  useUpdateStoryboardPromptPresetSettings,
+} from "../../hooks/use-storyboard-prompt-presets";
+import {
   useChatPresets,
   useSaveChatPresetSettings,
   useDuplicateChatPreset,
@@ -207,6 +211,7 @@ import {
   DEFAULT_AGENT_PROMPT_TEMPLATE_ID,
   DEFAULT_AGENT_TOOLS,
   DEFAULT_AGENT_MAX_TOKENS,
+  DEFAULT_STORYBOARD_PROMPT_PRESET_SETTINGS,
   GAME_GM_BUILT_IN_PROMPT_TEMPLATES,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES,
@@ -466,6 +471,32 @@ function resolveSelectedGameStoryboardPromptTemplateId(
   return fallback;
 }
 
+function createGameStoryboardCustomPromptTemplate(
+  existingTemplates: AgentPromptTemplateOption[],
+  kind: GameStoryboardPromptTemplateKind,
+  sourceTemplate?: AgentPromptTemplateOption,
+): AgentPromptTemplateOption {
+  const usedIds = new Set([
+    ...GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATE_IDS,
+    ...existingTemplates.map((template) => template.id),
+  ]);
+  const sourceName = sourceTemplate?.name?.trim() || "Storyboard Prompt";
+  return {
+    id: getUniqueGameStoryboardPromptTemplateId(
+      `custom-${kind}-${sourceName}-${Date.now().toString(36)}`,
+      usedIds,
+      `custom-${kind}-storyboard-prompt`,
+    ),
+    name: `Custom ${sourceName}`,
+    description: sourceTemplate?.description ?? "",
+    promptTemplate:
+      sourceTemplate?.promptTemplate ??
+      (kind === "animation"
+        ? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES[0]!.promptTemplate
+        : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES[0]!.promptTemplate),
+  };
+}
+
 const GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATE_IDS = new Set(
   GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES.map((template) => template.id),
 );
@@ -515,6 +546,27 @@ function resolveSelectedGameVideoPromptTemplateId(value: unknown, options: Agent
   return GAME_VIDEO_PROMPT_TEMPLATE_ID;
 }
 
+function createGameVideoCustomPromptTemplate(
+  existingTemplates: AgentPromptTemplateOption[],
+  sourceTemplate?: AgentPromptTemplateOption,
+): AgentPromptTemplateOption {
+  const usedIds = new Set([
+    ...GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATE_IDS,
+    ...existingTemplates.map((template) => template.id),
+  ]);
+  const sourceName = sourceTemplate?.name?.trim() || "Game Video Prompt";
+  return {
+    id: getUniqueGameVideoPromptTemplateId(
+      `custom-${sourceName}-${Date.now().toString(36)}`,
+      usedIds,
+      "custom-game-video-prompt",
+    ),
+    name: `Custom ${sourceName}`,
+    description: sourceTemplate?.description ?? "",
+    promptTemplate: sourceTemplate?.promptTemplate ?? GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES[0]!.promptTemplate,
+  };
+}
+
 const GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATE_IDS = new Set(
   GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATES.map((template) => template.id),
 );
@@ -527,6 +579,36 @@ function normalizeGameStoryboardImagePromptTemplates(value: unknown): AgentPromp
       id: getUniqueGameVideoPromptTemplateId(template.id, usedIds, "custom-storyboard-image-prompt"),
     }))
     .slice(0, 20);
+}
+
+function createGameStoryboardImageCustomPromptTemplate(
+  existingTemplates: AgentPromptTemplateOption[],
+  sourceTemplate?: AgentPromptTemplateOption,
+): AgentPromptTemplateOption {
+  const usedIds = new Set([
+    ...GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATE_IDS,
+    ...existingTemplates.map((template) => template.id),
+  ]);
+  const sourceName = sourceTemplate?.name?.trim() || "Storyboard Illustration";
+  return {
+    id: getUniqueGameVideoPromptTemplateId(
+      `custom-${sourceName}-${Date.now().toString(36)}`,
+      usedIds,
+      "custom-storyboard-image-prompt",
+    ),
+    name: `Custom ${sourceName}`,
+    description: sourceTemplate?.description ?? "",
+    promptTemplate:
+      sourceTemplate?.promptTemplate ?? GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATES[0]!.promptTemplate,
+  };
+}
+
+function mergeGlobalAndLegacyPromptTemplates(
+  globalTemplates: AgentPromptTemplateOption[],
+  legacyTemplates: AgentPromptTemplateOption[],
+): AgentPromptTemplateOption[] {
+  const globalIds = new Set(globalTemplates.map((template) => template.id));
+  return [...globalTemplates, ...legacyTemplates.filter((template) => !globalIds.has(template.id))];
 }
 
 function renderRoleplayAgentMenuIcon(agentId: string, variant: "card" | "chip" = "card"): React.ReactNode {
@@ -1753,14 +1835,47 @@ export function ChatSettingsDrawer({
   );
   const gameStoryboardViewerDisplayMode: GameStoryboardViewerDisplayMode =
     metadata.gameStoryboardViewerDisplayMode === "background" ? "background" : "floating";
-  const gameStoryboardPromptTemplates = useMemo(
+  const {
+    data: globalStoryboardPromptPresetSettings = DEFAULT_STORYBOARD_PROMPT_PRESET_SETTINGS,
+    isSuccess: globalStoryboardPromptPresetSettingsLoaded,
+  } = useStoryboardPromptPresetSettings();
+  const updateGlobalStoryboardPromptPresets = useUpdateStoryboardPromptPresetSettings();
+  const saveGlobalStoryboardPromptPresets = useCallback(
+    (patch: Partial<typeof globalStoryboardPromptPresetSettings>) => {
+      updateGlobalStoryboardPromptPresets.mutate(
+        { ...globalStoryboardPromptPresetSettings, ...patch },
+        {
+          onError: () =>
+            toast.error(localizeUi("ui.chat.chatsettingsdrawer.failedToSaveGlobalStoryboardPromptPresets")),
+        },
+      );
+    },
+    [globalStoryboardPromptPresetSettings, localizeUi, updateGlobalStoryboardPromptPresets],
+  );
+  const globalGameStoryboardPromptTemplates = useMemo(
+    () => normalizeGameStoryboardPromptTemplates(globalStoryboardPromptPresetSettings.plannerTemplates),
+    [globalStoryboardPromptPresetSettings.plannerTemplates],
+  );
+  const legacyGameStoryboardPromptTemplates = useMemo(
     () => normalizeGameStoryboardPromptTemplates(metadata.gameStoryboardPromptTemplates),
     [metadata.gameStoryboardPromptTemplates],
   );
+  const gameStoryboardPromptTemplates = useMemo(
+    () =>
+      normalizeGameStoryboardPromptTemplates(
+        mergeGlobalAndLegacyPromptTemplates(
+          globalGameStoryboardPromptTemplates,
+          legacyGameStoryboardPromptTemplates,
+        ),
+      ),
+    [globalGameStoryboardPromptTemplates, legacyGameStoryboardPromptTemplates],
+  );
   const configuredGameStoryboardAnimationPromptTemplateId =
-    typeof metadata.gameStoryboardAnimationPromptTemplateId === "string"
-      ? metadata.gameStoryboardAnimationPromptTemplateId.trim()
-      : null;
+    typeof globalStoryboardPromptPresetSettings.animationPlannerTemplateId === "string"
+      ? globalStoryboardPromptPresetSettings.animationPlannerTemplateId
+      : typeof metadata.gameStoryboardAnimationPromptTemplateId === "string"
+        ? metadata.gameStoryboardAnimationPromptTemplateId.trim()
+        : null;
   const gameStoryboardIllustrationPromptOptions = useMemo(
     () =>
       getGameStoryboardPromptTemplateOptions(
@@ -1779,40 +1894,164 @@ export function ChatSettingsDrawer({
       ),
     [configuredGameStoryboardAnimationPromptTemplateId, gameStoryboardPromptTemplates],
   );
+  const customGameStoryboardIllustrationPromptTemplates = useMemo(
+    () =>
+      globalGameStoryboardPromptTemplates.filter(
+        (template) => getGameStoryboardPromptTemplateKind(template) === "illustration",
+      ),
+    [globalGameStoryboardPromptTemplates],
+  );
+  const customGameStoryboardAnimationPromptTemplates = useMemo(
+    () =>
+      globalGameStoryboardPromptTemplates.filter(
+        (template) => getGameStoryboardPromptTemplateKind(template) === "animation",
+      ),
+    [globalGameStoryboardPromptTemplates],
+  );
   const selectedGameStoryboardIllustrationPromptTemplateId = useMemo(
     () =>
       resolveSelectedGameStoryboardPromptTemplateId(
-        metadata.gameStoryboardIllustrationPromptTemplateId,
+        globalStoryboardPromptPresetSettings.illustrationPlannerTemplateId ??
+          metadata.gameStoryboardIllustrationPromptTemplateId,
         GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
         gameStoryboardIllustrationPromptOptions,
       ),
-    [gameStoryboardIllustrationPromptOptions, metadata.gameStoryboardIllustrationPromptTemplateId],
+    [
+      gameStoryboardIllustrationPromptOptions,
+      globalStoryboardPromptPresetSettings.illustrationPlannerTemplateId,
+      metadata.gameStoryboardIllustrationPromptTemplateId,
+    ],
   );
   const selectedGameStoryboardAnimationPromptTemplateId = useMemo(
     () =>
       resolveSelectedGameStoryboardPromptTemplateId(
-        metadata.gameStoryboardAnimationPromptTemplateId,
+        globalStoryboardPromptPresetSettings.animationPlannerTemplateId ??
+          metadata.gameStoryboardAnimationPromptTemplateId,
         GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID,
         gameStoryboardAnimationPromptOptions,
       ),
-    [gameStoryboardAnimationPromptOptions, metadata.gameStoryboardAnimationPromptTemplateId],
+    [
+      gameStoryboardAnimationPromptOptions,
+      globalStoryboardPromptPresetSettings.animationPlannerTemplateId,
+      metadata.gameStoryboardAnimationPromptTemplateId,
+    ],
   );
   const updateGameStoryboardPromptSelection = useCallback(
     (
       field: "gameStoryboardIllustrationPromptTemplateId" | "gameStoryboardAnimationPromptTemplateId",
       promptTemplateId: string,
     ) => {
-      const fallback =
-        field === "gameStoryboardIllustrationPromptTemplateId"
-          ? GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID
-          : GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID;
-      updateMeta.mutate({ id: chat.id, [field]: promptTemplateId === fallback ? null : promptTemplateId });
+      const isIllustration = field === "gameStoryboardIllustrationPromptTemplateId";
+      const options = isIllustration
+        ? gameStoryboardIllustrationPromptOptions
+        : gameStoryboardAnimationPromptOptions;
+      const selectedTemplate = options.find((option) => option.id === promptTemplateId);
+      const plannerTemplates =
+        selectedTemplate &&
+        !GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATE_IDS.has(promptTemplateId) &&
+        !globalGameStoryboardPromptTemplates.some((template) => template.id === promptTemplateId)
+          ? [...globalGameStoryboardPromptTemplates, selectedTemplate]
+          : globalGameStoryboardPromptTemplates;
+      saveGlobalStoryboardPromptPresets(
+        isIllustration
+          ? { plannerTemplates, illustrationPlannerTemplateId: promptTemplateId }
+          : { plannerTemplates, animationPlannerTemplateId: promptTemplateId },
+      );
     },
-    [chat.id, updateMeta],
+    [
+      gameStoryboardAnimationPromptOptions,
+      gameStoryboardIllustrationPromptOptions,
+      globalGameStoryboardPromptTemplates,
+      saveGlobalStoryboardPromptPresets,
+    ],
   );
-  const gameStoryboardImagePromptTemplates = useMemo(
+  const updateGameStoryboardPromptTemplates = useCallback(
+    (templates: AgentPromptTemplateOption[]) => {
+      saveGlobalStoryboardPromptPresets({ plannerTemplates: normalizeGameStoryboardPromptTemplates(templates) });
+    },
+    [saveGlobalStoryboardPromptPresets],
+  );
+  const addGameStoryboardPromptTemplate = useCallback(
+    (kind: GameStoryboardPromptTemplateKind, sourceTemplateId: string) => {
+      const promptOptions =
+        kind === "animation" ? gameStoryboardAnimationPromptOptions : gameStoryboardIllustrationPromptOptions;
+      const source =
+        promptOptions.find((option) => option.id === sourceTemplateId) ??
+        (kind === "animation"
+          ? GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES[0]
+          : GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES[0]);
+      updateGameStoryboardPromptTemplates([
+        ...globalGameStoryboardPromptTemplates,
+        createGameStoryboardCustomPromptTemplate(globalGameStoryboardPromptTemplates, kind, source),
+      ]);
+    },
+    [
+      gameStoryboardAnimationPromptOptions,
+      gameStoryboardIllustrationPromptOptions,
+      globalGameStoryboardPromptTemplates,
+      updateGameStoryboardPromptTemplates,
+    ],
+  );
+  const patchGameStoryboardPromptTemplate = useCallback(
+    (
+      templateId: string,
+      patch: Partial<Pick<AgentPromptTemplateOption, "name" | "description" | "promptTemplate">>,
+    ) => {
+      updateGameStoryboardPromptTemplates(
+        globalGameStoryboardPromptTemplates.map((template) =>
+          template.id === templateId ? { ...template, ...patch } : template,
+        ),
+      );
+    },
+    [globalGameStoryboardPromptTemplates, updateGameStoryboardPromptTemplates],
+  );
+  const removeGameStoryboardPromptTemplate = useCallback(
+    async (templateId: string) => {
+      const template = globalGameStoryboardPromptTemplates.find((entry) => entry.id === templateId);
+      const ok = await showConfirmDialog({
+        title: localizeUi("ui.chat.chatsettingsdrawer.removeStoryboardPrompt"),
+        message: localizeUi("ui.chat.chatsettingsdrawer.removeValue1FromGlobalStoryboardPresets", {
+          value1: template?.name ?? localizeUi("ui.chat.chatsettingsdrawer.thisPrompt"),
+        }),
+        confirmLabel: localizeUi("settings.notifications.customSound.actions.remove"),
+        tone: "destructive",
+      });
+      if (!ok) return;
+      const plannerTemplates = globalGameStoryboardPromptTemplates.filter((entry) => entry.id !== templateId);
+      const patch: Partial<typeof globalStoryboardPromptPresetSettings> = { plannerTemplates };
+      if (selectedGameStoryboardIllustrationPromptTemplateId === templateId) {
+        patch.illustrationPlannerTemplateId = GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID;
+      }
+      if (selectedGameStoryboardAnimationPromptTemplateId === templateId) {
+        patch.animationPlannerTemplateId = GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATE_ID;
+      }
+      saveGlobalStoryboardPromptPresets(patch);
+    },
+    [
+      globalGameStoryboardPromptTemplates,
+      localizeUi,
+      saveGlobalStoryboardPromptPresets,
+      selectedGameStoryboardAnimationPromptTemplateId,
+      selectedGameStoryboardIllustrationPromptTemplateId,
+    ],
+  );
+  const globalGameStoryboardImagePromptTemplates = useMemo(
+    () => normalizeGameStoryboardImagePromptTemplates(globalStoryboardPromptPresetSettings.illustrationTemplates),
+    [globalStoryboardPromptPresetSettings.illustrationTemplates],
+  );
+  const legacyGameStoryboardImagePromptTemplates = useMemo(
     () => normalizeGameStoryboardImagePromptTemplates(metadata.gameStoryboardImagePromptTemplates),
     [metadata.gameStoryboardImagePromptTemplates],
+  );
+  const gameStoryboardImagePromptTemplates = useMemo(
+    () =>
+      normalizeGameStoryboardImagePromptTemplates(
+        mergeGlobalAndLegacyPromptTemplates(
+          globalGameStoryboardImagePromptTemplates,
+          legacyGameStoryboardImagePromptTemplates,
+        ),
+      ),
+    [globalGameStoryboardImagePromptTemplates, legacyGameStoryboardImagePromptTemplates],
   );
   const gameStoryboardImagePromptOptions = useMemo(
     () => [...GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATES, ...gameStoryboardImagePromptTemplates],
@@ -1820,30 +2059,122 @@ export function ChatSettingsDrawer({
   );
   const selectedGameStoryboardImagePromptTemplateId = useMemo(() => {
     const selected =
-      typeof metadata.gameStoryboardImagePromptTemplateId === "string"
+      globalStoryboardPromptPresetSettings.illustrationTemplateId ??
+      (typeof metadata.gameStoryboardImagePromptTemplateId === "string"
         ? metadata.gameStoryboardImagePromptTemplateId.trim()
-        : "";
+        : "");
     return selected && gameStoryboardImagePromptOptions.some((option) => option.id === selected)
       ? selected
       : GAME_STORYBOARD_IMAGE_PROMPT_TEMPLATE_ID;
-  }, [gameStoryboardImagePromptOptions, metadata.gameStoryboardImagePromptTemplateId]);
+  }, [
+    gameStoryboardImagePromptOptions,
+    globalStoryboardPromptPresetSettings.illustrationTemplateId,
+    metadata.gameStoryboardImagePromptTemplateId,
+  ]);
   const updateGameStoryboardImagePromptSelection = useCallback(
     (promptTemplateId: string) => {
-      updateMeta.mutate({
-        id: chat.id,
-        gameStoryboardImagePromptTemplateId:
-          promptTemplateId === GAME_STORYBOARD_IMAGE_PROMPT_TEMPLATE_ID ? null : promptTemplateId,
+      const selectedTemplate = gameStoryboardImagePromptOptions.find((option) => option.id === promptTemplateId);
+      const illustrationTemplates =
+        selectedTemplate &&
+        !GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATE_IDS.has(promptTemplateId) &&
+        !globalGameStoryboardImagePromptTemplates.some((template) => template.id === promptTemplateId)
+          ? [...globalGameStoryboardImagePromptTemplates, selectedTemplate]
+          : globalGameStoryboardImagePromptTemplates;
+      saveGlobalStoryboardPromptPresets({
+        illustrationTemplates,
+        illustrationTemplateId: promptTemplateId,
       });
     },
-    [chat.id, updateMeta],
+    [gameStoryboardImagePromptOptions, globalGameStoryboardImagePromptTemplates, saveGlobalStoryboardPromptPresets],
   );
-  const gameVideoPromptTemplates = useMemo(
+  const updateGameStoryboardImagePromptTemplates = useCallback(
+    (templates: AgentPromptTemplateOption[]) => {
+      saveGlobalStoryboardPromptPresets({
+        illustrationTemplates: normalizeGameStoryboardImagePromptTemplates(templates),
+      });
+    },
+    [saveGlobalStoryboardPromptPresets],
+  );
+  const addGameStoryboardImagePromptTemplate = useCallback(
+    (sourceTemplateId: string) => {
+      const source =
+        gameStoryboardImagePromptOptions.find((option) => option.id === sourceTemplateId) ??
+        GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATES[0];
+      updateGameStoryboardImagePromptTemplates([
+        ...globalGameStoryboardImagePromptTemplates,
+        createGameStoryboardImageCustomPromptTemplate(globalGameStoryboardImagePromptTemplates, source),
+      ]);
+    },
+    [
+      gameStoryboardImagePromptOptions,
+      globalGameStoryboardImagePromptTemplates,
+      updateGameStoryboardImagePromptTemplates,
+    ],
+  );
+  const patchGameStoryboardImagePromptTemplate = useCallback(
+    (
+      templateId: string,
+      patch: Partial<Pick<AgentPromptTemplateOption, "name" | "description" | "promptTemplate">>,
+    ) => {
+      updateGameStoryboardImagePromptTemplates(
+        globalGameStoryboardImagePromptTemplates.map((template) =>
+          template.id === templateId ? { ...template, ...patch } : template,
+        ),
+      );
+    },
+    [globalGameStoryboardImagePromptTemplates, updateGameStoryboardImagePromptTemplates],
+  );
+  const removeGameStoryboardImagePromptTemplate = useCallback(
+    async (templateId: string) => {
+      const template = globalGameStoryboardImagePromptTemplates.find((entry) => entry.id === templateId);
+      const ok = await showConfirmDialog({
+        title: localizeUi("ui.chat.chatsettingsdrawer.removeStoryboardIllustrationPrompt"),
+        message: localizeUi("ui.chat.chatsettingsdrawer.removeValue1FromGlobalStoryboardPresets", {
+          value1: template?.name ?? localizeUi("ui.chat.chatsettingsdrawer.thisPrompt"),
+        }),
+        confirmLabel: localizeUi("settings.notifications.customSound.actions.remove"),
+        tone: "destructive",
+      });
+      if (!ok) return;
+      saveGlobalStoryboardPromptPresets({
+        illustrationTemplates: globalGameStoryboardImagePromptTemplates.filter((entry) => entry.id !== templateId),
+        ...(selectedGameStoryboardImagePromptTemplateId === templateId
+          ? { illustrationTemplateId: GAME_STORYBOARD_IMAGE_PROMPT_TEMPLATE_ID }
+          : {}),
+      });
+    },
+    [
+      globalGameStoryboardImagePromptTemplates,
+      localizeUi,
+      saveGlobalStoryboardPromptPresets,
+      selectedGameStoryboardImagePromptTemplateId,
+    ],
+  );
+  const globalGameStoryboardVideoPromptTemplates = useMemo(
+    () => normalizeGameVideoPromptTemplates(globalStoryboardPromptPresetSettings.videoTemplates),
+    [globalStoryboardPromptPresetSettings.videoTemplates],
+  );
+  const legacyGameVideoPromptTemplates = useMemo(
     () => normalizeGameVideoPromptTemplates(metadata.gameVideoPromptTemplates),
     [metadata.gameVideoPromptTemplates],
   );
+  const gameStoryboardVideoPromptTemplates = useMemo(
+    () =>
+      normalizeGameVideoPromptTemplates(
+        mergeGlobalAndLegacyPromptTemplates(
+          globalGameStoryboardVideoPromptTemplates,
+          legacyGameVideoPromptTemplates,
+        ),
+      ),
+    [globalGameStoryboardVideoPromptTemplates, legacyGameVideoPromptTemplates],
+  );
   const gameVideoPromptOptions = useMemo(
-    () => getGameVideoPromptTemplateOptions(gameVideoPromptTemplates),
-    [gameVideoPromptTemplates],
+    () => getGameVideoPromptTemplateOptions(legacyGameVideoPromptTemplates),
+    [legacyGameVideoPromptTemplates],
+  );
+  const gameStoryboardVideoPromptOptions = useMemo(
+    () => getGameVideoPromptTemplateOptions(gameStoryboardVideoPromptTemplates),
+    [gameStoryboardVideoPromptTemplates],
   );
   const selectedGameVideoPromptTemplateId = useMemo(
     () => resolveSelectedGameVideoPromptTemplateId(metadata.gameVideoPromptTemplateId, gameVideoPromptOptions),
@@ -1851,13 +2182,18 @@ export function ChatSettingsDrawer({
   );
   const selectedGameStoryboardVideoPromptTemplateId = useMemo(() => {
     const selected =
-      typeof metadata.gameStoryboardVideoPromptTemplateId === "string"
+      globalStoryboardPromptPresetSettings.videoTemplateId ??
+      (typeof metadata.gameStoryboardVideoPromptTemplateId === "string"
         ? metadata.gameStoryboardVideoPromptTemplateId.trim()
-        : "";
-    return selected && gameVideoPromptOptions.some((option) => option.id === selected)
+        : "");
+    return selected && gameStoryboardVideoPromptOptions.some((option) => option.id === selected)
       ? selected
-      : selectedGameVideoPromptTemplateId;
-  }, [gameVideoPromptOptions, metadata.gameStoryboardVideoPromptTemplateId, selectedGameVideoPromptTemplateId]);
+      : GAME_VIDEO_PROMPT_TEMPLATE_ID;
+  }, [
+    gameStoryboardVideoPromptOptions,
+    globalStoryboardPromptPresetSettings.videoTemplateId,
+    metadata.gameStoryboardVideoPromptTemplateId,
+  ]);
   const updateGameVideoPromptSelection = useCallback(
     (promptTemplateId: string) => {
       updateMeta.mutate({
@@ -1869,14 +2205,133 @@ export function ChatSettingsDrawer({
   );
   const updateGameStoryboardVideoPromptSelection = useCallback(
     (promptTemplateId: string) => {
-      updateMeta.mutate({
-        id: chat.id,
-        gameStoryboardVideoPromptTemplateId:
-          promptTemplateId === selectedGameVideoPromptTemplateId ? null : promptTemplateId,
+      const selectedTemplate = gameStoryboardVideoPromptOptions.find((option) => option.id === promptTemplateId);
+      const videoTemplates =
+        selectedTemplate &&
+        !GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATE_IDS.has(promptTemplateId) &&
+        !globalGameStoryboardVideoPromptTemplates.some((template) => template.id === promptTemplateId)
+          ? [...globalGameStoryboardVideoPromptTemplates, selectedTemplate]
+          : globalGameStoryboardVideoPromptTemplates;
+      saveGlobalStoryboardPromptPresets({
+        videoTemplates,
+        videoTemplateId: promptTemplateId,
       });
     },
-    [chat.id, selectedGameVideoPromptTemplateId, updateMeta],
+    [gameStoryboardVideoPromptOptions, globalGameStoryboardVideoPromptTemplates, saveGlobalStoryboardPromptPresets],
   );
+  const updateGameStoryboardVideoPromptTemplates = useCallback(
+    (templates: AgentPromptTemplateOption[]) => {
+      saveGlobalStoryboardPromptPresets({ videoTemplates: normalizeGameVideoPromptTemplates(templates) });
+    },
+    [saveGlobalStoryboardPromptPresets],
+  );
+  const addGameStoryboardVideoPromptTemplate = useCallback(
+    (sourceTemplateId: string) => {
+      const source =
+        gameStoryboardVideoPromptOptions.find((option) => option.id === sourceTemplateId) ??
+        GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES[0];
+      updateGameStoryboardVideoPromptTemplates([
+        ...globalGameStoryboardVideoPromptTemplates,
+        createGameVideoCustomPromptTemplate(globalGameStoryboardVideoPromptTemplates, source),
+      ]);
+    },
+    [
+      gameStoryboardVideoPromptOptions,
+      globalGameStoryboardVideoPromptTemplates,
+      updateGameStoryboardVideoPromptTemplates,
+    ],
+  );
+  const patchGameStoryboardVideoPromptTemplate = useCallback(
+    (
+      templateId: string,
+      patch: Partial<Pick<AgentPromptTemplateOption, "name" | "description" | "promptTemplate">>,
+    ) => {
+      updateGameStoryboardVideoPromptTemplates(
+        globalGameStoryboardVideoPromptTemplates.map((template) =>
+          template.id === templateId ? { ...template, ...patch } : template,
+        ),
+      );
+    },
+    [globalGameStoryboardVideoPromptTemplates, updateGameStoryboardVideoPromptTemplates],
+  );
+  const removeGameStoryboardVideoPromptTemplate = useCallback(
+    async (templateId: string) => {
+      const template = globalGameStoryboardVideoPromptTemplates.find((entry) => entry.id === templateId);
+      const ok = await showConfirmDialog({
+        title: localizeUi("ui.chat.chatsettingsdrawer.removeGameVideoPrompt"),
+        message: localizeUi("ui.chat.chatsettingsdrawer.removeValue1FromGlobalStoryboardPresets", {
+          value1: template?.name ?? localizeUi("ui.chat.chatsettingsdrawer.thisPrompt"),
+        }),
+        confirmLabel: localizeUi("settings.notifications.customSound.actions.remove"),
+        tone: "destructive",
+      });
+      if (!ok) return;
+      saveGlobalStoryboardPromptPresets({
+        videoTemplates: globalGameStoryboardVideoPromptTemplates.filter((entry) => entry.id !== templateId),
+        ...(selectedGameStoryboardVideoPromptTemplateId === templateId
+          ? { videoTemplateId: GAME_VIDEO_PROMPT_TEMPLATE_ID }
+          : {}),
+      });
+    },
+    [
+      globalGameStoryboardVideoPromptTemplates,
+      localizeUi,
+      saveGlobalStoryboardPromptPresets,
+      selectedGameStoryboardVideoPromptTemplateId,
+    ],
+  );
+  useEffect(() => {
+    if (!isGame || !globalStoryboardPromptPresetSettingsLoaded || updateGlobalStoryboardPromptPresets.isPending) return;
+
+    const patch: Partial<typeof globalStoryboardPromptPresetSettings> = {};
+    if (gameStoryboardPromptTemplates.length !== globalGameStoryboardPromptTemplates.length) {
+      patch.plannerTemplates = gameStoryboardPromptTemplates;
+    }
+    if (gameStoryboardImagePromptTemplates.length !== globalGameStoryboardImagePromptTemplates.length) {
+      patch.illustrationTemplates = gameStoryboardImagePromptTemplates;
+    }
+    if (gameStoryboardVideoPromptTemplates.length !== globalGameStoryboardVideoPromptTemplates.length) {
+      patch.videoTemplates = gameStoryboardVideoPromptTemplates;
+    }
+    if (
+      globalStoryboardPromptPresetSettings.illustrationPlannerTemplateId !==
+      selectedGameStoryboardIllustrationPromptTemplateId
+    ) {
+      patch.illustrationPlannerTemplateId = selectedGameStoryboardIllustrationPromptTemplateId;
+    }
+    if (
+      globalStoryboardPromptPresetSettings.animationPlannerTemplateId !==
+      selectedGameStoryboardAnimationPromptTemplateId
+    ) {
+      patch.animationPlannerTemplateId = selectedGameStoryboardAnimationPromptTemplateId;
+    }
+    if (
+      globalStoryboardPromptPresetSettings.illustrationTemplateId !==
+      selectedGameStoryboardImagePromptTemplateId
+    ) {
+      patch.illustrationTemplateId = selectedGameStoryboardImagePromptTemplateId;
+    }
+    if (globalStoryboardPromptPresetSettings.videoTemplateId !== selectedGameStoryboardVideoPromptTemplateId) {
+      patch.videoTemplateId = selectedGameStoryboardVideoPromptTemplateId;
+    }
+    if (Object.keys(patch).length > 0) saveGlobalStoryboardPromptPresets(patch);
+  }, [
+    gameStoryboardImagePromptTemplates,
+    gameStoryboardPromptTemplates,
+    gameStoryboardVideoPromptTemplates,
+    globalGameStoryboardImagePromptTemplates.length,
+    globalGameStoryboardPromptTemplates.length,
+    globalGameStoryboardVideoPromptTemplates.length,
+    globalStoryboardPromptPresetSettings,
+    globalStoryboardPromptPresetSettingsLoaded,
+    isGame,
+    saveGlobalStoryboardPromptPresets,
+    selectedGameStoryboardAnimationPromptTemplateId,
+    selectedGameStoryboardIllustrationPromptTemplateId,
+    selectedGameStoryboardImagePromptTemplateId,
+    selectedGameStoryboardVideoPromptTemplateId,
+    updateGlobalStoryboardPromptPresets.isPending,
+  ]);
   const updateIllustratorPromptConnection = useCallback(
     (connectionId: string) => {
       updateMeta.mutate({
@@ -8497,6 +8952,14 @@ export function ChatSettingsDrawer({
                                     )
                                   }
                                 />
+                                <GameStoryboardPromptLibrary
+                                  kind="illustration"
+                                  builtInTemplates={GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATES}
+                                  customTemplates={customGameStoryboardIllustrationPromptTemplates}
+                                  onAddTemplate={addGameStoryboardPromptTemplate}
+                                  onPatchTemplate={patchGameStoryboardPromptTemplate}
+                                  onRemoveTemplate={removeGameStoryboardPromptTemplate}
+                                />
                               </div>
                               <div className="h-full space-y-2 rounded-lg bg-[var(--secondary)]/35 p-2 ring-1 ring-[var(--border)]">
                                 <p className="text-[0.625rem] font-semibold text-[var(--foreground)]">
@@ -8516,6 +8979,14 @@ export function ChatSettingsDrawer({
                                       promptTemplateId,
                                     )
                                   }
+                                />
+                                <GameStoryboardPromptLibrary
+                                  kind="animation"
+                                  builtInTemplates={GAME_STORYBOARD_ANIMATION_PROMPT_TEMPLATES}
+                                  customTemplates={customGameStoryboardAnimationPromptTemplates}
+                                  onAddTemplate={addGameStoryboardPromptTemplate}
+                                  onPatchTemplate={patchGameStoryboardPromptTemplate}
+                                  onRemoveTemplate={removeGameStoryboardPromptTemplate}
                                 />
                               </div>
                             </div>
@@ -8560,10 +9031,46 @@ export function ChatSettingsDrawer({
                                 description={localizeUi(
                                   "ui.chat.chatsettingsdrawer.combinesTheGeneratedKeyframeAndMotionPlanIntoThe",
                                 )}
-                                options={gameVideoPromptOptions}
+                                options={gameStoryboardVideoPromptOptions}
                                 selectedId={selectedGameStoryboardVideoPromptTemplateId}
-                                fallbackId={selectedGameVideoPromptTemplateId}
+                                fallbackId={GAME_VIDEO_PROMPT_TEMPLATE_ID}
                                 onChange={updateGameStoryboardVideoPromptSelection}
+                              />
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-2">
+                              <GameProviderPromptLibrary
+                                title={localizeUi("ui.chat.chatsettingsdrawer.editIllustrationPromptPresets")}
+                                description={localizeUi(
+                                  "ui.chat.chatsettingsdrawer.builtInStoryboardIllustrationPromptsAreReadOnlyAdd",
+                                )}
+                                emptyDescription={localizeUi(
+                                  "ui.chat.chatsettingsdrawer.addAGlobalStoryboardIllustrationPromptThenChooseItAbove",
+                                )}
+                                builtInTemplates={GAME_STORYBOARD_IMAGE_BUILT_IN_PROMPT_TEMPLATES}
+                                customTemplates={globalGameStoryboardImagePromptTemplates}
+                                customFallbackName="Custom Storyboard Illustration Prompt"
+                                promptPlaceholder={localizeUi(
+                                  "ui.chat.chatsettingsdrawer.writeTheStoryboardIllustrationPromptTemplate",
+                                )}
+                                onAddTemplate={addGameStoryboardImagePromptTemplate}
+                                onPatchTemplate={patchGameStoryboardImagePromptTemplate}
+                                onRemoveTemplate={removeGameStoryboardImagePromptTemplate}
+                              />
+                              <GameProviderPromptLibrary
+                                title={localizeUi("ui.chat.chatsettingsdrawer.editStoryboardVideoPromptPresets")}
+                                description={localizeUi("ui.chat.chatsettingsdrawer.builtInVideoPromptsAreReadOnlyAddA")}
+                                emptyDescription={localizeUi(
+                                  "ui.chat.chatsettingsdrawer.addAGlobalStoryboardVideoPromptThenChooseItAbove",
+                                )}
+                                builtInTemplates={GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES}
+                                customTemplates={globalGameStoryboardVideoPromptTemplates}
+                                customFallbackName="Custom Storyboard Video Prompt"
+                                promptPlaceholder={localizeUi(
+                                  "ui.chat.chatsettingsdrawer.writeTheStoryboardVideoPromptTemplate",
+                                )}
+                                onAddTemplate={addGameStoryboardVideoPromptTemplate}
+                                onPatchTemplate={patchGameStoryboardVideoPromptTemplate}
+                                onRemoveTemplate={removeGameStoryboardVideoPromptTemplate}
                               />
                             </div>
                           </div>
@@ -10454,6 +10961,273 @@ function GamePromptTemplateSelect({
           ? localizeUi("ui.chat.gameprompttemplateselect.value1", { value1: activeOption.description })
           : ""}
       </p>
+    </div>
+  );
+}
+
+function GameStoryboardPromptLibrary({
+  kind,
+  builtInTemplates,
+  customTemplates,
+  onAddTemplate,
+  onPatchTemplate,
+  onRemoveTemplate,
+}: {
+  kind: GameStoryboardPromptTemplateKind;
+  builtInTemplates: AgentPromptTemplateOption[];
+  customTemplates: AgentPromptTemplateOption[];
+  onAddTemplate: (kind: GameStoryboardPromptTemplateKind, sourceTemplateId: string) => void;
+  onPatchTemplate: (
+    templateId: string,
+    patch: Partial<Pick<AgentPromptTemplateOption, "name" | "description" | "promptTemplate">>,
+  ) => void;
+  onRemoveTemplate: (templateId: string) => void | Promise<void>;
+}) {
+  const { t: localizeUi } = useUiTranslation();
+  const [open, setOpen] = useState(false);
+  const laneLabel =
+    kind === "animation"
+      ? localizeUi("ui.chat.chatsettingsdrawer.animation")
+      : localizeUi("ui.chat.chatsettingsdrawer.illustration");
+
+  return (
+    <div className="rounded-lg bg-[var(--background)]/45 ring-1 ring-[var(--border)]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-[var(--accent)]/55"
+        aria-expanded={open}
+      >
+        <FileText size="0.75rem" className="shrink-0 text-[var(--primary)]" />
+        <span className="min-w-0 flex-1 text-[0.6875rem] font-semibold text-[var(--foreground)]">
+          {localizeUi("ui.noodle.noodlepostcard.edit")} {laneLabel}{" "}
+          {localizeUi("ui.chat.gamestoryboardpromptlibrary.plannerPresets")}
+        </span>
+        <span className="rounded-md bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+          {customTemplates.length} {localizeUi("ui.agents.toolcard.custom")}
+        </span>
+        <ChevronDown
+          size="0.6875rem"
+          className={cn("shrink-0 text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-[var(--border)] px-2.5 py-2.5">
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+            {localizeUi("ui.chat.gamestoryboardpromptlibrary.builtIn")} {laneLabel.toLowerCase()}{" "}
+            {localizeUi("ui.chat.gamestoryboardpromptlibrary.plannerPresetsAreReadOnlyAddACopyHere")}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {builtInTemplates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => onAddTemplate(kind, template.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+              >
+                <Plus size="0.6875rem" />
+                {localizeUi("lorebook.editor.batch.copy")} {template.name}
+              </button>
+            ))}
+          </div>
+          {customTemplates.length === 0 ? (
+            <p className="rounded-lg bg-[var(--secondary)]/55 px-2.5 py-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+              {localizeUi("ui.chat.gamestoryboardpromptlibrary.addAGlobalCopyThenChooseItAbove", {
+                value1: laneLabel.toLowerCase(),
+              })}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {customTemplates.map((template, index) => (
+                <div
+                  key={template.id}
+                  className="space-y-2 rounded-lg bg-[var(--secondary)]/65 p-2 ring-1 ring-[var(--border)]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--background)] text-[0.625rem] font-semibold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                      {index + 1}
+                    </span>
+                    <input
+                      defaultValue={template.name}
+                      onBlur={(event) => {
+                        const next = event.target.value.trim() || "Custom Storyboard Prompt";
+                        if (next !== template.name) onPatchTemplate(template.id, { name: next });
+                      }}
+                      className="min-w-0 flex-1 rounded-md bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      placeholder={localizeUi("ui.chat.gamestoryboardpromptlibrary.promptName")}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void onRemoveTemplate(template.id)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
+                      title={localizeUi("ui.chat.gamestoryboardpromptlibrary.removePrompt")}
+                      aria-label={localizeUi("ui.chat.gamestoryboardpromptlibrary.removePrompt")}
+                    >
+                      <Trash2 size="0.75rem" />
+                    </button>
+                  </div>
+                  <input
+                    defaultValue={template.description ?? ""}
+                    onBlur={(event) => {
+                      const next = event.target.value.trim();
+                      if (next !== (template.description ?? "")) {
+                        onPatchTemplate(template.id, { description: next });
+                      }
+                    }}
+                    className="w-full rounded-md bg-[var(--background)] px-2 py-1.5 text-[0.6875rem] text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    placeholder={localizeUi("ui.chat.gamestoryboardpromptlibrary.shortDescription")}
+                  />
+                  <textarea
+                    defaultValue={template.promptTemplate}
+                    onBlur={(event) => {
+                      const next = event.target.value.trim();
+                      if (next && next !== template.promptTemplate) {
+                        onPatchTemplate(template.id, { promptTemplate: next });
+                      }
+                    }}
+                    rows={7}
+                    className="min-h-[9rem] w-full resize-y rounded-md bg-[var(--background)] px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    placeholder={localizeUi(
+                      "ui.chat.gamestoryboardpromptlibrary.writeTheStoryboardValue1PromptTemplate",
+                      { value1: laneLabel.toLowerCase() },
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GameProviderPromptLibrary({
+  title,
+  description,
+  emptyDescription,
+  builtInTemplates,
+  customTemplates,
+  customFallbackName,
+  promptPlaceholder,
+  onAddTemplate,
+  onPatchTemplate,
+  onRemoveTemplate,
+}: {
+  title: string;
+  description: string;
+  emptyDescription: string;
+  builtInTemplates: AgentPromptTemplateOption[];
+  customTemplates: AgentPromptTemplateOption[];
+  customFallbackName: string;
+  promptPlaceholder: string;
+  onAddTemplate: (sourceTemplateId: string) => void;
+  onPatchTemplate: (
+    templateId: string,
+    patch: Partial<Pick<AgentPromptTemplateOption, "name" | "description" | "promptTemplate">>,
+  ) => void;
+  onRemoveTemplate: (templateId: string) => void | Promise<void>;
+}) {
+  const { t: localizeUi } = useUiTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg bg-[var(--background)]/45 ring-1 ring-[var(--border)]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left transition-colors hover:bg-[var(--accent)]/55"
+        aria-expanded={open}
+      >
+        <FileText size="0.75rem" className="shrink-0 text-[var(--primary)]" />
+        <span className="min-w-0 flex-1 text-[0.6875rem] font-semibold text-[var(--foreground)]">{title}</span>
+        <span className="rounded-md bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+          {customTemplates.length} {localizeUi("ui.agents.toolcard.custom")}
+        </span>
+        <ChevronDown
+          size="0.6875rem"
+          className={cn("shrink-0 text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-[var(--border)] px-2.5 py-2.5">
+          <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">{description}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {builtInTemplates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                onClick={() => onAddTemplate(template.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--secondary)] px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+              >
+                <Plus size="0.6875rem" />
+                {localizeUi("lorebook.editor.batch.copy")} {template.name}
+              </button>
+            ))}
+          </div>
+          {customTemplates.length === 0 ? (
+            <p className="rounded-lg bg-[var(--secondary)]/55 px-2.5 py-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+              {emptyDescription}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {customTemplates.map((template, index) => (
+                <div
+                  key={template.id}
+                  className="space-y-2 rounded-lg bg-[var(--secondary)]/65 p-2 ring-1 ring-[var(--border)]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--background)] text-[0.625rem] font-semibold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                      {index + 1}
+                    </span>
+                    <input
+                      defaultValue={template.name}
+                      onBlur={(event) => {
+                        const next = event.target.value.trim() || customFallbackName;
+                        if (next !== template.name) onPatchTemplate(template.id, { name: next });
+                      }}
+                      className="min-w-0 flex-1 rounded-md bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                      placeholder={localizeUi("ui.chat.gamestoryboardpromptlibrary.promptName")}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void onRemoveTemplate(template.id)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
+                      title={localizeUi("ui.chat.gamestoryboardpromptlibrary.removePrompt")}
+                      aria-label={localizeUi("ui.chat.gamestoryboardpromptlibrary.removePrompt")}
+                    >
+                      <Trash2 size="0.75rem" />
+                    </button>
+                  </div>
+                  <input
+                    defaultValue={template.description ?? ""}
+                    onBlur={(event) => {
+                      const next = event.target.value.trim();
+                      if (next !== (template.description ?? "")) {
+                        onPatchTemplate(template.id, { description: next });
+                      }
+                    }}
+                    className="w-full rounded-md bg-[var(--background)] px-2 py-1.5 text-[0.6875rem] text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    placeholder={localizeUi("ui.chat.gamestoryboardpromptlibrary.shortDescription")}
+                  />
+                  <textarea
+                    defaultValue={template.promptTemplate}
+                    onBlur={(event) => {
+                      const next = event.target.value.trim();
+                      if (next && next !== template.promptTemplate) {
+                        onPatchTemplate(template.id, { promptTemplate: next });
+                      }
+                    }}
+                    rows={7}
+                    className="min-h-[9rem] w-full resize-y rounded-md bg-[var(--background)] px-2.5 py-2 font-mono text-[0.6875rem] leading-relaxed text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    placeholder={promptPlaceholder}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

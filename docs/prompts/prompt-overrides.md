@@ -29,9 +29,11 @@ Click an editor title to expand it.
 
 **Video Generation Prompt Overrides** edits reusable templates for Game and Gallery scene videos, Conversation Call character clips, and animated Expression portraits. Each video prompt template controls how one kind of clip is described to the video model.
 
-**Image Generation Prompt Overrides** edits the templates used by image, sprite, Game, and prompt-builder systems. This covers Conversation selfies, Game NPC portraits, scene art, storyboard prompts, the **Noodle Post Image** template for Noodle posts, and other registered image builders. Each image prompt template controls how one kind of picture is described to the image model.
+**Image Generation Prompt Overrides** edits the templates used by image, sprite, Game, and prompt-builder systems. This covers Conversation selfies, Game NPC portraits, scene art, the **Noodle Post Image** template for Noodle posts, and other registered image builders. Each image prompt template controls how one kind of picture is described to the image model.
 
-So between the two editors you can adjust the prompts for portraits, selfies, sprites, scene art, storyboards, and video clips.
+So between the two editors you can adjust the prompts for portraits, selfies, sprites, scene art, and video clips.
+
+Storyboard presets are edited separately because Storyboard generation is a multi-stage pipeline. Enable Storyboards, then open **Chat Settings > Agents > Storyboards** to choose, copy, and edit the global Illustration Planner, Animation Planner, Storyboard Illustration, and Storyboard Video preset libraries. Those four global selections take priority for Storyboard generation; the registered Image and Video override editors remain fallbacks for their default builders and continue to serve non-Storyboard generation. See [Game Mode Storyboards](../game/storyboard.md#editing-storyboard-presets).
 
 ## Editing a template
 

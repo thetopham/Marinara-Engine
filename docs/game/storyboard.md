@@ -149,11 +149,11 @@ With **Expose image prompts before sending** enabled in **Settings > Generation*
 
 ## Editing storyboard presets
 
-The built-in presets are read-only. To make your own, open **Edit Illustration Planner Presets**, **Edit Animation Planner Presets**, **Edit Illustration Prompt Presets**, or **Edit Video Prompt Presets** inside the **Storyboards** card. Each section shows only the built-ins and custom copies for that stage.
+The built-in presets are read-only. To make your own, enable Storyboards and open **Edit Illustration Planner Presets**, **Edit Animation Planner Presets**, **Edit Illustration Prompt Presets**, or **Edit Storyboard Video Prompt Presets** inside **Chat Settings > Agents > Storyboards**. Each editor shows only the built-ins and custom copies for that stage.
 
-Copy a built-in into a chat-only editable template, then pick that copy in the matching selector. Illustration Planner copies cannot be selected as Animation Planners, and Animation Planner copies cannot be selected as Illustration Planners. Storyboard Illustration Prompt copies affect only storyboard images. Video prompt copies remain shared with the general Game Video Prompt so either video selector can use them.
+Copy a built-in into a global editable template, then pick that copy in the matching selector. The complete custom libraries and all four selected presets are global, so changing one from any game changes it for every game. Illustration Planner copies cannot be selected as Animation Planners, and Animation Planner copies cannot be selected as Illustration Planners. Storyboard Illustration Prompt copies affect only storyboard images, and Storyboard Video Prompt copies affect only storyboard clips. The per-game **Game Video Prompt** remains separate for manual scene videos.
 
-Each custom copy has a name, a short description, and the prompt body you edit. A trash button removes a copy after a confirm dialog. These copies are stored on that one chat, not across your whole app.
+Each custom copy has a name, a short description, and the prompt body you edit. A trash button removes a global copy after a confirm dialog. The first time the restored editor sees older chat-local Storyboard presets, it imports them into the global libraries and uses the existing selections as the initial global selections. Per-game Storyboard enablement, automatic-generation switches, keyframe count, clip duration, and viewer display remain local to that game.
 
 ## The storyboard viewer
 

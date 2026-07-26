@@ -20,6 +20,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Restored the four Storyboard preset editors under **Chat Settings → Agents → Storyboards** after the settings cleanup removed them. The complete custom Illustration Planner, Animation Planner, Storyboard Illustration, and Storyboard Video libraries and their active selections are now global for every game. Older chat-local presets are imported for compatibility, and the Storyboard Video library no longer changes the separate per-game Scene Video prompt.
 - Rendered indented code fences correctly in the shared markdown renderer: a fence nested inside a list item (as in several developer guides) previously never closed and showed its ` ``` ` markers as literal text in the docs viewer, and list-nested code no longer renders or copies phantom leading spaces (#4100).
 - Replaced the unsafe built-in **Clean HTML (Outgoing Prompt)** regex with a validator-safe tag cleaner and migrated unchanged legacy defaults, restoring HTML and group-speaker-tag cleanup for Immersive HTML and Agent prompt history without overwriting customized scripts (#4101).
 - Streamed native profile and full-backup ZIP exports to disk with bounded JSONL table shards, preventing large libraries from failing with `Invalid string length` while preserving preview/import compatibility and archive integrity checks (#4064).

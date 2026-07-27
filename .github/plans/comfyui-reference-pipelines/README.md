@@ -21,6 +21,34 @@ reference latent. Licon MSR constructs a pseudo-video that an LTX-specific MSR
 LoRA reads as visual memory. Licon MSR cannot be attached to Krea as a generic
 reference encoder.
 
+## Current implementation checkpoint
+
+Manual ComfyUI proof remains the gate before any API or Engine work. Editable
+UI-format candidates now live under [workflows](workflows/README.md):
+
+- `krea2-character-reference-manual.json` is the one-character Krea/RTX-3080
+  smoke candidate;
+- `ltx23-refs2vid-msr-manual-3080.json` is the one-character plus one-location
+  direct-video candidate at a 512-pixel long side, 2 seconds, and 24 fps.
+
+The LTX graph uses the installed INT8 ConvRot distilled transformer with MSR V2
+only. It intentionally removes the source graph's additional distillation LoRA
+to avoid double distillation. The custom-node updates and Prompt Relay install
+require a ComfyUI restart before live structural validation can complete.
+
+The separate Engine workstation owns semantic binding implementation. It must
+receive API exports from these exact proven UI graphs rather than inventing node
+IDs or editing UI-format JSON. Preserve the generic aliases and prepare the
+working exports for these stable semantic roles:
+
+- `%location_reference_image%` and `%location_reference_image_name%`;
+- `%character_reference_image_01%` through `_03%` and their `_name_` forms;
+- `%first_frame_image_name%` for the approved/generated storyboard still;
+- `%global_prompt%`, `%local_prompts%`, and `%segment_lengths%` for LTX Director.
+
+Do not add any placeholders until the corresponding UI workflow renders and is
+exported from ComfyUI in API format.
+
 ## Product model
 
 The existing storyboard-first behavior remains the default:

@@ -181,9 +181,7 @@ try {
     getCapabilityPackageArtifactSourceIssue,
     getCapabilityPackageInstallIssue,
     resolveCapabilityCatalogUrl,
-  } = await import(
-    "../../packages/server/src/services/capability-packages/package-manager.service.js"
-  );
+  } = await import("../../packages/server/src/services/capability-packages/package-manager.service.js");
   assert.equal(
     resolveCapabilityCatalogUrl("2.3.1", ""),
     "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog/v2/catalog.json",
@@ -191,6 +189,16 @@ try {
   assert.equal(
     resolveCapabilityCatalogUrl("3.2.2-beta.1", ""),
     "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog/v3/catalog.json",
+  );
+  assert.equal(
+    resolveCapabilityCatalogUrl("2.3.5", "", "staging"),
+    "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/staging/catalog/v2/catalog.json",
+    "Engine staging builds must consume the Agents staging catalog",
+  );
+  assert.equal(
+    resolveCapabilityCatalogUrl("2.3.5", "", "main"),
+    "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog/v2/catalog.json",
+    "Engine main builds must consume the Agents main catalog",
   );
   assert.equal(
     resolveCapabilityCatalogUrl("development", ""),
@@ -318,10 +326,7 @@ try {
   assert.ok(Date.now() - timeoutStartedAt < 1_000, "Long-term memory capability calls must have a total-duration cap");
 
   const capabilityLanguageModelSource = readFileSync(
-    join(
-      repositoryRoot,
-      "packages/server/src/services/capability-packages/capability-language-model.service.ts",
-    ),
+    join(repositoryRoot, "packages/server/src/services/capability-packages/capability-language-model.service.ts"),
     "utf8",
   );
   assert.match(
@@ -383,6 +388,20 @@ try {
     ) ?? "",
     /canonical Marinara-Agents artifact URL/,
     "The official catalog must not redirect executable packages to another host, regardless of any locally configured MARINARA_AGENT_CATALOG_URL",
+  );
+  const stagingCatalogUrl = resolveCapabilityCatalogUrl("2.3.5", "", "staging");
+  const stagingArtifactEntry = {
+    ...canonicalArtifactEntry,
+    artifact: {
+      ...canonicalArtifactEntry.artifact,
+      url: "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/staging/artifacts/legacy-1.0.0.zip",
+    },
+  };
+  assert.equal(getCapabilityPackageArtifactSourceIssue(stagingArtifactEntry, stagingCatalogUrl), null);
+  assert.match(
+    getCapabilityPackageArtifactSourceIssue(canonicalArtifactEntry, stagingCatalogUrl) ?? "",
+    /canonical Marinara-Agents artifact URL/,
+    "The Agents staging catalog must not redirect packages back to the main artifact channel",
   );
   assert.equal(
     getCapabilityPackageArtifactSourceIssue(
@@ -565,10 +584,7 @@ try {
   );
   await capabilityPackageManager.completeHierarchicalMapsSelectionCorrection();
   assert.equal(await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(), true);
-  writeFileSync(
-    mapsCorrectionPath,
-    JSON.stringify({ schemaVersion: 2, completedAt: new Date().toISOString() }),
-  );
+  writeFileSync(mapsCorrectionPath, JSON.stringify({ schemaVersion: 2, completedAt: new Date().toISOString() }));
   assert.equal(
     await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(),
     false,

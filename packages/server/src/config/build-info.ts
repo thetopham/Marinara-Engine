@@ -13,6 +13,12 @@ const BUILD_META_PATH = resolve(__dirname, "build-meta.json");
 const COMMIT_LENGTH = 12;
 
 let cachedCommit: string | null | undefined;
+let cachedBranch: string | null | undefined;
+
+type BuildMeta = {
+  commit?: string | null;
+  branch?: string | null;
+};
 
 function normalizeCommit(value: string | undefined | null) {
   const trimmed = value?.trim();
@@ -20,15 +26,27 @@ function normalizeCommit(value: string | undefined | null) {
   return trimmed.slice(0, COMMIT_LENGTH);
 }
 
-function readBuiltCommit() {
+function normalizeBranch(value: string | undefined | null) {
+  const trimmed = value?.trim().replace(/^refs\/heads\//u, "");
+  return trimmed && trimmed !== "HEAD" ? trimmed : null;
+}
+
+function readBuildMeta(): BuildMeta | null {
   if (!existsSync(BUILD_META_PATH)) return null;
 
   try {
-    const parsed = JSON.parse(readFileSync(BUILD_META_PATH, "utf8")) as { commit?: string | null };
-    return normalizeCommit(parsed.commit);
+    return JSON.parse(readFileSync(BUILD_META_PATH, "utf8")) as BuildMeta;
   } catch {
     return null;
   }
+}
+
+function readBuiltCommit() {
+  return normalizeCommit(readBuildMeta()?.commit);
+}
+
+function readBuiltBranch() {
+  return normalizeBranch(readBuildMeta()?.branch);
 }
 
 export function getBuildCommit() {
@@ -65,6 +83,44 @@ export function getBuildCommit() {
   }
 
   return cachedCommit;
+}
+
+export function getBuildBranch() {
+  if (cachedBranch !== undefined) return cachedBranch;
+
+  const builtBranch = readBuiltBranch();
+  if (builtBranch) {
+    cachedBranch = builtBranch;
+    return cachedBranch;
+  }
+
+  const envBranch = normalizeBranch(
+    process.env.MARINARA_GIT_BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME,
+  );
+  if (envBranch) {
+    cachedBranch = envBranch;
+    return cachedBranch;
+  }
+
+  if (!existsSync(resolve(MONOREPO_ROOT, ".git"))) {
+    cachedBranch = null;
+    return cachedBranch;
+  }
+
+  try {
+    const branch = execFileSync("git", ["symbolic-ref", "--short", "-q", "HEAD"], {
+      cwd: MONOREPO_ROOT,
+      encoding: "utf8",
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+
+    cachedBranch = normalizeBranch(branch);
+  } catch {
+    cachedBranch = null;
+  }
+
+  return cachedBranch;
 }
 
 export function getBuildLabel() {

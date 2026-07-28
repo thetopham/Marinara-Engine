@@ -32,9 +32,33 @@ function resolveCommit() {
   }
 }
 
+function normalizeBranch(value) {
+  const trimmed = value?.trim().replace(/^refs\/heads\//u, "");
+  return trimmed && trimmed !== "HEAD" ? trimmed : null;
+}
+
+function resolveBranch() {
+  const envBranch = normalizeBranch(
+    process.env.MARINARA_GIT_BRANCH ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME,
+  );
+  if (envBranch) return envBranch;
+
+  try {
+    return normalizeBranch(
+      execFileSync("git", ["symbolic-ref", "--short", "-q", "HEAD"], {
+        cwd: MONOREPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
 mkdirSync(resolve(PACKAGE_ROOT, "dist", "config"), { recursive: true });
 writeFileSync(
   BUILD_META_PATH,
-  `${JSON.stringify({ commit: resolveCommit(), builtAt: new Date().toISOString() }, null, 2)}\n`,
+  `${JSON.stringify({ commit: resolveCommit(), branch: resolveBranch(), builtAt: new Date().toISOString() }, null, 2)}\n`,
   "utf8",
 );

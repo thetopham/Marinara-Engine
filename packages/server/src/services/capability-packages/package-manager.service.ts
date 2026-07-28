@@ -21,6 +21,7 @@ import {
 import { DATA_DIR } from "../../utils/data-dir.js";
 import { safeFetch } from "../../utils/security.js";
 import { logger } from "../../lib/logger.js";
+import { getBuildBranch } from "../../config/build-info.js";
 import { sidecarSpeechService } from "../sidecar/sidecar-speech.service.js";
 
 const ROOT = join(DATA_DIR, "capability-packages");
@@ -30,19 +31,39 @@ const UPDATE_DECISIONS = join(ROOT, "update-decisions-v1.json");
 const AVAILABILITY_MIGRATION = join(ROOT, "availability-migration-v1.json");
 const HIERARCHICAL_MAPS_SELECTION_CORRECTION = join(ROOT, "hierarchical-maps-selection-correction-v1.json");
 const NON_DOWNLOADABLE_CORE_PACKAGE_IDS = new Set(["about-me-keeper"]);
-const OFFICIAL_CATALOG_ROOT = "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog";
-const OFFICIAL_ARTIFACT_ROOT = "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/artifacts";
+const OFFICIAL_REPOSITORY_ROOT = "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents";
+const OFFICIAL_CATALOG_BRANCHES = new Set(["main", "staging"]);
 const ENGINE_RELEASE_VERSION_PATTERN = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
+
+function resolveOfficialCatalogBranch(buildBranch: string | null | undefined) {
+  return buildBranch?.trim() === "staging" ? "staging" : "main";
+}
+
+function officialCatalogRoot(branch: string) {
+  return `${OFFICIAL_REPOSITORY_ROOT}/${branch}/catalog`;
+}
+
+function officialArtifactRoot(branch: string) {
+  return `${OFFICIAL_REPOSITORY_ROOT}/${branch}/artifacts`;
+}
+
+function readOfficialCatalogBranch(catalogUrl: string) {
+  const prefix = `${OFFICIAL_REPOSITORY_ROOT}/`;
+  if (!catalogUrl.startsWith(prefix)) return null;
+  const [branch, directory] = catalogUrl.slice(prefix.length).split("/");
+  return branch && directory === "catalog" && OFFICIAL_CATALOG_BRANCHES.has(branch) ? branch : null;
+}
+
 export function resolveCapabilityCatalogUrl(
   engineVersion: string = APP_VERSION,
   configuredUrl: string | undefined = process.env.MARINARA_AGENT_CATALOG_URL,
+  buildBranch: string | null | undefined = getBuildBranch(),
 ): string {
   const override = configuredUrl?.trim();
   if (override) return override;
+  const catalogRoot = officialCatalogRoot(resolveOfficialCatalogBranch(buildBranch));
   const match = ENGINE_RELEASE_VERSION_PATTERN.exec(engineVersion.trim());
-  return match
-    ? `${OFFICIAL_CATALOG_ROOT}/v${Number(match[1])}/catalog.json`
-    : `${OFFICIAL_CATALOG_ROOT}/catalog.json`;
+  return match ? `${catalogRoot}/v${Number(match[1])}/catalog.json` : `${catalogRoot}/catalog.json`;
 }
 const CATALOG_URL = resolveCapabilityCatalogUrl();
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
@@ -269,8 +290,9 @@ export function getCapabilityPackageArtifactSourceIssue(
   entry: CapabilityCatalogPackage,
   catalogUrl = CATALOG_URL,
 ): string | null {
-  if (!catalogUrl.startsWith(`${OFFICIAL_CATALOG_ROOT}/`)) return null;
-  const expected = `${OFFICIAL_ARTIFACT_ROOT}/${entry.manifest.id}-${entry.manifest.version}.zip`;
+  const branch = readOfficialCatalogBranch(catalogUrl);
+  if (!branch) return null;
+  const expected = `${officialArtifactRoot(branch)}/${entry.manifest.id}-${entry.manifest.version}.zip`;
   return entry.artifact.url === expected
     ? null
     : `Official package ${entry.manifest.id} must use its canonical Marinara-Agents artifact URL`;
